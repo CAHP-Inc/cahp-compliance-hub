@@ -4,6 +4,7 @@ import { SessionProvider } from './lib/session';
 import { SignInGate } from './components/auth/SignInGate';
 import { MyDay } from './pages/MyDay';
 import { Properties } from './pages/Properties';
+import { PropertyDetail } from './pages/PropertyDetail';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
             <Route path="/outstanding" element={<PlaceholderPage title="Outstanding Items" icon="alert" plannedPR="PR-07" />} />
             <Route path="/portfolio" element={<PlaceholderPage title="Portfolio" icon="grid" plannedPR="PR-05" />} />
             <Route path="/properties" element={<Properties />} />
+            <Route path="/properties/:id" element={<PropertyDetail />} />
             <Route path="/owners" element={<PlaceholderPage title="Owners" icon="star" plannedPR="PR-06" />} />
             <Route path="/cahp-entity" element={<PlaceholderPage title="CAHP Entity" icon="star" plannedPR="PR-06" />} />
             <Route path="/submittals" element={<PlaceholderPage title="Submittals" icon="file" plannedPR="Phase 2" />} />

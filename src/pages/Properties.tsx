@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
@@ -11,6 +12,7 @@ const STATUS_STYLES: Record<PropertyStatus, string> = {
 };
 
 export function Properties() {
+  const navigate = useNavigate();
   const { data, loading, error, refetch } = useSharePointList<Property>(LIST_NAMES.Properties, {
     top: 200,
   });
@@ -21,7 +23,7 @@ export function Properties() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    return data.filter((p) => {
+    const result = data.filter((p) => {
       const f = p.fields;
       if (search) {
         const hay = `${f.Title ?? ''} ${f.LegalEntity ?? ''} ${f.PropertyAddress ?? ''}`.toLowerCase();
@@ -31,6 +33,8 @@ export function Properties() {
       if (statusFilter !== 'All' && f.PropertyStatus !== statusFilter) return false;
       return true;
     });
+    // Client-side sort — SharePoint won't sort server-side because Title isn't indexed
+    return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
   }, [data, search, stateFilter, statusFilter]);
 
   const stats = useMemo(() => {
@@ -119,7 +123,11 @@ export function Properties() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                <tr
+                  key={p.id}
+                  onClick={() => navigate(`/properties/${p.id}`)}
+                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                >
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {p.fields.Title}
                     {p.fields.cahpVerificationStatus === 'Inherited - Unverified' && (
@@ -178,8 +186,7 @@ export function Properties() {
       </div>
 
       <p className="text-xs text-gray-400 mt-4 text-center">
-        Reading live from SharePoint · Properties Registry list ·
-        Property detail pages and the creation wizard ship in PR-05.
+        Click any property to drill into its detail page · Inline editing and the creation wizard ship in PR-05b/c.
       </p>
     </div>
   );

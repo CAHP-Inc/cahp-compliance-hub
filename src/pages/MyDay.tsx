@@ -16,7 +16,9 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-02', label: 'MSAL auth + role detection from M365', status: 'done' as const },
   { id: 'PR-03', label: 'SharePoint inventory + schema mapping', status: 'done' as const },
   { id: 'PR-04', label: 'Graph SDK data layer + Properties list view', status: 'done' as const },
-  { id: 'PR-05', label: 'Property Detail + creation wizard + inline editing', status: 'next' as const },
+  { id: 'PR-05a', label: 'Property Detail page (Overview + Submittals tabs)', status: 'done' as const },
+  { id: 'PR-05b', label: 'Inline editing + Watch button', status: 'next' as const },
+  { id: 'PR-05c', label: 'Property creation wizard + Disposition workflow', status: 'pending' as const },
   { id: 'PR-06', label: 'Owners module + Ownership Structure population', status: 'pending' as const },
   { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'pending' as const },
 ];
@@ -34,6 +36,7 @@ export function MyDay() {
 
   const totalProperties = properties?.length ?? 0;
   const activeProperties = properties?.filter((p) => p.fields.PropertyStatus === 'Active').length ?? 0;
+  const totalUnits = properties?.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0) ?? 0;
 
   return (
     <div>
@@ -45,15 +48,15 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-04 banner */}
+      {/* PR-05a banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            04
+            05a
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-04 deployed. Data layer is live.
+              PR-05a deployed. Property Detail pages are live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
               {propsLoading && 'Connecting to SharePoint…'}
@@ -65,14 +68,37 @@ export function MyDay() {
               )}
               {properties && (
                 <>
-                  Connected to SharePoint. <strong>{totalProperties} properties</strong> in Properties Registry
-                  ({activeProperties} active). Open the <strong>Properties</strong> module to see them.
+                  Click any property in the <strong>Properties</strong> module to drill into its
+                  detail page — Overview tab shows all registry fields, Submittals tab shows the
+                  related filings from your 18 records in Submittals Tracker. Inline editing
+                  ships next in PR-05b.
                 </>
               )}
             </p>
           </div>
         </div>
       </div>
+
+      {/* Portfolio at a glance */}
+      {properties && (
+        <div className="mb-6 grid grid-cols-3 gap-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Properties</div>
+            <div className="text-3xl font-bold text-teal-700 mt-1">{totalProperties}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{activeProperties} active</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Units</div>
+            <div className="text-3xl font-bold text-teal-700 mt-1">{totalUnits.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 mt-0.5">across all properties</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Submittals</div>
+            <div className="text-3xl font-bold text-teal-700 mt-1">18</div>
+            <div className="text-xs text-gray-500 mt-0.5">tracked in SharePoint</div>
+          </div>
+        </div>
+      )}
 
       {/* Phase 1 progress */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
