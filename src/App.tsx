@@ -7,6 +7,9 @@ import { Properties } from './pages/Properties';
 import { PropertyDetail } from './pages/PropertyDetail';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
+import { Ownership } from './pages/Ownership';
+import { OwnershipDetail } from './pages/OwnershipDetail';
+import { OwnershipNew } from './pages/OwnershipNew';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function App() {
@@ -20,7 +23,10 @@ function App() {
             <Route path="/portfolio" element={<PlaceholderPage title="Portfolio" icon="grid" plannedPR="Backlog" />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/properties/:id" element={<PropertyDetail />} />
-            <Route path="/owners" element={<PlaceholderPage title="Owners" icon="star" plannedPR="PR-06" />} />
+            <Route path="/owners" element={<Ownership />} />
+            <Route path="/ownership" element={<Ownership />} />
+            <Route path="/ownership/new" element={<OwnershipNew />} />
+            <Route path="/ownership/:id" element={<OwnershipDetail />} />
             <Route path="/cahp-entity" element={<PlaceholderPage title="CAHP Entity" icon="star" plannedPR="PR-06" />} />
             <Route path="/submittals" element={<PlaceholderPage title="Submittals" icon="file" plannedPR="Phase 2" />} />
             <Route path="/correspondence" element={<PlaceholderPage title="DOR Correspondence" icon="mail" plannedPR="Phase 2" />} />

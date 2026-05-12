@@ -22,8 +22,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-05b', label: 'Compliance Deadlines module + My Day widget', status: 'done' as const },
   { id: 'PR-05c', label: 'Inline editing on Property Detail', status: 'done' as const },
   { id: 'PR-06a', label: 'Compliance Deadline editing + Mark Complete', status: 'done' as const },
-  { id: 'PR-06b', label: 'Submittals editing + Outstanding Items module', status: 'next' as const },
-  { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'pending' as const },
+  { id: 'PR-06b', label: 'Ownership Structure module (list + edit + create + delete)', status: 'done' as const },
+  { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -46,6 +46,7 @@ const BACKLOG: { feature: string; origin: string; note?: string }[] = [
   { feature: 'Property Detail: Documents tab', origin: 'PR-05' },
   { feature: 'Property Detail: Compliance tab', origin: 'PR-05', note: 'show this property\'s deadlines inline' },
   { feature: 'Property Detail: Notes tab', origin: 'PR-05', note: 'rethink — PropertyNotes field already exists on Overview' },
+  { feature: 'Property Detail: Ownership tab', origin: 'PR-06', note: 'show ownership chain for this property' },
   { feature: 'Watch / follow button', origin: 'PR-05', note: 'requires notification plumbing' },
   { feature: 'Disposition workflow', origin: 'PR-05' },
   { feature: 'Submittals top-level module', origin: 'Phase 2' },
@@ -57,8 +58,6 @@ const BACKLOG: { feature: string; origin: string; note?: string }[] = [
   { feature: 'Document library file uploads + browser', origin: 'Phase 2' },
   { feature: 'Billing Tracker module', origin: 'Phase 3' },
   { feature: 'Reports module', origin: 'Phase 3' },
-  { feature: 'Owners + Ownership Structure', origin: 'PR-06b', note: 'next slot' },
-  { feature: 'Audit log', origin: 'PR-07' },
 ];
 
 export function MyDay() {
@@ -108,20 +107,20 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-06a banner */}
+      {/* PR-06b banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            06a
+            06b
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-06a deployed. Compliance Deadlines are now editable.
+              PR-06b deployed. Ownership Structure module is live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Click any deadline in the widget below, or from the Compliance module, to drill into
-              it. <strong>Mark Complete</strong> sets status + completion date in one click. Full
-              edit mode for everything else. All writes go straight to SharePoint.
+              Open <strong>Owners</strong> in the nav to start mapping who owns what across your portfolio.
+              Create new ownership entries, edit existing ones, link to properties, delete records — all from the app.
+              Your Ownership Structure list starts empty; populate it here.
             </p>
           </div>
         </div>
