@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   useSharePointList,
   LIST_NAMES,
@@ -18,6 +19,7 @@ const STATUS_STYLES: Record<DeadlineStatus, string> = {
 };
 
 export function Compliance() {
+  const navigate = useNavigate();
   const { data, loading, error, refetch } = useSharePointList<ComplianceDeadline>(
     LIST_NAMES.ComplianceDeadlines,
     { top: 500 }
@@ -174,7 +176,11 @@ export function Compliance() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.map((d) => (
-              <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+              <tr
+                key={d.id}
+                onClick={() => navigate(`/compliance/${d.id}`)}
+                className="hover:bg-gray-50 transition-colors cursor-pointer"
+              >
                 <td className="px-4 py-3 font-medium text-gray-900">{d.fields.Title}</td>
                 <td className="px-4 py-3 text-gray-700 text-xs">{d.fields.DeadlineType || '—'}</td>
                 <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">

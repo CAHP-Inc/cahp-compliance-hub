@@ -6,6 +6,7 @@ import { MyDay } from './pages/MyDay';
 import { Properties } from './pages/Properties';
 import { PropertyDetail } from './pages/PropertyDetail';
 import { Compliance } from './pages/Compliance';
+import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
             <Route path="/correspondence" element={<PlaceholderPage title="DOR Correspondence" icon="mail" plannedPR="Phase 2" />} />
             <Route path="/comms" element={<PlaceholderPage title="Owner Communications" icon="mail" plannedPR="Phase 3" />} />
             <Route path="/compliance" element={<Compliance />} />
+            <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
             <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Phase 3" />} />
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
             <Route path="/untagged" element={<PlaceholderPage title="Untagged Documents" icon="alert" plannedPR="Phase 2" />} />

@@ -21,8 +21,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-05a', label: 'Property Detail page (Overview + Submittals tabs)', status: 'done' as const },
   { id: 'PR-05b', label: 'Compliance Deadlines module + My Day widget', status: 'done' as const },
   { id: 'PR-05c', label: 'Inline editing on Property Detail', status: 'done' as const },
-  { id: 'PR-05d', label: 'Property creation wizard + Disposition workflow', status: 'next' as const },
-  { id: 'PR-06', label: 'Owners module + Ownership Structure population', status: 'pending' as const },
+  { id: 'PR-06a', label: 'Compliance Deadline editing + Mark Complete', status: 'done' as const },
+  { id: 'PR-06b', label: 'Submittals editing + Outstanding Items module', status: 'next' as const },
   { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'pending' as const },
 ];
 
@@ -36,7 +36,7 @@ const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
 
 export function MyDay() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
-  const { data: properties, loading: propsLoading, error: propsError } = useSharePointList<Property>(
+  const { data: properties } = useSharePointList<Property>(
     LIST_NAMES.Properties,
     { top: 200 }
   );
@@ -81,31 +81,20 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-05c banner */}
+      {/* PR-06a banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            05c
+            06a
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-05c deployed. Inline editing is live.
+              PR-06a deployed. Compliance Deadlines are now editable.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              {propsLoading && 'Connecting to SharePoint…'}
-              {propsError && (
-                <>
-                  <span className="text-error font-semibold">SharePoint connection failed:</span>{' '}
-                  {propsError.message}
-                </>
-              )}
-              {properties && (
-                <>
-                  Open any property and click <strong>Edit</strong> to change verification status,
-                  notes, OA version, AMI program — all writes go straight to SharePoint. No more
-                  switching to the SharePoint UI for property maintenance.
-                </>
-              )}
+              Click any deadline in the widget below, or from the Compliance module, to drill into
+              it. <strong>Mark Complete</strong> sets status + completion date in one click. Full
+              edit mode for everything else. All writes go straight to SharePoint.
             </p>
           </div>
         </div>
@@ -159,7 +148,11 @@ export function MyDay() {
               const isOverdue = daysOut !== null && daysOut < 0;
               const isUrgent = daysOut !== null && daysOut >= 0 && daysOut <= 7;
               return (
-                <div key={d.id} className="px-5 py-3 flex items-center gap-3">
+                <Link
+                  key={d.id}
+                  to={`/compliance/${d.id}`}
+                  className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">{d.fields.Title}</div>
                     <div className="text-xs text-gray-500 mt-0.5">
@@ -194,7 +187,7 @@ export function MyDay() {
                       {d.fields.DeadlineStatus}
                     </span>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
