@@ -1,0 +1,517 @@
+
+================================================================
+  CAHP Compliance Hub — SharePoint Site Inventory
+  Site: https://vanrockre.sharepoint.com/sites/CAHPComplianceHub
+  Date: 2026-05-12 16:09
+================================================================
+
+Found 8 Lists and 12 Document Libraries (total 20 items)
+
+----------------------------------------------------------------
+  Billing Tracker
+  Type: List | Items: 0 | URL: /sites/CAHPComplianceHub/Lists/Billing Tracker
+----------------------------------------------------------------
+  • Amount Billed
+      Internal: AmountBilled | Type: Currency
+  • Approved Abatement Amount
+      Internal: BillApprovedAbatement | Type: Currency
+  • Billing Notes
+      Internal: BillingNotes | Type: Note
+  • Billing Reference
+      Internal: Title | Type: Text *required*
+  • Billing Status
+      Internal: BillingStatus | Type: Choice
+    Choices: Pending Approval | Ready to Invoice | Invoiced | Paid | Disputed
+  • CAHP Fee %
+      Internal: CAHPFeePercent | Type: Number
+  • Invoice Date
+      Internal: InvoiceDate | Type: DateTime
+  • Invoice Number
+      Internal: InvoiceNumber | Type: Text
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • QB Sync Status
+      Internal: QBSyncStatus | Type: Choice
+    Choices: Not Synced | Synced | Discrepancy
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+
+----------------------------------------------------------------
+  Compliance Deadlines
+  Type: List | Items: 10 | URL: /sites/CAHPComplianceHub/Lists/Compliance Deadlines
+----------------------------------------------------------------
+  • Applies To
+      Internal: AppliesTo | Type: Choice
+    Choices: CAHP Entity | All Properties | Specific Property | SC Portfolio | NC Portfolio
+  • Completion Date
+      Internal: CompletionDate | Type: DateTime
+  • Deadline Description
+      Internal: Title | Type: Text *required*
+  • Deadline Notes
+      Internal: DeadlineNotes | Type: Note
+  • Deadline Status
+      Internal: DeadlineStatus | Type: Choice
+    Choices: Upcoming | In Progress | Completed | Overdue | Missed
+  • Deadline Type
+      Internal: DeadlineType | Type: Choice
+    Choices: IRS 990 Filing | Annual Recertification | Rent Roll Review | AMI Cert Renewal | State Compliance Report | Property Tax Filing | Operating Agreement Review | Other
+  • Due Date
+      Internal: DueDate | Type: DateTime
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Recurrence
+      Internal: Recurrence | Type: Choice
+    Choices: One-Time | Annual | Quarterly | Monthly
+  • Responsible Party
+      Internal: ResponsibleParty | Type: Choice
+    Choices: Brandy | Chris | Brian | John | Aljon | Other
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+
+----------------------------------------------------------------
+  DOR Correspondence Log
+  Type: List | Items: 0 | URL: /sites/CAHPComplianceHub/Lists/DOR Correspondence Log
+----------------------------------------------------------------
+  • Correspondence Subject
+      Internal: Title | Type: Text *required*
+  • Date Received
+      Internal: DateReceived | Type: DateTime
+  • Date Responded
+      Internal: DateResponded | Type: DateTime
+  • Direction
+      Internal: Direction | Type: Choice
+    Choices: Inbound (from DOR) | Outbound (to DOR)
+  • Letter Type
+      Internal: LetterType | Type: Choice
+    Choices: Initial Acknowledgment | Additional Info Request | Org Chart Request | Approval | Denial | Withdrawal Notice | Refund Notice | Other
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Request Summary
+      Internal: RequestSummary | Type: Note
+  • Response Due
+      Internal: ResponseDue | Type: DateTime
+  • Response Notes
+      Internal: ResponseNotes | Type: Note
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+
+----------------------------------------------------------------
+  Known Issues Log
+  Type: List | Items: 0 | URL: /sites/CAHPComplianceHub/Lists/Known Issues Log
+----------------------------------------------------------------
+  • Date Resolved
+      Internal: DateResolved | Type: DateTime
+  • Identified Date
+      Internal: IdentifiedDate | Type: DateTime
+  • Issue Category
+      Internal: IssueCategory | Type: Choice
+    Choices: Operating Agreement | LURA | DOR Filing | Entity Mismatch | Missing Documentation | Compliance | Billing | Org Chart | Other
+  • Issue Owner
+      Internal: IssueOwner | Type: User
+  • Issue Summary
+      Internal: Title | Type: Text *required*
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Resolution Notes
+      Internal: ResolutionNotes | Type: Note
+  • Resolution Status
+      Internal: ResolutionStatus | Type: Choice
+    Choices: Open | In Progress | Blocked | Resolved | Accepted Risk
+  • Severity
+      Internal: Severity | Type: Choice
+    Choices: Critical | High | Medium | Low
+
+----------------------------------------------------------------
+  Outstanding Items Checklist
+  Type: List | Items: 0 | URL: /sites/CAHPComplianceHub/Lists/Outstanding Items Checklist
+----------------------------------------------------------------
+  • Date Received
+      Internal: DateReceivedItem | Type: DateTime
+  • Date Requested
+      Internal: DateRequested | Type: DateTime
+  • Follow-Up Count
+      Internal: FollowUpCount | Type: Number
+  • Item Category
+      Internal: ItemCategory | Type: Choice
+    Choices: Operating Agreement | LURA | AMI Certification | Org Chart | Deed | Income Documentation | Signed Submittal | Determination Letter | Other
+  • Item Needed
+      Internal: Title | Type: Text *required*
+  • Item Notes
+      Internal: ItemNotes | Type: Note
+  • Item Status
+      Internal: ItemStatus | Type: Choice
+    Choices: Requested | Overdue | Received | Not Applicable
+  • Owner of Item
+      Internal: ItemOwner | Type: Text
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+
+----------------------------------------------------------------
+  Ownership Structure
+  Type: List | Items: 0 | URL: /sites/CAHPComplianceHub/Lists/Ownership Structure
+----------------------------------------------------------------
+  • Effective Date
+      Internal: EffectiveDate | Type: DateTime
+  • Entity Name
+      Internal: Title | Type: Text *required*
+  • Entity Notes
+      Internal: EntityNotes | Type: Note
+  • Linked Property
+      Internal: LinkedProperty | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Ownership %
+      Internal: OwnershipPercent | Type: Number
+  • Parent Entity
+      Internal: ParentEntity | Type: Text
+  • Relationship Type
+      Internal: RelationshipType | Type: Choice
+    Choices: Managing Member | Member | Owner | Subsidiary | Beneficial Owner
+  • Source Document
+      Internal: SourceDocument | Type: Text
+
+----------------------------------------------------------------
+  Properties Registry
+  Type: List | Items: 18 | URL: /sites/CAHPComplianceHub/Lists/Properties Registry
+----------------------------------------------------------------
+  • # Units
+      Internal: UnitCount | Type: Number
+  • AMI Set-Aside Program
+      Internal: AMIProgram | Type: Choice
+    Choices: 20/50 | 40/60 | Mixed | None
+  • CAHP Language Added
+      Internal: CAHPLanguageAdded | Type: Choice
+    Choices: Yes | No | In Progress | Needs Revision
+  • County
+      Internal: cahpCounty | Type: Choice
+    Choices: Greenville (SC) | Spartanburg (SC) | Anderson (SC) | Pickens (SC) | Laurens (SC) | York (SC) | Mecklenburg (NC) | Guilford (NC) | Durham (NC) | Wake (NC) | Forsyth (NC) | Buncombe (NC) | Other
+  • Date Added to CAHP
+      Internal: DateAddedToCAHP | Type: DateTime
+  • DOR Account ID
+      Internal: DORAccountID | Type: Text
+  • Legal Entity
+      Internal: LegalEntity | Type: Text
+  • LURA Executed
+      Internal: LURAExecuted | Type: Choice
+    Choices: Yes | No | In Progress | N/A
+  • Notes
+      Internal: PropertyNotes | Type: Note
+  • Operating Agreement Version
+      Internal: OpAgreementVersion | Type: Text
+  • Owner Group
+      Internal: cahpOwnerGroup | Type: Choice
+    Choices: VanRock Holdings | Red Cedar | AmRock | Troy Hampton | Deepak | Damon Lilly | Other
+  • Property Address
+      Internal: PropertyAddress | Type: Text
+  • Property Name
+      Internal: Title | Type: Text *required*
+  • Property Status
+      Internal: PropertyStatus | Type: Choice
+    Choices: Active | Pending | Withdrawn | Removed from Program | Sold
+  • Removed Reason
+      Internal: RemovedReason | Type: Note
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Verification Status
+      Internal: cahpVerificationStatus | Type: Choice
+    Choices: Inherited - Unverified | Verified | Needs Follow-Up | N/A
+
+----------------------------------------------------------------
+  Submittals Tracker
+  Type: List | Items: 18 | URL: /sites/CAHPComplianceHub/Lists/Submittals Tracker
+----------------------------------------------------------------
+  • Approved Abatement Amount
+      Internal: ApprovedAbatement | Type: Currency
+  • Assigned To
+      Internal: AssignedTo | Type: User
+  • Confirmation Number
+      Internal: ConfirmationNumber | Type: Text
+  • Date Filed
+      Internal: DateFiled | Type: DateTime
+  • Filing Method
+      Internal: FilingMethod | Type: Choice
+    Choices: Online Portal (SC) | Paper Mail (NC)
+  • Mail Tracking Number
+      Internal: MailTrackingNumber | Type: Text
+  • Next Action
+      Internal: NextAction | Type: Text
+  • Next Action Due
+      Internal: NextActionDue | Type: DateTime
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Submittal Label
+      Internal: Title | Type: Text *required*
+  • Submittal Notes
+      Internal: SubmittalNotes | Type: Note
+  • Submittal Status
+      Internal: SubmittalStatus | Type: Choice
+    Choices: Draft | Package Mailed (NC) | Filed | Letter Received - Action Needed | Responded - Awaiting DOR | Approved | Denied | Withdrawn
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+
+----------------------------------------------------------------
+  AMI Certification Letters
+  Type: Document Library | Items: 10 | URL: /sites/CAHPComplianceHub/AMI Certification Letters
+----------------------------------------------------------------
+  • Certification Year
+      Internal: CertYear | Type: Choice
+    Choices: 2024 | 2025 | 2026 | 2027
+  • Date Signed
+      Internal: DateSigned | Type: DateTime
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Prepared By
+      Internal: AMIPreparedBy | Type: User
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Signed By
+      Internal: SignedBy | Type: Text
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  CAHP Entity Documents
+  Type: Document Library | Items: 14 | URL: /sites/CAHPComplianceHub/CAHP Entity Documents
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Document Type
+      Internal: EntityDocType | Type: Choice
+    Choices: IRS Determination Letter | Bylaws | Articles of Incorporation | Board Meeting Minutes | Insurance Certificate | 990 Filing | Master Op Agreement Template | Master LURA Template | Other
+  • Effective Date
+      Internal: EffectiveDate | Type: DateTime
+  • Expiration Date
+      Internal: ExpirationDate | Type: DateTime
+  • Supersedes
+      Internal: Supersedes | Type: Text
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Documents
+  Type: Document Library | Items: 0 | URL: /sites/CAHPComplianceHub/Shared Documents
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  DOR Correspondence
+  Type: Document Library | Items: 1 | URL: /sites/CAHPComplianceHub/DOR Correspondence
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Direction
+      Internal: CorrDirection | Type: Choice
+    Choices: Inbound (from DOR) | Outbound (to DOR)
+  • Letter Date
+      Internal: LetterDate | Type: DateTime
+  • Letter Type
+      Internal: CorrLetterType | Type: Choice
+    Choices: Acknowledgment | Info Request | Org Chart Request | Approval | Denial | Withdrawal | Refund Notice | Response | Other
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  DOR Submittal Packages
+  Type: Document Library | Items: 0 | URL: /sites/CAHPComplianceHub/DOR Submittal Packages
+----------------------------------------------------------------
+  • Confirmation Number
+      Internal: SubConfirmationNumber | Type: Text
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Package Component
+      Internal: PackageComponent | Type: Choice
+    Choices: Full Submittal | Operating Agreement | Land Use Restriction Agreement | Certification Letter | Org Chart | Deed | Rent Roll | Supporting Docs | DOR Response | Other
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Submittal Date
+      Internal: SubmittalDate | Type: DateTime
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Intake
+  Type: Document Library | Items: 11 | URL: /sites/CAHPComplianceHub/Intake
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Intake Date
+      Internal: IntakeDate | Type: DateTime
+  • Processed
+      Internal: IntakeProcessed | Type: Boolean
+  • Processing Notes
+      Internal: IntakeNotes | Type: Note
+  • Source
+      Internal: IntakeSource | Type: Choice
+    Choices: Zoho One | Lori Email | Brian Email | Chris | Other
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Land Use Restriction Agreements
+  Type: Document Library | Items: 0 | URL: /sites/CAHPComplianceHub/Land Use Restriction Agreements
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Execution Date
+      Internal: LURAExecDate | Type: DateTime
+  • LURA Status
+      Internal: LURAStatus | Type: Choice
+    Choices: Draft | Executed | Recorded | Superseded
+  • LURA Version
+      Internal: LURAVersion | Type: Text
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Recording Date
+      Internal: RecordingDate | Type: DateTime
+  • Restriction Language
+      Internal: RestrictionLanguage | Type: Note
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Operating Agreements
+  Type: Document Library | Items: 27 | URL: /sites/CAHPComplianceHub/Operating Agreements
+----------------------------------------------------------------
+  • Agreement Version
+      Internal: AgreementVersion | Type: Text
+  • CAHP Language Included
+      Internal: CAHPLangIncluded | Type: Choice
+    Choices: Yes | No | Pending
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Document Status
+      Internal: OpAgDocStatus | Type: Choice
+    Choices: Draft | Executed | Superseded
+  • Execution Date
+      Internal: ExecutionDate | Type: DateTime
+  • Prepared By
+      Internal: PreparedBy | Type: Text
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Org Charts
+  Type: Document Library | Items: 19 | URL: /sites/CAHPComplianceHub/Org Charts
+----------------------------------------------------------------
+  • Chart Date
+      Internal: ChartDate | Type: DateTime
+  • Chart Status
+      Internal: ChartStatus | Type: Choice
+    Choices: Draft | Approved by Brian | Submitted to DOR | Superseded
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Source
+      Internal: ChartSource | Type: Choice
+    Choices: Auto-Generated | Manual | Jenny (Institutional) | Other
+  • Submitted With
+      Internal: SubmittedWith | Type: Text
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Process & Reference
+  Type: Document Library | Items: 15 | URL: /sites/CAHPComplianceHub/Process  Reference
+----------------------------------------------------------------
+  • Author
+      Internal: RefAuthor | Type: Text
+  • Current
+      Internal: IsCurrent | Type: Boolean
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Last Reviewed
+      Internal: LastReviewed | Type: DateTime
+  • Reference Type
+      Internal: RefType | Type: Choice
+    Choices: SOP | Process Map | Compliance Guide | State-Specific Guide | Training Notes | Institutional Knowledge | External Reference | Other
+  • State
+      Internal: cahpState | Type: Choice
+    Choices: SC | NC
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Property Deeds
+  Type: Document Library | Items: 16 | URL: /sites/CAHPComplianceHub/Property Deeds
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Title
+      Internal: Title | Type: Text
+
+----------------------------------------------------------------
+  Supporting Documentation
+  Type: Document Library | Items: 75 | URL: /sites/CAHPComplianceHub/Supporting Documentation
+----------------------------------------------------------------
+  • Description
+      Internal: _ExtendedDescription | Type: Note
+  • Document Date
+      Internal: DocumentDate | Type: DateTime
+  • Document Type
+      Internal: SuppDocType | Type: Choice
+    Choices: Rent Roll | Tenant Income Verification | Utility Allowance | HUD Income Limits | Property Tax Bill | Tax Refund Notice | Deed | Articles of Incorporation | EIN Letter | Compliance Certificate | Certificate of Exsistence | Business License | Tax Reciept | Management Agreement | Photos | Other
+  • Property
+      Internal: Property | Type: Lookup
+    Lookup → Properties Registry.Title
+  • Tax Year
+      Internal: cahpTaxYear | Type: Choice
+    Choices: 2023 | 2024 | 2025 | 2026 | 2027 | 2028
+  • Title
+      Internal: Title | Type: Text
+
+================================================================
+  Inventory complete.
+================================================================
+
+

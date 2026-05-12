@@ -2,6 +2,7 @@ import { Icon } from '../components/ui/Icon';
 import { useSession } from '../lib/session';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import type { Role } from '../lib/permissions';
+import { useSharePointList, LIST_NAMES, type Property } from '../lib/sharepoint';
 
 const TODAY = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
@@ -13,19 +14,26 @@ const TODAY = new Date().toLocaleDateString('en-US', {
 const PHASE_1_PROGRESS = [
   { id: 'PR-01', label: 'Repo scaffolding + AppShell + GH Pages deploy', status: 'done' as const },
   { id: 'PR-02', label: 'MSAL auth + role detection from M365', status: 'done' as const },
-  { id: 'PR-03', label: 'SharePoint provisioning (14 lists)', status: 'next' as const },
-  { id: 'PR-04', label: 'Graph SDK data layer + TypeScript types', status: 'pending' as const },
-  { id: 'PR-05', label: 'Properties module (list + detail + wizard)', status: 'pending' as const },
-  { id: 'PR-06', label: 'Owners module + Ownership engine', status: 'pending' as const },
+  { id: 'PR-03', label: 'SharePoint inventory + schema mapping', status: 'done' as const },
+  { id: 'PR-04', label: 'Graph SDK data layer + Properties list view', status: 'done' as const },
+  { id: 'PR-05', label: 'Property Detail + creation wizard + inline editing', status: 'next' as const },
+  { id: 'PR-06', label: 'Owners module + Ownership Structure population', status: 'pending' as const },
   { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'pending' as const },
 ];
 
 export function MyDay() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
+  const { data: properties, loading: propsLoading, error: propsError } = useSharePointList<Property>(
+    LIST_NAMES.Properties,
+    { top: 200 }
+  );
   if (!user || !role) return null;
 
   const realRoleConfig = realRole ? ROLE_PERMISSIONS[realRole] : null;
   const isViewingAsOverride = realRole && role !== realRole;
+
+  const totalProperties = properties?.length ?? 0;
+  const activeProperties = properties?.filter((p) => p.fields.PropertyStatus === 'Active').length ?? 0;
 
   return (
     <div>
@@ -37,17 +45,30 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-02 banner */}
+      {/* PR-04 banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            02
+            04
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">PR-02 deployed. M365 sign-in is live.</div>
+            <div className="font-semibold text-teal-900">
+              PR-04 deployed. Data layer is live.
+            </div>
             <p className="text-sm text-gray-700 mt-1">
-              You're signed in as <strong>{user.name}</strong> ({user.email}) with role{' '}
-              <strong>{realRoleConfig?.label || 'unknown'}</strong>. Next up: SharePoint provisioning in PR-03.
+              {propsLoading && 'Connecting to SharePoint…'}
+              {propsError && (
+                <>
+                  <span className="text-error font-semibold">SharePoint connection failed:</span>{' '}
+                  {propsError.message}
+                </>
+              )}
+              {properties && (
+                <>
+                  Connected to SharePoint. <strong>{totalProperties} properties</strong> in Properties Registry
+                  ({activeProperties} active). Open the <strong>Properties</strong> module to see them.
+                </>
+              )}
             </p>
           </div>
         </div>

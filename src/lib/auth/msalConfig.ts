@@ -44,12 +44,14 @@ export const msalConfig: Configuration = {
 };
 
 /**
- * Scopes requested at sign-in. User.Read covers basic profile.
- * SharePoint scopes (Sites.Read.All, Sites.ReadWrite.All) are added in PR-04
- * when the Graph data layer requests tokens for specific operations.
+ * Scopes requested at sign-in. Includes both User.Read (profile) and SharePoint scopes
+ * (admin-consented on the Azure AD app, so they grant silently per-user).
+ *
+ * Acquiring tokens for these scopes later is handled by `lib/sharepoint/client.ts`
+ * via acquireTokenSilent with the same scope set.
  */
 export const loginRequest = {
-  scopes: ['User.Read'],
+  scopes: ['User.Read', 'Sites.Read.All', 'Sites.ReadWrite.All'],
 };
 
 /**

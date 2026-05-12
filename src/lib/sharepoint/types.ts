@@ -1,0 +1,354 @@
+/**
+ * TypeScript types matching the actual CAHP Compliance Hub SharePoint schema.
+ *
+ * Generated from inventory snapshot taken 2026-05-12 against:
+ *   https://vanrockre.sharepoint.com/sites/CAHPComplianceHub
+ *
+ * Field names use SharePoint internal names (PropertyAddress, cahpState, etc.) —
+ * those are what Graph API returns in the `fields` object.
+ *
+ * Lookup columns appear as `{FieldName}LookupId` (a numeric ID as string).
+ * User columns appear as `{FieldName}LookupId` too — same pattern.
+ *
+ * Update this file whenever columns are added/removed/renamed in SharePoint.
+ */
+
+// =============================================================================
+// SHARED TYPES
+// =============================================================================
+
+/** Common shape of any SharePoint list item from Graph API */
+export interface SharePointListItem<TFields = Record<string, unknown>> {
+  id: string;
+  createdDateTime: string;
+  lastModifiedDateTime: string;
+  webUrl?: string;
+  fields: TFields & {
+    id?: string;
+    Title?: string;
+    Created?: string;
+    Modified?: string;
+    AuthorLookupId?: string;
+    EditorLookupId?: string;
+  };
+}
+
+/** State (used across most lists) */
+export type CahpState = 'SC' | 'NC';
+
+/** Tax year (string-typed choice in SharePoint) */
+export type CahpTaxYear = '2023' | '2024' | '2025' | '2026' | '2027' | '2028';
+
+// =============================================================================
+// LIST: Properties Registry
+// =============================================================================
+
+export type AMIProgram = '20/50' | '40/60' | 'Mixed' | 'None';
+
+export type CAHPLanguageStatus = 'Yes' | 'No' | 'In Progress' | 'Needs Revision';
+
+export type OwnerGroup =
+  | 'VanRock Holdings'
+  | 'Red Cedar'
+  | 'AmRock'
+  | 'Troy Hampton'
+  | 'Deepak'
+  | 'Damon Lilly'
+  | 'Other';
+
+export type VerificationStatus =
+  | 'Inherited - Unverified'
+  | 'Verified'
+  | 'Needs Follow-Up'
+  | 'N/A';
+
+export type LURAExecutedStatus = 'Yes' | 'No' | 'In Progress' | 'N/A';
+
+export type PropertyStatus =
+  | 'Active'
+  | 'Pending'
+  | 'Withdrawn'
+  | 'Removed from Program'
+  | 'Sold';
+
+export interface PropertyFields {
+  Title: string;                    // Property Name
+  PropertyAddress?: string;
+  LegalEntity?: string;
+  UnitCount?: number;
+  AMIProgram?: AMIProgram;
+  CAHPLanguageAdded?: CAHPLanguageStatus;
+  cahpCounty?: string;
+  cahpOwnerGroup?: OwnerGroup;
+  cahpState?: CahpState;
+  cahpVerificationStatus?: VerificationStatus;
+  DORAccountID?: string;
+  DateAddedToCAHP?: string;
+  LURAExecuted?: LURAExecutedStatus;
+  OpAgreementVersion?: string;
+  PropertyNotes?: string;
+  PropertyStatus?: PropertyStatus;
+  RemovedReason?: string;
+}
+
+export type Property = SharePointListItem<PropertyFields>;
+
+// =============================================================================
+// LIST: Submittals Tracker
+// =============================================================================
+
+export type SubmittalStatusValue =
+  | 'Draft'
+  | 'Package Mailed (NC)'
+  | 'Filed'
+  | 'Letter Received - Action Needed'
+  | 'Responded - Awaiting DOR'
+  | 'Approved'
+  | 'Denied'
+  | 'Withdrawn';
+
+export type FilingMethod = 'Online Portal (SC)' | 'Paper Mail (NC)';
+
+export interface SubmittalFields {
+  Title: string;                              // Submittal Label
+  PropertyLookupId?: string;                  // → Properties Registry
+  AssignedToLookupId?: string;                // User picker
+  cahpTaxYear?: CahpTaxYear;
+  cahpState?: CahpState;
+  SubmittalStatus?: SubmittalStatusValue;
+  FilingMethod?: FilingMethod;
+  DateFiled?: string;
+  ConfirmationNumber?: string;
+  MailTrackingNumber?: string;
+  NextAction?: string;
+  NextActionDue?: string;
+  ApprovedAbatement?: number;
+  SubmittalNotes?: string;
+}
+
+export type Submittal = SharePointListItem<SubmittalFields>;
+
+// =============================================================================
+// LIST: Compliance Deadlines
+// =============================================================================
+
+export type DeadlineType =
+  | 'IRS 990 Filing'
+  | 'Annual Recertification'
+  | 'Rent Roll Review'
+  | 'AMI Cert Renewal'
+  | 'State Compliance Report'
+  | 'Property Tax Filing'
+  | 'Operating Agreement Review'
+  | 'Other';
+
+export type DeadlineStatus =
+  | 'Upcoming'
+  | 'In Progress'
+  | 'Completed'
+  | 'Overdue'
+  | 'Missed';
+
+export type DeadlineRecurrence = 'One-Time' | 'Annual' | 'Quarterly' | 'Monthly';
+
+export type DeadlineAppliesTo =
+  | 'CAHP Entity'
+  | 'All Properties'
+  | 'Specific Property'
+  | 'SC Portfolio'
+  | 'NC Portfolio';
+
+export type ResponsibleParty =
+  | 'Brandy'
+  | 'Chris'
+  | 'Brian'      // Note: SharePoint has 'Brian' — kept as-is to match existing data
+  | 'John'
+  | 'Aljon'
+  | 'Other';
+
+export interface ComplianceDeadlineFields {
+  Title: string;                              // Deadline Description
+  DeadlineType?: DeadlineType;
+  DeadlineStatus?: DeadlineStatus;
+  DueDate?: string;
+  CompletionDate?: string;
+  Recurrence?: DeadlineRecurrence;
+  AppliesTo?: DeadlineAppliesTo;
+  ResponsibleParty?: ResponsibleParty;
+  PropertyLookupId?: string;                  // → Properties Registry
+  cahpState?: CahpState;
+  DeadlineNotes?: string;
+}
+
+export type ComplianceDeadline = SharePointListItem<ComplianceDeadlineFields>;
+
+// =============================================================================
+// LIST: DOR Correspondence Log
+// =============================================================================
+
+export type CorrespondenceDirection = 'Inbound (from DOR)' | 'Outbound (to DOR)';
+
+export type LetterType =
+  | 'Initial Acknowledgment'
+  | 'Additional Info Request'
+  | 'Org Chart Request'
+  | 'Approval'
+  | 'Denial'
+  | 'Withdrawal Notice'
+  | 'Refund Notice'
+  | 'Other';
+
+export interface CorrespondenceFields {
+  Title: string;                              // Correspondence Subject
+  Direction?: CorrespondenceDirection;
+  LetterType?: LetterType;
+  PropertyLookupId?: string;                  // → Properties Registry
+  DateReceived?: string;
+  DateResponded?: string;
+  ResponseDue?: string;
+  RequestSummary?: string;
+  ResponseNotes?: string;
+  cahpTaxYear?: CahpTaxYear;
+  cahpState?: CahpState;
+}
+
+export type Correspondence = SharePointListItem<CorrespondenceFields>;
+
+// =============================================================================
+// LIST: Billing Tracker
+// =============================================================================
+
+export type BillingStatusValue =
+  | 'Pending Approval'
+  | 'Ready to Invoice'
+  | 'Invoiced'
+  | 'Paid'
+  | 'Disputed';
+
+export type QBSyncStatus = 'Not Synced' | 'Synced' | 'Discrepancy';
+
+export interface BillingFields {
+  Title: string;                              // Billing Reference
+  PropertyLookupId?: string;                  // → Properties Registry
+  cahpTaxYear?: CahpTaxYear;
+  AmountBilled?: number;
+  BillApprovedAbatement?: number;
+  CAHPFeePercent?: number;
+  InvoiceDate?: string;
+  InvoiceNumber?: string;
+  BillingStatus?: BillingStatusValue;
+  QBSyncStatus?: QBSyncStatus;
+  BillingNotes?: string;
+}
+
+export type Billing = SharePointListItem<BillingFields>;
+
+// =============================================================================
+// LIST: Outstanding Items Checklist
+// =============================================================================
+
+export type ItemCategory =
+  | 'Operating Agreement'
+  | 'LURA'
+  | 'AMI Certification'
+  | 'Org Chart'
+  | 'Deed'
+  | 'Income Documentation'
+  | 'Signed Submittal'
+  | 'Determination Letter'
+  | 'Other';
+
+export type ItemStatus = 'Requested' | 'Overdue' | 'Received' | 'Not Applicable';
+
+export interface OutstandingItemFields {
+  Title: string;                              // Item Needed
+  PropertyLookupId?: string;                  // → Properties Registry
+  ItemCategory?: ItemCategory;
+  ItemStatus?: ItemStatus;
+  DateRequested?: string;
+  DateReceivedItem?: string;
+  FollowUpCount?: number;
+  ItemOwner?: string;
+  ItemNotes?: string;
+}
+
+export type OutstandingItem = SharePointListItem<OutstandingItemFields>;
+
+// =============================================================================
+// LIST: Known Issues Log
+// =============================================================================
+
+export type IssueCategory =
+  | 'Operating Agreement'
+  | 'LURA'
+  | 'DOR Filing'
+  | 'Entity Mismatch'
+  | 'Missing Documentation'
+  | 'Compliance'
+  | 'Billing'
+  | 'Org Chart'
+  | 'Other';
+
+export type ResolutionStatus =
+  | 'Open'
+  | 'In Progress'
+  | 'Blocked'
+  | 'Resolved'
+  | 'Accepted Risk';
+
+export type IssueSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
+
+export interface KnownIssueFields {
+  Title: string;                              // Issue Summary
+  IssueCategory?: IssueCategory;
+  ResolutionStatus?: ResolutionStatus;
+  Severity?: IssueSeverity;
+  PropertyLookupId?: string;                  // → Properties Registry
+  IssueOwnerLookupId?: string;                // User picker
+  IdentifiedDate?: string;
+  DateResolved?: string;
+  ResolutionNotes?: string;
+}
+
+export type KnownIssue = SharePointListItem<KnownIssueFields>;
+
+// =============================================================================
+// LIST: Ownership Structure (currently empty in SharePoint; populated in PR-06)
+// =============================================================================
+
+export type RelationshipType =
+  | 'Managing Member'
+  | 'Member'
+  | 'Owner'
+  | 'Subsidiary'
+  | 'Beneficial Owner';
+
+export interface OwnershipFields {
+  Title: string;                              // Entity Name
+  RelationshipType?: RelationshipType;
+  OwnershipPercent?: number;
+  ParentEntity?: string;
+  LinkedPropertyLookupId?: string;            // → Properties Registry
+  EffectiveDate?: string;
+  SourceDocument?: string;
+  EntityNotes?: string;
+}
+
+export type Ownership = SharePointListItem<OwnershipFields>;
+
+// =============================================================================
+// LIST NAMES — for reference and to catch typos at the call site
+// =============================================================================
+
+export const LIST_NAMES = {
+  Properties: 'Properties Registry',
+  Submittals: 'Submittals Tracker',
+  ComplianceDeadlines: 'Compliance Deadlines',
+  Correspondence: 'DOR Correspondence Log',
+  Billing: 'Billing Tracker',
+  Outstanding: 'Outstanding Items Checklist',
+  KnownIssues: 'Known Issues Log',
+  Ownership: 'Ownership Structure',
+} as const;
+
+export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
