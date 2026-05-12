@@ -20,7 +20,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-04', label: 'Graph SDK data layer + Properties list view', status: 'done' as const },
   { id: 'PR-05a', label: 'Property Detail page (Overview + Submittals tabs)', status: 'done' as const },
   { id: 'PR-05b', label: 'Compliance Deadlines module + My Day widget', status: 'done' as const },
-  { id: 'PR-05c', label: 'Inline editing + creation wizard', status: 'next' as const },
+  { id: 'PR-05c', label: 'Inline editing on Property Detail', status: 'done' as const },
+  { id: 'PR-05d', label: 'Property creation wizard + Disposition workflow', status: 'next' as const },
   { id: 'PR-06', label: 'Owners module + Ownership Structure population', status: 'pending' as const },
   { id: 'PR-07', label: 'Audit log + Phase 1 wrap', status: 'pending' as const },
 ];
@@ -80,15 +81,15 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-05a banner */}
+      {/* PR-05c banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            05a
+            05c
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-05a deployed. Property Detail pages are live.
+              PR-05c deployed. Inline editing is live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
               {propsLoading && 'Connecting to SharePoint…'}
@@ -100,10 +101,9 @@ export function MyDay() {
               )}
               {properties && (
                 <>
-                  Click any property in the <strong>Properties</strong> module to drill into its
-                  detail page — Overview tab shows all registry fields, Submittals tab shows the
-                  related filings from your 18 records in Submittals Tracker. Inline editing
-                  ships next in PR-05b.
+                  Open any property and click <strong>Edit</strong> to change verification status,
+                  notes, OA version, AMI program — all writes go straight to SharePoint. No more
+                  switching to the SharePoint UI for property maintenance.
                 </>
               )}
             </p>
