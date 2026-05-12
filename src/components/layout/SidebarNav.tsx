@@ -77,6 +77,9 @@ export function SidebarNav({ open, onClose }: SidebarNavProps) {
   const location = useLocation();
   const { role } = useSession();
 
+  // SidebarNav only renders inside SignInGate's authorized branch, but defensively guard:
+  if (!role) return null;
+
   const handleNavigate = (path: string) => {
     navigate(path);
     onClose();

@@ -1,13 +1,15 @@
 import { Icon } from '../ui/Icon';
 import { useSession } from '../../lib/session';
 import { ROLE_PERMISSIONS } from '../../lib/permissions';
+import { UserMenu } from './UserMenu';
 
 interface HeaderProps {
   onOpenNav: () => void;
 }
 
 export function Header({ onOpenNav }: HeaderProps) {
-  const { user, role } = useSession();
+  const { role } = useSession();
+  if (!role) return null;
   const roleConfig = ROLE_PERMISSIONS[role];
 
   return (
@@ -36,7 +38,7 @@ export function Header({ onOpenNav }: HeaderProps) {
       {/* Center: search (Phase 2) */}
       <div className="flex-1 px-4 hidden md:flex justify-center">
         <button
-          className="w-full max-w-md flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-teal-100 text-sm text-left transition-colors"
+          className="w-full max-w-md flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-teal-100 text-sm text-left transition-colors disabled:cursor-not-allowed"
           disabled
           title="Search coming in Phase 2"
         >
@@ -46,7 +48,7 @@ export function Header({ onOpenNav }: HeaderProps) {
         </button>
       </div>
 
-      {/* Right: notifications, role, avatar */}
+      {/* Right: notifications, role badge, user menu */}
       <div className="flex items-center gap-1 flex-shrink-0">
         <button
           className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/10 transition-colors relative"
@@ -55,17 +57,13 @@ export function Header({ onOpenNav }: HeaderProps) {
           <Icon name="bell" size={18} />
         </button>
 
-        <div className={`hidden sm:inline-flex px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider ${roleConfig.color}`}>
+        <div
+          className={`hidden sm:inline-flex px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider ${roleConfig.color}`}
+        >
           {roleConfig.label}
         </div>
 
-        <button
-          className="w-9 h-9 rounded-full bg-gold-500 text-teal-900 font-bold text-sm flex items-center justify-center hover:bg-gold-200 transition-colors ml-1"
-          aria-label={`Signed in as ${user.name}`}
-          title={user.name}
-        >
-          {user.initials}
-        </button>
+        <UserMenu />
       </div>
     </header>
   );

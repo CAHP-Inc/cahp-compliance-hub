@@ -8,7 +8,7 @@ Authored by Brandy Turner — NewShire Property Management.
 
 ## Status
 
-**Phase 1 / PR-01: Scaffolding** — application shell, navigation drawer, design tokens, deployment pipeline. No data layer yet. See `Phase 1 Build Progress` on the My Day landing page for the full PR sequence.
+**Phase 1 / PR-02: M365 Authentication** — application is now gated behind Microsoft 365 sign-in. Role is determined by email mapping. Next: PR-03 provisions the SharePoint backend.
 
 ---
 
@@ -17,95 +17,92 @@ Authored by Brandy Turner — NewShire Property Management.
 - **React 18** + **TypeScript** + **Vite**
 - **Tailwind CSS** with NewShire design tokens
 - **react-router-dom** for client-side routing
-- **MSAL** (wired in PR-02) for M365 authentication
+- **MSAL** (`@azure/msal-browser` + `@azure/msal-react`) for M365 authentication
 - **Microsoft Graph SDK** (wired in PR-04) for SharePoint List CRUD
 - **GitHub Pages** for hosting via GitHub Actions
 
 ---
 
-## PR-01 Setup Checklist
+## PR-02 Setup Checklist
 
-Run through this once. Total time: ~15 minutes.
+Before running PR-02 locally or deploying it, you need three things in place:
 
-### 1. Create the GitHub repo
+### 1. Azure AD app registration (one-time, ~10 min)
 
+In [portal.azure.com](https://portal.azure.com):
+
+1. Microsoft Entra ID → App registrations → **+ New registration**
+2. Name: `CAHP Compliance Hub`
+3. Supported account types: *Accounts in this organizational directory only (Single tenant)*
+4. Redirect URI: Single-page application (SPA) → `http://localhost:5173/`
+5. Click **Register**
+6. From the Overview page, copy:
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
+7. Authentication → SPA section → Add URI: `https://cahp-inc.github.io/cahp-compliance-hub/` → Save
+8. API permissions → Add Microsoft Graph delegated: `User.Read`, `Sites.Read.All`, `Sites.ReadWrite.All`
+9. Click **Grant admin consent for [tenant]** — all three should show ✓ Granted
+
+### 2. Edit `src/lib/roleMap.ts` with your real email
+
+Open the file. There's a single placeholder entry — replace it with your email:
+
+```ts
+const EMAIL_ROLE_MAP: Record<string, Role> = {
+  'brandy.turner@newshire.com': 'Admin',  // ← YOUR REAL EMAIL HERE, lowercase
+};
 ```
-Repo name: cahp-compliance-hub
-Visibility: Private
-Initialize: empty (no README, no .gitignore)
-```
 
-### 2. Unzip this package into the new repo
+Use the exact email your M365 account signs in with. Without this, the sign-in flow will succeed but you'll hit "Access denied."
+
+### 3. Create `.env.local` with the Azure values
+
+Copy `.env.example` to `.env.local` and fill in the Azure values from step 1:
 
 ```bash
-cd ~/code
-unzip cahp-compliance-hub.zip
-cd cahp-compliance-hub
-git init
-git remote add origin https://github.com/<your-username>/cahp-compliance-hub.git
+# .env.local
+VITE_AZURE_CLIENT_ID=<your-client-id-from-azure>
+VITE_AZURE_TENANT_ID=<your-tenant-id-from-azure>
 ```
 
-### 3. Install dependencies and verify it runs locally
+`.env.local` is gitignored — never commit it. Each developer maintains their own.
+
+---
+
+## Running locally
 
 ```bash
-npm install
-npm run dev
+npm install      # one-time
+npm run dev      # starts on http://localhost:5173/
 ```
 
-Open the printed `http://localhost:5173` URL. You should see:
-- Teal header with hamburger ☰
-- My Day landing page with PR-01 banner
-- Phase 1 Build Progress card
-- Dev Role Switcher card
+You should see the sign-in screen. Click **Sign in with Microsoft** → you'll redirect to Microsoft, authenticate, and come back signed in.
 
-Click the hamburger and verify the drawer slides in with 6 grouped sections. Switch roles in the Dev Role Switcher and reopen the drawer to confirm Settings disappears for Contributor and most groups disappear for Accounting.
+If your email is in the role map, you'll land on My Day. If not, you'll see "Access denied" — edit `roleMap.ts`, save, and refresh.
 
-### 4. Initial commit and push
+---
 
-```bash
-git add .
-git commit -m "PR-01: Scaffolding + AppShell + GH Pages deploy"
-git branch -M main
-git push -u origin main
-```
+## Deploying
 
-### 5. Enable GitHub Pages
+PR-01 already wired the GitHub Actions deployment. Add the Azure env vars as repo variables:
 
-In the repo on GitHub:
-
-```
-Settings → Pages
-Source: GitHub Actions
-```
-
-### 6. Set the base path repository variable
-
-The GH Pages site lives at `https://<username>.github.io/cahp-compliance-hub/` — Vite needs to know about the `/cahp-compliance-hub/` subpath. Set this as a repo variable so the workflow picks it up:
-
-```
-Settings → Secrets and variables → Actions → Variables tab → New repository variable
-Name: VITE_BASE_PATH
-Value: /cahp-compliance-hub/
-```
-
-### 7. Trigger the deploy
-
-```bash
-git commit --allow-empty -m "Trigger deploy"
-git push
-```
-
-Watch the deploy run in the **Actions** tab. When green (~2 minutes), open `https://<username>.github.io/cahp-compliance-hub/` — same UI as local.
+1. Repo → Settings → Secrets and variables → **Actions** → Variables tab
+2. Add two new variables:
+   - `VITE_AZURE_CLIENT_ID` = (your client ID)
+   - `VITE_AZURE_TENANT_ID` = (your tenant ID)
+3. Push a commit (or empty commit `git commit --allow-empty -m "Trigger deploy"`)
+4. Wait for the Actions workflow to complete
+5. Visit the production URL — sign-in screen should appear
 
 ---
 
 ## Scripts
 
 ```bash
-npm run dev         # Start dev server on http://localhost:5173
+npm run dev         # Dev server on http://localhost:5173
 npm run build       # Production build to ./dist
 npm run preview     # Preview the production build locally
-npm run typecheck   # Run TypeScript without emitting
+npm run typecheck   # TypeScript without emitting
 ```
 
 ---
@@ -115,63 +112,71 @@ npm run typecheck   # Run TypeScript without emitting
 ```
 cahp-compliance-hub/
 ├── .github/workflows/deploy.yml    # GH Pages CI/CD
-├── public/favicon.svg              # CAHP "C" mark
+├── public/favicon.svg
 ├── src/
 │   ├── components/
-│   │   ├── layout/                 # AppShell, Header, SidebarNav
-│   │   └── ui/                     # Icon (more in PR-05+)
+│   │   ├── auth/SignInGate.tsx     # NEW: sign-in / access-denied gate
+│   │   ├── layout/
+│   │   │   ├── AppShell.tsx
+│   │   │   ├── Header.tsx          # MODIFIED: uses UserMenu
+│   │   │   ├── SidebarNav.tsx
+│   │   │   └── UserMenu.tsx        # NEW: avatar dropdown with sign out
+│   │   └── ui/Icon.tsx
 │   ├── lib/
+│   │   ├── auth/
+│   │   │   └── msalConfig.ts       # NEW: MSAL setup
 │   │   ├── permissions.ts          # Roles + canView/canDo
-│   │   └── session.tsx             # Session context (stub → MSAL in PR-02)
+│   │   ├── roleMap.ts              # NEW: email → role (edit this file)
+│   │   └── session.tsx             # MODIFIED: real MSAL-backed session
 │   ├── pages/
-│   │   ├── MyDay.tsx               # Landing page
-│   │   └── PlaceholderPage.tsx     # Used until each module is built
-│   ├── styles/globals.css          # Design tokens + Tailwind
-│   ├── App.tsx                     # Router
-│   ├── main.tsx                    # Entry point
-│   └── vite-env.d.ts               # Env var types
-├── .env.example                    # Copy to .env.local and fill in
+│   │   ├── MyDay.tsx               # MODIFIED: dev-only role override
+│   │   └── PlaceholderPage.tsx
+│   ├── styles/globals.css
+│   ├── App.tsx                     # MODIFIED: wrapped in SignInGate
+│   ├── main.tsx                    # MODIFIED: MSAL bootstrap
+│   └── vite-env.d.ts
+├── .env.example
+├── .gitignore
 ├── index.html
 ├── package.json
-├── tailwind.config.js              # NewShire palette
+├── tailwind.config.js
 ├── tsconfig.json
 └── vite.config.ts
 ```
 
 ---
 
-## What ships in PR-01
+## What ships in PR-02
 
-- Application shell (header, hamburger drawer, content area)
-- 6-group role-filtered navigation
-- NewShire design tokens (teal/gold palette, fonts, animations)
-- Routes for all 16 modules (15 wired to placeholders, My Day fully styled)
-- Dev role switcher to preview Contributor / Accounting views
-- TypeScript-strict mode
-- GitHub Actions deploy to GH Pages
+- Microsoft 365 sign-in via MSAL redirect flow
+- Branded sign-in screen and access-denied screen
+- User menu dropdown from avatar (name, email, role, sign out)
+- Role determined automatically from `roleMap.ts` (email → role)
+- Dev-only "View As" role override on My Day (hidden in production builds)
+- All nav and permission gating now driven by the real signed-in user
 
 ---
 
-## What does NOT ship in PR-01
+## What does NOT ship in PR-02
 
-- Real auth (MSAL stub — `session.tsx` returns a static "Brandy / Admin" user)
-- Any data layer (no Graph SDK, no SharePoint connection)
-- Any module content (everything except My Day is a placeholder)
+- SharePoint data layer (PR-03 provisions lists, PR-04 wires Graph SDK)
+- Module content (Properties, Owners, etc. still placeholders)
+- Email-based notifications (Phase 2)
 - Search bar (Phase 2)
-- Notifications (Phase 2)
-- Untagged Docs badge counts (PR-05 when documents wire up)
+- Users list editable through the UI — for now, edit `roleMap.ts` in code
 
 ---
 
-## Next: PR-02
+## Adding team members
 
-PR-02 wires real M365 authentication. Before starting PR-02:
+For PR-02, adding a user is a code change:
 
-1. Register an Azure AD app (see `.env.example` for the exact steps)
-2. Copy `.env.example` to `.env.local`
-3. Fill in `VITE_AZURE_CLIENT_ID` and `VITE_AZURE_TENANT_ID`
+1. Open `src/lib/roleMap.ts`
+2. Add a new line to `EMAIL_ROLE_MAP` with their lowercase email and role
+3. Commit, push, wait for deploy
+4. Tell them to sign in
 
-When ready, ask Claude for PR-02.
+In PR-04+, this becomes a SharePoint Users List you edit through the Settings module.
 
 ---
 

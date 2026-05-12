@@ -1,15 +1,7 @@
-/**
- * Session — currently a stub for PR-01.
- *
- * In PR-02, this becomes a real MSAL-backed hook reading the signed-in M365 user
- * and looking up their role from the Users SharePoint List.
- *
- * For now, exposes a static "Brandy Turner / Admin" session plus a setter for testing
- * role-based UI in development.
- */
-
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useMemo, useState, ReactNode } from 'react';
+import { useMsal, useIsAuthenticated } from '@azure/msal-react';
 import type { Role } from './permissions';
+import { lookupRole, getUserInitials, extractOrgFromEmail } from './roleMap';
 
 export interface User {
   id: string;
@@ -20,28 +12,63 @@ export interface User {
 }
 
 interface SessionState {
-  user: User;
-  role: Role;
-  setRole: (role: Role) => void; // dev-only — remove in PR-02
+  user: User | null;
+  /** Effective role for the current view (may be a dev override) */
+  role: Role | null;
+  /** Real role from the M365 → role map; null if not on access list */
+  realRole: Role | null;
+  isAuthenticated: boolean;
+  /** Authenticated AND on the role map */
+  isAuthorized: boolean;
+  /** Dev-only: change the view-as role. Undefined in production builds. */
+  setDevRoleOverride?: (role: Role | null) => void;
 }
-
-const DEFAULT_USER: User = {
-  id: 'stub-brandy',
-  name: 'Brandy Turner',
-  email: 'brandy@newshire.com',
-  initials: 'BT',
-  org: 'NewShire',
-};
 
 const SessionContext = createContext<SessionState | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>('Admin');
-  return (
-    <SessionContext.Provider value={{ user: DEFAULT_USER, role, setRole }}>
-      {children}
-    </SessionContext.Provider>
-  );
+  const { accounts } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+  const [devOverride, setDevOverride] = useState<Role | null>(null);
+
+  const state = useMemo<SessionState>(() => {
+    if (!isAuthenticated || accounts.length === 0) {
+      return {
+        user: null,
+        role: null,
+        realRole: null,
+        isAuthenticated: false,
+        isAuthorized: false,
+        setDevRoleOverride: import.meta.env.DEV ? setDevOverride : undefined,
+      };
+    }
+
+    const account = accounts[0];
+    // For Azure AD accounts, `username` is the UPN / email
+    const email = account.username;
+    const name = account.name || email;
+    const realRole = lookupRole(email);
+    const effectiveRole = import.meta.env.DEV && devOverride ? devOverride : realRole;
+
+    const user: User = {
+      id: account.localAccountId,
+      name,
+      email,
+      initials: getUserInitials(name, email),
+      org: extractOrgFromEmail(email),
+    };
+
+    return {
+      user,
+      role: effectiveRole,
+      realRole,
+      isAuthenticated: true,
+      isAuthorized: realRole !== null,
+      setDevRoleOverride: import.meta.env.DEV ? setDevOverride : undefined,
+    };
+  }, [isAuthenticated, accounts, devOverride]);
+
+  return <SessionContext.Provider value={state}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionState {

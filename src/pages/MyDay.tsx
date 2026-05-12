@@ -12,8 +12,8 @@ const TODAY = new Date().toLocaleDateString('en-US', {
 
 const PHASE_1_PROGRESS = [
   { id: 'PR-01', label: 'Repo scaffolding + AppShell + GH Pages deploy', status: 'done' as const },
-  { id: 'PR-02', label: 'MSAL auth + role detection from M365', status: 'next' as const },
-  { id: 'PR-03', label: 'SharePoint provisioning (14 lists)', status: 'pending' as const },
+  { id: 'PR-02', label: 'MSAL auth + role detection from M365', status: 'done' as const },
+  { id: 'PR-03', label: 'SharePoint provisioning (14 lists)', status: 'next' as const },
   { id: 'PR-04', label: 'Graph SDK data layer + TypeScript types', status: 'pending' as const },
   { id: 'PR-05', label: 'Properties module (list + detail + wizard)', status: 'pending' as const },
   { id: 'PR-06', label: 'Owners module + Ownership engine', status: 'pending' as const },
@@ -21,7 +21,11 @@ const PHASE_1_PROGRESS = [
 ];
 
 export function MyDay() {
-  const { user, role, setRole } = useSession();
+  const { user, role, realRole, setDevRoleOverride } = useSession();
+  if (!user || !role) return null;
+
+  const realRoleConfig = realRole ? ROLE_PERMISSIONS[realRole] : null;
+  const isViewingAsOverride = realRole && role !== realRole;
 
   return (
     <div>
@@ -33,17 +37,17 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-01 banner */}
+      {/* PR-02 banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            01
+            02
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">PR-01 deployed. App shell is live.</div>
+            <div className="font-semibold text-teal-900">PR-02 deployed. M365 sign-in is live.</div>
             <p className="text-sm text-gray-700 mt-1">
-              This deployment establishes the application shell, navigation drawer, design tokens, and deployment pipeline.
-              No data is wired yet — that starts in PR-03 after SharePoint is provisioned.
+              You're signed in as <strong>{user.name}</strong> ({user.email}) with role{' '}
+              <strong>{realRoleConfig?.label || 'unknown'}</strong>. Next up: SharePoint provisioning in PR-03.
             </p>
           </div>
         </div>
@@ -66,38 +70,50 @@ export function MyDay() {
         </div>
       </div>
 
-      {/* Dev-only role switcher */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-teal-700">Dev: Role Switcher</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Removed in PR-02 when real M365 auth is wired. Use this to preview how the nav drawer filters by role.
-          </p>
+      {/* Dev-only role override (hidden in production builds) */}
+      {import.meta.env.DEV && setDevRoleOverride && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg shadow-card">
+          <div className="px-5 py-3 border-b border-yellow-200">
+            <h2 className="text-base font-semibold text-yellow-800">Dev: View As Role</h2>
+            <p className="text-xs text-yellow-700 mt-0.5">
+              Only visible in <span className="font-mono-data">npm run dev</span>. Lets you preview how the UI changes per role without signing in as different users.
+              {realRoleConfig && (
+                <>
+                  {' '}Your real M365 role: <strong>{realRoleConfig.label}</strong>.
+                </>
+              )}
+              {isViewingAsOverride && (
+                <>
+                  {' '}Currently overriding to: <strong>{ROLE_PERMISSIONS[role].label}</strong>.
+                </>
+              )}
+            </p>
+          </div>
+          <div className="p-4 flex flex-wrap gap-2 items-center">
+            {(['Admin', 'Contributor', 'Accounting'] as Role[]).map((r) => {
+              const cfg = ROLE_PERMISSIONS[r];
+              const active = role === r;
+              return (
+                <button
+                  key={r}
+                  onClick={() => setDevRoleOverride(r)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    active ? `${cfg.color} shadow-sm` : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                  }`}
+                >
+                  {cfg.label}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setDevRoleOverride(null)}
+              className="px-4 py-2 rounded-md text-sm font-medium text-yellow-700 hover:bg-yellow-100"
+            >
+              Reset to real role
+            </button>
+          </div>
         </div>
-        <div className="p-4 flex flex-wrap gap-2">
-          {(['Admin', 'Contributor', 'Accounting'] as Role[]).map((r) => {
-            const cfg = ROLE_PERMISSIONS[r];
-            const active = role === r;
-            return (
-              <button
-                key={r}
-                onClick={() => setRole(r)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  active
-                    ? `${cfg.color} shadow-sm`
-                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {cfg.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="px-4 pb-4 text-xs text-gray-500">
-          Currently viewing as <span className="font-semibold">{ROLE_PERMISSIONS[role].label}</span>.{' '}
-          Open the navigation drawer (☰) to see which sections this role can access.
-        </div>
-      </div>
+      )}
     </div>
   );
 }
