@@ -17,7 +17,7 @@ function App() {
           <Routes>
             <Route path="/" element={<MyDay />} />
             <Route path="/outstanding" element={<PlaceholderPage title="Outstanding Items" icon="alert" plannedPR="PR-07" />} />
-            <Route path="/portfolio" element={<PlaceholderPage title="Portfolio" icon="grid" plannedPR="PR-05" />} />
+            <Route path="/portfolio" element={<PlaceholderPage title="Portfolio" icon="grid" plannedPR="Backlog" />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/properties/:id" element={<PropertyDetail />} />
             <Route path="/owners" element={<PlaceholderPage title="Owners" icon="star" plannedPR="PR-06" />} />

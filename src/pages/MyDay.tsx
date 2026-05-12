@@ -34,6 +34,33 @@ const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
   Missed: 'bg-red-200 text-red-900',
 };
 
+/**
+ * Items originally scoped in earlier PRs that have not yet shipped.
+ * Each item shows what it is and where it originally lived in the plan so nothing
+ * silently falls off the roadmap. Move items into PHASE_1_PROGRESS as concrete PRs
+ * when you decide to schedule them.
+ */
+const BACKLOG: { feature: string; origin: string; note?: string }[] = [
+  { feature: 'Portfolio dashboard', origin: 'PR-05' },
+  { feature: 'Property creation wizard', origin: 'PR-05' },
+  { feature: 'Property Detail: Documents tab', origin: 'PR-05' },
+  { feature: 'Property Detail: Compliance tab', origin: 'PR-05', note: 'show this property\'s deadlines inline' },
+  { feature: 'Property Detail: Notes tab', origin: 'PR-05', note: 'rethink — PropertyNotes field already exists on Overview' },
+  { feature: 'Watch / follow button', origin: 'PR-05', note: 'requires notification plumbing' },
+  { feature: 'Disposition workflow', origin: 'PR-05' },
+  { feature: 'Submittals top-level module', origin: 'Phase 2' },
+  { feature: 'Submittals editing on detail page', origin: 'Phase 2' },
+  { feature: 'Outstanding Items module', origin: 'Phase 2' },
+  { feature: 'DOR Correspondence Log module', origin: 'Phase 2' },
+  { feature: 'Known Issues Log module', origin: 'Phase 2' },
+  { feature: 'Owner Communications module', origin: 'Phase 3' },
+  { feature: 'Document library file uploads + browser', origin: 'Phase 2' },
+  { feature: 'Billing Tracker module', origin: 'Phase 3' },
+  { feature: 'Reports module', origin: 'Phase 3' },
+  { feature: 'Owners + Ownership Structure', origin: 'PR-06b', note: 'next slot' },
+  { feature: 'Audit log', origin: 'PR-07' },
+];
+
 export function MyDay() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
   const { data: properties } = useSharePointList<Property>(
@@ -208,6 +235,36 @@ export function MyDay() {
               <StatusBadge status={pr.status} />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Backlog — outstanding work from earlier planning */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
+        <div className="px-5 py-3 border-b border-gray-100">
+          <h2 className="text-base font-semibold text-teal-700">Backlog</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Originally scoped but not yet shipped · {BACKLOG.length} items
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th className="px-5 py-2 text-left">Feature</th>
+                <th className="px-5 py-2 text-left w-32">Originally In</th>
+                <th className="px-5 py-2 text-left">Note</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {BACKLOG.map((item) => (
+                <tr key={item.feature}>
+                  <td className="px-5 py-2 text-gray-700">{item.feature}</td>
+                  <td className="px-5 py-2 font-mono-data text-xs text-gray-500">{item.origin}</td>
+                  <td className="px-5 py-2 text-xs text-gray-500 italic">{item.note || ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 

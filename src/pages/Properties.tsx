@@ -64,7 +64,7 @@ export function Properties() {
         <button
           className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           disabled
-          title="Property creation wizard ships in PR-05"
+          title="Property creation wizard is on the Backlog (originally PR-05)"
         >
           <Icon name="plus" size={16} />
           New Property
@@ -186,7 +186,7 @@ export function Properties() {
       </div>
 
       <p className="text-xs text-gray-400 mt-4 text-center">
-        Click any property to drill into its detail page · Inline editing and the creation wizard ship in PR-05b/c.
+        Click any property to drill into its detail page · Property creation wizard is on the Backlog.
       </p>
     </div>
   );
