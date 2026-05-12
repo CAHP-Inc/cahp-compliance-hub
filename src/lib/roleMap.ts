@@ -18,16 +18,17 @@ import type { Role } from './permissions';
  */
 const EMAIL_ROLE_MAP: Record<string, Role> = {
   // ============================================================
-  // EDIT THIS: replace with your real email before running locally.
+  // Active access list. To add team members: add their email + role here,
+  // commit, push. Production picks up the change on the next deploy.
   // ============================================================
   'bturner@newshirepm.com': 'Admin',
 
   // Future team members (uncomment and update emails when adding):
   // 'bryan@cahphousing.org': 'Admin',
   // 'stan@vanrock.com': 'Admin',
-  // 'lori@newshire.com': 'Contributor',
-  // 'cara@newshire.com': 'Contributor',
-  // 'chris@newshire.com': 'Accounting',
+  // 'lori@newshirepm.com': 'Contributor',
+  // 'cara@newshirepm.com': 'Contributor',
+  // 'chris@newshirepm.com': 'Accounting',
 };
 
 /**

@@ -5,6 +5,7 @@ import { SignInGate } from './components/auth/SignInGate';
 import { MyDay } from './pages/MyDay';
 import { Properties } from './pages/Properties';
 import { PropertyDetail } from './pages/PropertyDetail';
+import { Compliance } from './pages/Compliance';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function App() {
@@ -23,7 +24,7 @@ function App() {
             <Route path="/submittals" element={<PlaceholderPage title="Submittals" icon="file" plannedPR="Phase 2" />} />
             <Route path="/correspondence" element={<PlaceholderPage title="DOR Correspondence" icon="mail" plannedPR="Phase 2" />} />
             <Route path="/comms" element={<PlaceholderPage title="Owner Communications" icon="mail" plannedPR="Phase 3" />} />
-            <Route path="/compliance" element={<PlaceholderPage title="Compliance" icon="calendar" plannedPR="Phase 3" />} />
+            <Route path="/compliance" element={<Compliance />} />
             <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Phase 3" />} />
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
             <Route path="/untagged" element={<PlaceholderPage title="Untagged Documents" icon="alert" plannedPR="Phase 2" />} />
