@@ -27,8 +27,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-08a', label: 'Property Detail: Compliance + Ownership + Documents tabs', status: 'done' as const },
   { id: 'PR-08b', label: 'Property creation wizard', status: 'done' as const },
   { id: 'PR-08c', label: 'Disposition workflow', status: 'done' as const },
-  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'next' as const },
-  { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'pending' as const },
+  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'done' as const },
+  { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -105,21 +105,21 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-08c banner */}
+      {/* PR-08d banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            08c
+            08d
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-08c deployed. Disposition workflow is live.
+              PR-08d deployed. Per-property Notes thread is live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Open any Active or Pending property. There's now a red <strong>Dispose</strong> button
-              in the action bar. Guided modal captures disposition type (Sold / Withdrawn / Removed),
-              date, and reason. Updates PropertyStatus and writes a structured RemovedReason. The
-              whole transition is captured in the Audit Log.
+              Open any property → <strong>Notes</strong> tab. Post a note in a textbox; it lands
+              tagged with your name and timestamp. Each note is logged to the Audit Log as a CREATE.
+              The legacy single-field <code>PropertyNotes</code> on the Overview tab still works
+              for one-line summary status — the Notes thread is for ongoing activity.
             </p>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
+  createListItem,
   updateListItem,
   LIST_NAMES,
   type Property,
@@ -14,6 +15,7 @@ import {
   type DeadlineStatus,
   type Ownership,
   type RelationshipType,
+  type PropertyNote,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
@@ -66,7 +68,7 @@ const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'compliance', label: 'Compliance', shipped: true },
   { id: 'ownership', label: 'Ownership', shipped: true },
   { id: 'documents', label: 'Documents', shipped: true },
-  { id: 'notes', label: 'Notes', shipped: false }, // PR-08d adds new Notes list + thread
+  { id: 'notes', label: 'Notes', shipped: true },
 ];
 
 export function PropertyDetail() {
@@ -307,6 +309,7 @@ export function PropertyDetail() {
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
+      {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
 
       {dispositionOpen && (
         <DispositionModal
@@ -777,6 +780,150 @@ interface DocItemRaw {
     SuppDocType?: string;
     EntityDocType?: string;
   };
+}
+
+// =============================================================================
+// Tab: Notes — per-property notes thread (PR-08d)
+// =============================================================================
+
+function PropertyNotesTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+  const { data: allNotes, loading, error, refetch } = useSharePointList<PropertyNote>(
+    LIST_NAMES.PropertyNotes,
+    { top: 500 }
+  );
+
+  const [newNote, setNewNote] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  const propertyNotes = useMemo(() => {
+    if (!allNotes) return [];
+    return allNotes
+      .filter((n) => String(n.fields.PropertyLookupId) === String(propertyId))
+      .sort((a, b) => new Date(b.createdDateTime).getTime() - new Date(a.createdDateTime).getTime());
+  }, [allNotes, propertyId]);
+
+  const handleAdd = async () => {
+    const trimmed = newNote.trim();
+    if (!trimmed) return;
+    setPosting(true);
+    setPostError(null);
+    try {
+      // Title gets first 80 chars of body since SP requires Title to be non-empty.
+      // Frontend never displays Title — only NoteBody, author, timestamp.
+      const title = trimmed.length > 80 ? trimmed.slice(0, 77) + '…' : trimmed;
+      await createListItem(LIST_NAMES.PropertyNotes, {
+        Title: title,
+        NoteBody: trimmed,
+        PropertyLookupId: propertyId,
+      });
+      setNewNote('');
+      refetch();
+    } catch (err) {
+      setPostError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  if (loading) return <TabLoading label="notes" />;
+  if (error) {
+    // Most likely cause: Property Notes list doesn't exist yet — provisioning script wasn't run.
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+        <div className="font-semibold text-error mb-2 flex items-center gap-2">
+          <Icon name="alert" size={18} />
+          Notes list unavailable
+        </div>
+        <p className="text-sm text-red-700 mb-2">
+          Most likely cause: the Property Notes SharePoint list hasn't been provisioned yet.
+        </p>
+        <p className="text-xs text-red-600 font-mono-data">{error.message}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* New note input */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card p-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Add a note</h3>
+        <textarea
+          value={newNote}
+          onChange={(e) => setNewNote(e.target.value)}
+          rows={3}
+          placeholder={`Note about ${propertyTitle}…`}
+          disabled={posting}
+          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 resize-y disabled:opacity-50"
+        />
+        {postError && (
+          <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-sm text-error font-mono-data text-xs">
+            {postError}
+          </div>
+        )}
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-400">
+            Notes are timestamped and attributed automatically. Logged to the Audit Log.
+          </p>
+          <button
+            onClick={handleAdd}
+            disabled={!newNote.trim() || posting}
+            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 flex items-center gap-1.5"
+          >
+            {posting && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
+            {posting ? 'Posting…' : 'Post Note'}
+          </button>
+        </div>
+      </div>
+
+      {/* Notes list */}
+      {propertyNotes.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500">No notes yet for this property. Add the first one above.</p>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card divide-y divide-gray-100">
+          <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              {propertyNotes.length} note{propertyNotes.length === 1 ? '' : 's'} · most recent first
+            </h3>
+          </div>
+          {propertyNotes.map((note) => (
+            <div key={note.id} className="p-4">
+              <div className="flex items-center gap-2 mb-1.5 text-xs">
+                <span className="font-semibold text-gray-700">
+                  {note.createdBy?.user?.displayName ?? 'Unknown author'}
+                </span>
+                <span className="text-gray-400">·</span>
+                <span className="font-mono-data text-gray-500">
+                  {formatNoteTimestamp(note.createdDateTime)}
+                </span>
+              </div>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                {note.fields.NoteBody || note.fields.Title || '(empty note)'}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatNoteTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 // =============================================================================

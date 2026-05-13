@@ -23,6 +23,20 @@ export interface SharePointListItem<TFields = Record<string, unknown>> {
   createdDateTime: string;
   lastModifiedDateTime: string;
   webUrl?: string;
+  createdBy?: {
+    user?: {
+      displayName?: string;
+      email?: string;
+      id?: string;
+    };
+  };
+  lastModifiedBy?: {
+    user?: {
+      displayName?: string;
+      email?: string;
+      id?: string;
+    };
+  };
   fields: TFields & {
     id?: string;
     Title?: string;
@@ -356,6 +370,18 @@ export interface AuditLogFields {
 export type AuditLog = SharePointListItem<AuditLogFields>;
 
 // =============================================================================
+// LIST: Property Notes (PR-08d)
+// =============================================================================
+
+export interface PropertyNoteFields {
+  Title?: string;                 // SP-required, auto-derived from NoteBody first 80 chars
+  NoteBody?: string;              // The note content
+  PropertyLookupId?: string;      // Lookup → Properties Registry
+}
+
+export type PropertyNote = SharePointListItem<PropertyNoteFields>;
+
+// =============================================================================
 // LIST NAMES — for reference and to catch typos at the call site
 // =============================================================================
 
@@ -369,6 +395,7 @@ export const LIST_NAMES = {
   KnownIssues: 'Known Issues Log',
   Ownership: 'Ownership Structure',
   AuditLog: 'AuditLog',
+  PropertyNotes: 'Property Notes',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

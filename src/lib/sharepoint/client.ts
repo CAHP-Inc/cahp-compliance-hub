@@ -247,6 +247,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   'Outstanding Items Checklist': 'Outstanding Item',
   'Known Issues Log': 'Known Issue',
   'Ownership Structure': 'Ownership Record',
+  'Property Notes': 'Note',
 };
 
 interface AuditLogInput {
