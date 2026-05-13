@@ -14,6 +14,7 @@ import {
   type ComplianceDeadline,
   type DeadlineStatus,
   type Ownership,
+  type Owner,
   type RelationshipType,
   type PropertyNote,
 } from '../lib/sharepoint';
@@ -514,17 +515,23 @@ const RELATIONSHIP_STYLES: Record<RelationshipType, string> = {
 
 function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
   const navigate = useNavigate();
-  const { data: allOwnership, loading, error } = useSharePointList<Ownership>(
-    LIST_NAMES.Ownership,
-    { top: 500 }
-  );
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
+  const loading = ownership.loading || owners.loading;
+  const error = ownership.error || owners.error;
+
+  const ownersById = useMemo(() => {
+    if (!owners.data) return new Map<string, Owner>();
+    return new Map(owners.data.map((o) => [String(o.id), o]));
+  }, [owners.data]);
 
   const directOwnership = useMemo(() => {
-    if (!allOwnership) return [];
-    return allOwnership
+    if (!ownership.data) return [];
+    return ownership.data
       .filter((o) => String(o.fields.LinkedPropertyLookupId) === String(propertyId))
       .sort((a, b) => (b.fields.OwnershipPercent ?? 0) - (a.fields.OwnershipPercent ?? 0));
-  }, [allOwnership, propertyId]);
+  }, [ownership.data, propertyId]);
 
   if (loading) return <TabLoading label="ownership records" />;
   if (error) return <TabError error={error} />;
@@ -536,7 +543,7 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
           No ownership records on file for this property yet.
         </p>
         <Link
-          to="/ownership/new"
+          to={`/ownership/new?propertyId=${propertyId}`}
           className="inline-block mt-2 text-sm text-teal-700 hover:text-teal-900 font-medium underline"
         >
           Add the first ownership entry →
@@ -559,7 +566,7 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
             </p>
           </div>
           <Link
-            to="/ownership/new"
+            to={`/ownership/new?propertyId=${propertyId}`}
             className="text-xs text-teal-700 hover:text-teal-900 font-medium"
           >
             + Add owner
@@ -569,36 +576,57 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
           <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
             <tr>
               <th className="px-4 py-3 text-left">Entity</th>
-              <th className="px-4 py-3 text-left">Relationship</th>
+              <th className="px-4 py-3 text-left">Type</th>
+              <th className="px-4 py-3 text-left">Role</th>
               <th className="px-4 py-3 text-right">%</th>
-              <th className="px-4 py-3 text-left">Parent Entity</th>
               <th className="px-4 py-3 text-left">Effective</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {directOwnership.map((o) => (
-              <tr
-                key={o.id}
-                onClick={() => navigate(`/ownership/${o.id}`)}
-                className="hover:bg-gray-50 transition-colors cursor-pointer"
-              >
-                <td className="px-4 py-3 font-medium text-gray-900">{o.fields.Title}</td>
-                <td className="px-4 py-3">
-                  {o.fields.RelationshipType ? (
-                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${RELATIONSHIP_STYLES[o.fields.RelationshipType] || 'bg-gray-100'}`}>
-                      {o.fields.RelationshipType}
-                    </span>
-                  ) : '—'}
-                </td>
-                <td className="px-4 py-3 text-right font-mono-data">
-                  {o.fields.OwnershipPercent != null ? `${o.fields.OwnershipPercent}%` : '—'}
-                </td>
-                <td className="px-4 py-3 text-gray-700 text-xs">{o.fields.ParentEntity || '—'}</td>
-                <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                  {formatDate(o.fields.EffectiveDate)}
-                </td>
-              </tr>
-            ))}
+            {directOwnership.map((o) => {
+              const owner = o.fields.OwnerLookupId ? ownersById.get(String(o.fields.OwnerLookupId)) : null;
+              const entityName = owner?.fields.Title ?? o.fields.Title ?? '(unnamed)';
+              const isLegacy = !owner; // Row predates the Owner lookup migration
+              return (
+                <tr
+                  key={o.id}
+                  onClick={() => {
+                    if (owner) navigate(`/owners/${owner.id}`);
+                    else navigate(`/ownership/${o.id}`);
+                  }}
+                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {entityName}
+                    {isLegacy && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                        legacy
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {owner?.fields.OwnerType && (
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700">
+                        {owner.fields.OwnerType}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {o.fields.RelationshipType ? (
+                      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${RELATIONSHIP_STYLES[o.fields.RelationshipType] || 'bg-gray-100'}`}>
+                        {o.fields.RelationshipType}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono-data">
+                    {o.fields.OwnershipPercent != null ? `${o.fields.OwnershipPercent}%` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                    {formatDate(o.fields.EffectiveDate)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -248,6 +248,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   'Known Issues Log': 'Known Issue',
   'Ownership Structure': 'Ownership Record',
   'Property Notes': 'Note',
+  'Owners': 'Owner',
 };
 
 interface AuditLogInput {

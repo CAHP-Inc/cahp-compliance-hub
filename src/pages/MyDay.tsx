@@ -29,6 +29,9 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-08c', label: 'Disposition workflow', status: 'done' as const },
   { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'done' as const },
   { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'done' as const },
+  { id: 'PR-09a', label: 'Owners entity master + recursive ownership engine', status: 'done' as const },
+  { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'next' as const },
+  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'pending' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -105,23 +108,23 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-08e / Phase 1 complete banner */}
-      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
+      {/* PR-09a banner */}
+      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
-            <Icon name="check" size={20} />
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
+            09a
           </div>
           <div className="flex-1">
-            <div className="font-bold text-teal-900 text-lg">
-              Phase 1 is complete.
+            <div className="font-semibold text-teal-900">
+              PR-09a deployed. Owners is now an entity master.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              PR-08e shipped. <strong>Portfolio dashboard</strong> aggregates everything,
-              <strong> global search</strong> (⌘K) spans Properties, Deadlines, and Owners, the
-              Watch placeholder is gone, and the bell icon waits for Phase 3 notifications.
-              The full Phase 1 backbone is live: auth, audit logging, Properties (create, edit, dispose, sub-tabs),
-              Compliance, Ownership, Notes, Portfolio analytics.
-              Phase 2 picks up Submittals editing, DOR Correspondence, Outstanding Items, and document uploads.
+              <strong>Owners</strong> in the nav is the single source of truth for every entity
+              with ownership interest. Create one Owner record per entity (VanRock Holdings = 1 row),
+              then reuse it across as many properties as it appears in. <strong>Ownership Structure</strong>
+              is now the junction table — relationships use dropdown lookups instead of free text.
+              Relationship types are simplified to <strong>Managing Member</strong> and <strong>Member</strong>.
+              The recursive engine powers Property Holdings counts and beneficial-ownership walks.
             </p>
           </div>
         </div>

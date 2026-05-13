@@ -327,22 +327,48 @@ export interface KnownIssueFields {
 export type KnownIssue = SharePointListItem<KnownIssueFields>;
 
 // =============================================================================
-// LIST: Ownership Structure (currently empty in SharePoint; populated in PR-06)
+// LIST: Owners — entity master (PR-09a)
+// =============================================================================
+
+export type OwnerType = 'Individual' | 'LLC' | 'Nonprofit';
+
+export interface OwnerFields {
+  Title?: string;                  // Legal entity name (e.g., "VanRock Holdings LLC")
+  OwnerType?: OwnerType;
+  OwnerState?: string;             // State of formation (LLC/Nonprofit) or residence (Individual)
+  TaxID?: string;                  // EIN or SSN — masked in UI
+  ContactEmail?: string;
+  OwnerNotes?: string;
+}
+
+export type Owner = SharePointListItem<OwnerFields>;
+
+// =============================================================================
+// LIST: Ownership Structure (junction table — refactored in PR-09a)
 // =============================================================================
 
 export type RelationshipType =
   | 'Managing Member'
   | 'Member'
-  | 'Owner'
-  | 'Subsidiary'
-  | 'Beneficial Owner';
+  | 'Owner'           // legacy — still rendered for old rows
+  | 'Subsidiary'      // legacy
+  | 'Beneficial Owner';  // legacy — beneficial ownership is now computed by the recursive engine
+
+/**
+ * Primary relationship types shown in the new ownership UI.
+ * Legacy types (Owner, Subsidiary, Beneficial Owner) remain in the full union so existing rows
+ * with those values display correctly, but new entries only get these two clean options.
+ */
+export const PRIMARY_RELATIONSHIP_TYPES: RelationshipType[] = ['Managing Member', 'Member'];
 
 export interface OwnershipFields {
-  Title: string;                              // Entity Name
+  Title?: string;                              // Auto-derived from Owner lookup; legacy rows have free-text
+  OwnerLookupId?: string;                      // NEW PR-09a: Lookup → Owners (this row's entity)
+  ParentOwnerLookupId?: string;                // NEW PR-09a: Lookup → Owners (parent entity if this is a member-of-member chain)
+  ParentEntity?: string;                       // Legacy free-text parent — preserved for back-compat
+  LinkedPropertyLookupId?: string;             // → Properties Registry
   RelationshipType?: RelationshipType;
   OwnershipPercent?: number;
-  ParentEntity?: string;
-  LinkedPropertyLookupId?: string;            // → Properties Registry
   EffectiveDate?: string;
   SourceDocument?: string;
   EntityNotes?: string;
@@ -396,6 +422,7 @@ export const LIST_NAMES = {
   Ownership: 'Ownership Structure',
   AuditLog: 'AuditLog',
   PropertyNotes: 'Property Notes',
+  Owners: 'Owners',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
