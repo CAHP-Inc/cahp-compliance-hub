@@ -17,6 +17,10 @@ import {
   type Owner,
   type RelationshipType,
   type PropertyNote,
+  getBeneficialOwnershipTree,
+  computeBeneficialOwnership,
+  type OwnershipNode,
+  type BeneficialOwner,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
@@ -61,13 +65,14 @@ const CHOICES = {
   PropertyStatus: ['Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold'] as const,
 } as const;
 
-type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'documents' | 'notes';
+type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'orgChart' | 'documents' | 'notes';
 
 const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'overview', label: 'Overview', shipped: true },
   { id: 'submittals', label: 'Submittals', shipped: true },
   { id: 'compliance', label: 'Compliance', shipped: true },
   { id: 'ownership', label: 'Ownership', shipped: true },
+  { id: 'orgChart', label: 'Org Chart', shipped: true },
   { id: 'documents', label: 'Documents', shipped: true },
   { id: 'notes', label: 'Notes', shipped: true },
 ];
@@ -302,6 +307,7 @@ export function PropertyDetail() {
       {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} />}
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
+      {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
       {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
 
@@ -497,6 +503,312 @@ function PropertyComplianceTab({ propertyId }: { propertyId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Org Chart — visual hierarchy with 3 layouts (PR-09b)
+// =============================================================================
+
+type ChartLayout = 'detailed' | 'beneficial' | 'dor';
+
+const LAYOUT_INFO: Record<ChartLayout, { label: string; description: string }> = {
+  detailed: {
+    label: 'Detailed',
+    description: 'Full ownership chain — property at top, members below, recursive until natural persons or nonprofits.',
+  },
+  beneficial: {
+    label: 'Beneficial',
+    description: 'Collapsed to natural-person and nonprofit beneficial owners with compounded percentages.',
+  },
+  dor: {
+    label: 'DOR-Friendly',
+    description: 'Property at the bottom per DOR convention. Same data as Detailed, flipped vertical orientation.',
+  },
+};
+
+const OWNER_TYPE_BADGE_STYLES: Record<string, string> = {
+  Individual: 'bg-blue-100 text-blue-800',
+  LLC: 'bg-purple-100 text-purple-800',
+  Nonprofit: 'bg-teal-100 text-teal-800',
+};
+
+function PropertyOrgChartTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+  const [layout, setLayout] = useState<ChartLayout>('detailed');
+
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
+  const loading = ownership.loading || owners.loading;
+  const error = ownership.error || owners.error;
+
+  const tree = useMemo(() => {
+    if (!ownership.data || !owners.data) return [];
+    return getBeneficialOwnershipTree('property', propertyId, ownership.data, owners.data);
+  }, [ownership.data, owners.data, propertyId]);
+
+  const beneficial = useMemo(() => {
+    if (!ownership.data || !owners.data) return [];
+    return computeBeneficialOwnership('property', propertyId, ownership.data, owners.data);
+  }, [ownership.data, owners.data, propertyId]);
+
+  if (loading) return <TabLoading label="org chart" />;
+  if (error) return <TabError error={error} />;
+
+  const hasData = tree.length > 0;
+
+  return (
+    <div>
+      {/* Layout switcher */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4 shadow-card">
+        <div className="flex flex-wrap gap-2 mb-2">
+          {(Object.keys(LAYOUT_INFO) as ChartLayout[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => setLayout(key)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                layout === key
+                  ? 'bg-teal-700 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {LAYOUT_INFO[key].label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500">{LAYOUT_INFO[layout].description}</p>
+      </div>
+
+      {/* Empty state */}
+      {!hasData ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500 mb-2">
+            No ownership records — there's nothing to render yet.
+          </p>
+          <p className="text-xs text-gray-400">
+            Add owners to this property via the Ownership tab, then trace the chain by adding member-of relationships on each Owner's detail page.
+          </p>
+        </div>
+      ) : (
+        <>
+          {layout === 'detailed' && <DetailedChart tree={tree} propertyTitle={propertyTitle} />}
+          {layout === 'beneficial' && <BeneficialChart beneficialOwners={beneficial} propertyTitle={propertyTitle} />}
+          {layout === 'dor' && <DORChart tree={tree} propertyTitle={propertyTitle} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Layout 1: Detailed (top-down)
+// ─────────────────────────────────────────────────────────────
+
+function DetailedChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitle: string }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5">
+      <PropertyRootNode title={propertyTitle} />
+      <div className="pl-6 ml-3 border-l-2 border-gray-300 mt-2 space-y-2">
+        {tree.map((node) => (
+          <TreeBranch key={node.relationship.id} node={node} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TreeBranch({ node }: { node: OwnershipNode }) {
+  return (
+    <div>
+      <EntityCard
+        name={node.owner?.fields.Title ?? '(unresolved)'}
+        ownerType={node.owner?.fields.OwnerType}
+        relationshipType={node.relationship.fields.RelationshipType}
+        percent={node.relationship.fields.OwnershipPercent}
+      />
+      {node.children.length > 0 && (
+        <div className="pl-6 ml-3 border-l-2 border-gray-300 mt-2 space-y-2">
+          {node.children.map((child) => (
+            <TreeBranch key={child.relationship.id} node={child} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Layout 2: Beneficial (flat list of natural persons / nonprofits)
+// ─────────────────────────────────────────────────────────────
+
+function BeneficialChart({
+  beneficialOwners,
+  propertyTitle,
+}: {
+  beneficialOwners: BeneficialOwner[];
+  propertyTitle: string;
+}) {
+  const totalKnown = beneficialOwners.reduce((sum, b) => sum + b.beneficialPercent, 0);
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700">Beneficial owners of {propertyTitle}</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {beneficialOwners.length} terminal owner{beneficialOwners.length === 1 ? '' : 's'} · {totalKnown.toFixed(2)}% of ownership chain traced
+          {totalKnown < 99.9 && (
+            <span className="text-warning"> · {(100 - totalKnown).toFixed(2)}% not yet traced (missing upstream relationships)</span>
+          )}
+        </p>
+      </div>
+      {beneficialOwners.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-gray-500">
+          No natural-person or nonprofit terminal owners found. Add upstream member relationships on the Owner detail pages.
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {beneficialOwners.map((b) => (
+            <li key={b.owner.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="font-medium text-gray-900 truncate">{b.owner.fields.Title}</span>
+                  {b.owner.fields.OwnerType && (
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${OWNER_TYPE_BADGE_STYLES[b.owner.fields.OwnerType]}`}>
+                      {b.owner.fields.OwnerType}
+                    </span>
+                  )}
+                </div>
+                <span className="font-mono-data text-sm font-semibold text-teal-700 flex-shrink-0">
+                  {b.beneficialPercent.toFixed(2)}%
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-teal-500 rounded-full"
+                  style={{ width: `${Math.min(100, b.beneficialPercent)}%` }}
+                />
+              </div>
+              {b.paths.length > 0 && (
+                <div className="mt-1.5 text-xs text-gray-500">
+                  {b.paths.map((path, idx) => (
+                    <div key={idx} className="font-mono-data">
+                      via {path.intermediates.length === 0 ? '(direct)' : path.intermediates.map((i) => i.owner.fields.Title).join(' ← ')}
+                      {' · '}{path.pathPercent.toFixed(2)}%
+                    </div>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Layout 3: DOR-Friendly (bottom-up, property at the bottom)
+// ─────────────────────────────────────────────────────────────
+
+function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitle: string }) {
+  // Group nodes by depth and render bottom-up: deepest nodes at the top, property at the bottom
+  const levelGroups = useMemo(() => groupByDepth(tree), [tree]);
+  const maxDepth = levelGroups.length;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5 overflow-x-auto">
+      <p className="text-xs text-gray-500 mb-4 italic">
+        Beneficial owners at the top, property at the bottom — the orientation DOR prefers for org chart submissions.
+      </p>
+      <div className="flex flex-col items-center space-y-3 min-w-fit">
+        {[...levelGroups].reverse().map((nodes, idx) => (
+          <div key={idx} className="flex flex-col items-center">
+            <div className="flex flex-wrap justify-center gap-3 max-w-4xl">
+              {nodes.map((node) => (
+                <div key={node.relationship.id} className="min-w-[200px]">
+                  <EntityCard
+                    name={node.owner?.fields.Title ?? '(unresolved)'}
+                    ownerType={node.owner?.fields.OwnerType}
+                    relationshipType={node.relationship.fields.RelationshipType}
+                    percent={node.relationship.fields.OwnershipPercent}
+                  />
+                </div>
+              ))}
+            </div>
+            {/* Connector arrow */}
+            {idx < maxDepth && (
+              <div className="my-1 text-gray-400 text-xs flex flex-col items-center">
+                <div className="w-0.5 h-3 bg-gray-300" />
+                <Icon name="alert" size={10} className="rotate-180" />
+              </div>
+            )}
+          </div>
+        ))}
+        {/* Property at the bottom */}
+        <div className="min-w-[200px] pt-1">
+          <PropertyRootNode title={propertyTitle} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function groupByDepth(tree: OwnershipNode[]): OwnershipNode[][] {
+  const groups: OwnershipNode[][] = [];
+  function walk(nodes: OwnershipNode[], depth: number) {
+    if (!groups[depth]) groups[depth] = [];
+    nodes.forEach((n) => {
+      groups[depth].push(n);
+      if (n.children.length > 0) walk(n.children, depth + 1);
+    });
+  }
+  walk(tree, 0);
+  return groups;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shared node components
+// ─────────────────────────────────────────────────────────────
+
+function PropertyRootNode({ title }: { title: string }) {
+  return (
+    <div className="inline-block bg-gold-50 border-2 border-gold-500 rounded-lg px-4 py-2 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Icon name="folder" size={14} className="text-gold-700" />
+        <span className="font-bold text-teal-900 text-sm">{title}</span>
+        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gold-200 text-gold-900">
+          PROPERTY
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function EntityCard({
+  name,
+  ownerType,
+  relationshipType,
+  percent,
+}: {
+  name: string;
+  ownerType?: string;
+  relationshipType?: string;
+  percent?: number;
+}) {
+  return (
+    <div className="inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-semibold text-gray-900 text-sm">{name}</span>
+        {ownerType && (
+          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${OWNER_TYPE_BADGE_STYLES[ownerType] ?? 'bg-gray-100 text-gray-700'}`}>
+            {ownerType}
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-gray-600 mt-0.5 font-mono-data">
+        {relationshipType ?? 'Member'} · {percent != null ? `${percent}%` : '—'}
+      </div>
     </div>
   );
 }

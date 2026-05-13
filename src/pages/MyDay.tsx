@@ -30,8 +30,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'done' as const },
   { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'done' as const },
   { id: 'PR-09a', label: 'Owners entity master + recursive ownership engine', status: 'done' as const },
-  { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'next' as const },
-  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'pending' as const },
+  { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'done' as const },
+  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -108,23 +108,22 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-09a banner */}
+      {/* PR-09b banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            09a
+            09b
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-09a deployed. Owners is now an entity master.
+              PR-09b deployed. Org Charts render in 3 layouts.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Owners</strong> in the nav is the single source of truth for every entity
-              with ownership interest. Create one Owner record per entity (VanRock Holdings = 1 row),
-              then reuse it across as many properties as it appears in. <strong>Ownership Structure</strong>
-              is now the junction table — relationships use dropdown lookups instead of free text.
-              Relationship types are simplified to <strong>Managing Member</strong> and <strong>Member</strong>.
-              The recursive engine powers Property Holdings counts and beneficial-ownership walks.
+              Open any property → <strong>Org Chart</strong> tab. Switch between <strong>Detailed</strong> (full
+              top-down chain), <strong>Beneficial</strong> (compounded percentages to natural-person owners),
+              and <strong>DOR-Friendly</strong> (property at bottom per DOR convention). The recursive engine
+              walks ownership chains automatically — edit Stan's % of VanRock once, every property where
+              VanRock has interest updates beneficial ownership on the next render.
             </p>
           </div>
         </div>

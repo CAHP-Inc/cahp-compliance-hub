@@ -200,3 +200,96 @@ export function countMembersOf(ownerId: string, allOwnership: Ownership[]): numb
     (o) => String(o.fields.ParentOwnerLookupId) === String(ownerId)
   ).length;
 }
+
+// =============================================================================
+// Beneficial ownership computation
+// =============================================================================
+
+export interface BeneficialOwner {
+  /** The natural person or nonprofit at the top of an ownership chain */
+  owner: Owner;
+  /** Effective beneficial ownership of the subject (compounded percentages) */
+  beneficialPercent: number;
+  /** Each path through the chain that contributes to this beneficial owner's stake */
+  paths: BeneficialPath[];
+}
+
+export interface BeneficialPath {
+  /** The intermediate entities walked, from subject up to terminal owner (exclusive of terminal) */
+  intermediates: { owner: Owner; relationship: Ownership }[];
+  /** The terminal relationship (the row linking the natural person / nonprofit to the intermediate) */
+  terminalRelationship: Ownership;
+  /** The percentage of the subject this path represents */
+  pathPercent: number;
+}
+
+/**
+ * Walks the ownership tree from a subject, multiplying percentages along the way,
+ * to produce a list of beneficial owners — the natural persons and nonprofits at the
+ * top of the chain who hold the actual economic interest in the subject.
+ *
+ * If the same beneficial owner appears via multiple chains, percentages are summed
+ * and all chains are recorded.
+ *
+ * Used for: DOR org charts (beneficial ownership disclosure), FinCEN BOI reporting.
+ */
+export function computeBeneficialOwnership(
+  subjectType: SubjectType,
+  subjectId: string,
+  allOwnership: Ownership[],
+  allOwners: Owner[]
+): BeneficialOwner[] {
+  const accumulator = new Map<string, BeneficialOwner>();
+
+  function walk(
+    subjType: SubjectType,
+    subjId: string,
+    cumulativePct: number,
+    pathSoFar: { owner: Owner; relationship: Ownership }[],
+    visited: Set<string>
+  ) {
+    const direct = getDirectOwnersOf(subjType, subjId, allOwnership, allOwners);
+
+    for (const { relationship, owner } of direct) {
+      if (!owner) continue;
+      const ownerId = String(owner.id);
+      if (visited.has(ownerId)) continue;
+
+      const directPct = relationship.fields.OwnershipPercent ?? 0;
+      const effectivePct = (cumulativePct * directPct) / 100;
+
+      const ownerType = owner.fields.OwnerType;
+      const isTerminal = ownerType === 'Individual' || ownerType === 'Nonprofit';
+
+      if (isTerminal) {
+        const existing = accumulator.get(ownerId);
+        const path: BeneficialPath = {
+          intermediates: [...pathSoFar],
+          terminalRelationship: relationship,
+          pathPercent: effectivePct,
+        };
+        if (existing) {
+          existing.beneficialPercent += effectivePct;
+          existing.paths.push(path);
+        } else {
+          accumulator.set(ownerId, {
+            owner,
+            beneficialPercent: effectivePct,
+            paths: [path],
+          });
+        }
+      } else {
+        // LLC or unknown — recurse upstream
+        const newVisited = new Set(visited);
+        newVisited.add(ownerId);
+        walk('owner', ownerId, effectivePct, [...pathSoFar, { owner, relationship }], newVisited);
+      }
+    }
+  }
+
+  walk(subjectType, subjectId, 100, [], new Set());
+
+  return Array.from(accumulator.values()).sort(
+    (a, b) => b.beneficialPercent - a.beneficialPercent
+  );
+}
