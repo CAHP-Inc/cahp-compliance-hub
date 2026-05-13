@@ -6,6 +6,7 @@ import { MyDay } from './pages/MyDay';
 import { Properties } from './pages/Properties';
 import { PropertyDetail } from './pages/PropertyDetail';
 import { PropertyNew } from './pages/PropertyNew';
+import { Portfolio } from './pages/Portfolio';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -22,7 +23,7 @@ function App() {
           <Routes>
             <Route path="/" element={<MyDay />} />
             <Route path="/outstanding" element={<PlaceholderPage title="Outstanding Items" icon="alert" plannedPR="PR-07" />} />
-            <Route path="/portfolio" element={<PlaceholderPage title="Portfolio" icon="grid" plannedPR="Backlog" />} />
+            <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/properties/new" element={<PropertyNew />} />
             <Route path="/properties/:id" element={<PropertyDetail />} />

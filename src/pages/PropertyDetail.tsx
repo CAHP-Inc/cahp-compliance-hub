@@ -221,13 +221,6 @@ export function PropertyDetail() {
         <div className="flex items-center gap-2">
           {!editing && (
             <>
-              <button
-                className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled title="Watch button ships in a future PR"
-              >
-                <Icon name="star" size={14} />
-                Watch
-              </button>
               {(property.fields.PropertyStatus === 'Active' || property.fields.PropertyStatus === 'Pending') && (
                 <button
                   onClick={() => setDispositionOpen(true)}
