@@ -10,6 +10,7 @@ import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
 import { OwnershipDetail } from './pages/OwnershipDetail';
 import { OwnershipNew } from './pages/OwnershipNew';
+import { Audit } from './pages/Audit';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 function App() {
@@ -37,7 +38,7 @@ function App() {
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
             <Route path="/untagged" element={<PlaceholderPage title="Untagged Documents" icon="alert" plannedPR="Phase 2" />} />
             <Route path="/reports" element={<PlaceholderPage title="Reports" icon="file" plannedPR="Phase 3" />} />
-            <Route path="/audit" element={<PlaceholderPage title="Audit Log" icon="history" plannedPR="PR-07" />} />
+            <Route path="/audit" element={<Audit />} />
             <Route path="/settings" element={<PlaceholderPage title="Settings" icon="settings" plannedPR="Phase 3" />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

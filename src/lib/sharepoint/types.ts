@@ -337,6 +337,25 @@ export interface OwnershipFields {
 export type Ownership = SharePointListItem<OwnershipFields>;
 
 // =============================================================================
+// LIST: AuditLog (PR-07)
+// =============================================================================
+
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
+
+export interface AuditLogFields {
+  Title: string;                // Event summary (e.g., "Updated Property: 135 Oakwood")
+  Action: AuditAction;
+  EntityType?: string;          // Logical entity name (e.g., "Property", "Compliance Deadline")
+  EntityId?: string;            // SharePoint item ID of affected record
+  EntityTitle?: string;         // Human-readable name of affected record at time of change
+  ChangeSummary?: string;       // Field-by-field readable diff
+  BeforeJSON?: string;          // Full record JSON before change (forensic detail)
+  AfterJSON?: string;           // Full record JSON after change
+}
+
+export type AuditLog = SharePointListItem<AuditLogFields>;
+
+// =============================================================================
 // LIST NAMES — for reference and to catch typos at the call site
 // =============================================================================
 
@@ -349,6 +368,7 @@ export const LIST_NAMES = {
   Outstanding: 'Outstanding Items Checklist',
   KnownIssues: 'Known Issues Log',
   Ownership: 'Ownership Structure',
+  AuditLog: 'AuditLog',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
