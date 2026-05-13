@@ -173,6 +173,14 @@ export function Audit() {
             {filtered.length !== data.length && (
               <span className="text-xs text-gray-500 px-1">{filtered.length} of {data.length}</span>
             )}
+            <button
+              onClick={() => downloadAuditCSV(filtered)}
+              className="ml-auto px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-xs font-medium flex items-center gap-1.5"
+              title="Download filtered rows as CSV"
+            >
+              <Icon name="file" size={12} />
+              Export CSV
+            </button>
           </div>
 
           {/* Table */}
@@ -331,4 +339,65 @@ function formatTimestamp(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function downloadAuditCSV(rows: AuditLog[]) {
+  // Sort newest first (matches table order)
+  const sorted = [...rows].sort(
+    (a, b) => new Date(b.createdDateTime).getTime() - new Date(a.createdDateTime).getTime()
+  );
+
+  const headers = [
+    'Timestamp',
+    'Actor',
+    'Action',
+    'Entity Type',
+    'Entity Title',
+    'Entity ID',
+    'Change Summary',
+    'Before JSON',
+    'After JSON',
+    'Audit ID',
+  ];
+
+  const escapeCSV = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+
+  const csvRows = [
+    headers.join(','),
+    ...sorted.map((r) =>
+      [
+        r.createdDateTime,
+        r.createdBy?.user?.displayName ?? r.createdBy?.user?.email ?? '',
+        r.fields.Action ?? '',
+        r.fields.EntityType ?? '',
+        r.fields.EntityTitle ?? '',
+        r.fields.EntityId ?? '',
+        r.fields.ChangeSummary ?? '',
+        r.fields.BeforeJSON ?? '',
+        r.fields.AfterJSON ?? '',
+        r.id,
+      ]
+        .map(escapeCSV)
+        .join(',')
+    ),
+  ];
+
+  const csv = csvRows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  a.href = url;
+  a.download = `cahp-audit-log-${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

@@ -31,7 +31,7 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'done' as const },
   { id: 'PR-09a', label: 'Owners entity master + recursive ownership engine', status: 'done' as const },
   { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'done' as const },
-  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'next' as const },
+  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'done' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -108,22 +108,24 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-09b banner */}
-      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
+      {/* PR-09c / Phase 1 strict-closure complete banner */}
+      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            09b
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
+            <Icon name="check" size={20} />
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">
-              PR-09b deployed. Org Charts render in 3 layouts.
+            <div className="font-bold text-teal-900 text-lg">
+              Phase 1 is complete — per the strict v1.0 spec.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Open any property → <strong>Org Chart</strong> tab. Switch between <strong>Detailed</strong> (full
-              top-down chain), <strong>Beneficial</strong> (compounded percentages to natural-person owners),
-              and <strong>DOR-Friendly</strong> (property at bottom per DOR convention). The recursive engine
-              walks ownership chains automatically — edit Stan's % of VanRock once, every property where
-              VanRock has interest updates beneficial ownership on the next render.
+              PR-09c shipped. Property Wizard is now <strong>6 steps with atomic creates</strong> — finishing
+              the wizard auto-generates the first Submittal (Initial filing, Draft status), 7 Outstanding
+              Items for initial document collection, and Ownership rows including CAHP SC LLC at 0.01%
+              Managing Member. Property Detail now has all <strong>9 sub-tabs</strong> per spec
+              (Correspondence, Billing, and Activity added). Audit Log has a <strong>CSV export</strong>.
+              Combined with PR-09a (Owners entity master + recursive engine) and PR-09b (Org Chart 3 layouts),
+              every Phase 1 hard gap is closed. Phase 2 starts on solid ground.
             </p>
           </div>
         </div>

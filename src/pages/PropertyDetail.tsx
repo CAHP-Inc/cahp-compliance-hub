@@ -17,6 +17,9 @@ import {
   type Owner,
   type RelationshipType,
   type PropertyNote,
+  type Correspondence,
+  type Billing,
+  type AuditLog,
   getBeneficialOwnershipTree,
   computeBeneficialOwnership,
   type OwnershipNode,
@@ -65,7 +68,7 @@ const CHOICES = {
   PropertyStatus: ['Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold'] as const,
 } as const;
 
-type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'orgChart' | 'documents' | 'notes';
+type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'orgChart' | 'correspondence' | 'billing' | 'documents' | 'activity' | 'notes';
 
 const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'overview', label: 'Overview', shipped: true },
@@ -73,7 +76,10 @@ const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'compliance', label: 'Compliance', shipped: true },
   { id: 'ownership', label: 'Ownership', shipped: true },
   { id: 'orgChart', label: 'Org Chart', shipped: true },
+  { id: 'correspondence', label: 'Correspondence', shipped: true },
+  { id: 'billing', label: 'Billing', shipped: true },
   { id: 'documents', label: 'Documents', shipped: true },
+  { id: 'activity', label: 'Activity', shipped: true },
   { id: 'notes', label: 'Notes', shipped: true },
 ];
 
@@ -308,7 +314,10 @@ export function PropertyDetail() {
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} propertyTitle={property.fields.Title} />}
+      {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
+      {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
+      {activeTab === 'activity' && id && <PropertyActivityTab propertyId={id} />}
       {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
 
       {dispositionOpen && (
@@ -503,6 +512,255 @@ function PropertyComplianceTab({ propertyId }: { propertyId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Correspondence — DOR letters for this property (PR-09c)
+// =============================================================================
+
+function PropertyCorrespondenceTab({ propertyId }: { propertyId: string }) {
+  const { data, loading, error } = useSharePointList<Correspondence>(
+    LIST_NAMES.Correspondence,
+    { top: 500 }
+  );
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return data
+      .filter((c) => String(c.fields.PropertyLookupId) === String(propertyId))
+      .sort((a, b) => {
+        const da = a.fields.DateReceived ? new Date(a.fields.DateReceived).getTime() : 0;
+        const db = b.fields.DateReceived ? new Date(b.fields.DateReceived).getTime() : 0;
+        return db - da;
+      });
+  }, [data, propertyId]);
+
+  if (loading) return <TabLoading label="DOR correspondence" />;
+  if (error) return <TabError error={error} />;
+
+  if (filtered.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500">No DOR correspondence tied to this property.</p>
+        <p className="text-xs text-gray-400 mt-2">
+          Log a letter in the DOR Correspondence module and set the Property field to link it here.
+          Full Correspondence CRUD ships in Phase 2.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+          <tr>
+            <th className="px-4 py-3 text-left">Subject</th>
+            <th className="px-4 py-3 text-left">Direction</th>
+            <th className="px-4 py-3 text-left">Type</th>
+            <th className="px-4 py-3 text-left">Received</th>
+            <th className="px-4 py-3 text-left">Response Due</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {filtered.map((c) => (
+            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+              <td className="px-4 py-3 font-medium text-gray-900">{c.fields.Title}</td>
+              <td className="px-4 py-3 text-xs text-gray-700">{c.fields.Direction || '—'}</td>
+              <td className="px-4 py-3 text-xs text-gray-700">{c.fields.LetterType || '—'}</td>
+              <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.DateReceived)}</td>
+              <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.ResponseDue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Billing — fee invoices for this property (PR-09c)
+// =============================================================================
+
+const BILLING_STATUS_STYLES: Record<string, string> = {
+  'Pending Approval': 'bg-amber-100 text-amber-800',
+  'Ready to Invoice': 'bg-blue-100 text-blue-800',
+  'Invoiced': 'bg-indigo-100 text-indigo-800',
+  'Paid': 'bg-green-100 text-green-800',
+  'Disputed': 'bg-red-100 text-red-800',
+};
+
+function PropertyBillingTab({ propertyId }: { propertyId: string }) {
+  const { data, loading, error } = useSharePointList<Billing>(
+    LIST_NAMES.Billing,
+    { top: 500 }
+  );
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return data
+      .filter((b) => String(b.fields.PropertyLookupId) === String(propertyId))
+      .sort((a, b) => {
+        const ya = Number(a.fields.cahpTaxYear ?? 0);
+        const yb = Number(b.fields.cahpTaxYear ?? 0);
+        return yb - ya;
+      });
+  }, [data, propertyId]);
+
+  if (loading) return <TabLoading label="billing records" />;
+  if (error) return <TabError error={error} />;
+
+  if (filtered.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500">No billing records for this property yet.</p>
+        <p className="text-xs text-gray-400 mt-2">
+          Billing records are auto-created when a submittal is approved (Phase 2 — full Submittal workflow).
+        </p>
+      </div>
+    );
+  }
+
+  const totalBilled = filtered.reduce((sum, b) => sum + (b.fields.AmountBilled ?? 0), 0);
+  const totalAbatement = filtered.reduce((sum, b) => sum + (b.fields.BillApprovedAbatement ?? 0), 0);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total CAHP Fees Billed</div>
+          <div className="text-xl font-bold mt-0.5 text-teal-700 font-mono-data">${totalBilled.toLocaleString()}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total Abatement (basis)</div>
+          <div className="text-xl font-bold mt-0.5 text-gray-700 font-mono-data">${totalAbatement.toLocaleString()}</div>
+        </div>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+            <tr>
+              <th className="px-4 py-3 text-left">Reference</th>
+              <th className="px-4 py-3 text-left">Tax Year</th>
+              <th className="px-4 py-3 text-right">Abatement</th>
+              <th className="px-4 py-3 text-right">Fee %</th>
+              <th className="px-4 py-3 text-right">Billed</th>
+              <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-left">QB Sync</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filtered.map((b) => (
+              <tr key={b.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 font-medium text-gray-900">{b.fields.Title}</td>
+                <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{b.fields.cahpTaxYear || '—'}</td>
+                <td className="px-4 py-3 text-right font-mono-data text-xs">
+                  {b.fields.BillApprovedAbatement ? `$${b.fields.BillApprovedAbatement.toLocaleString()}` : '—'}
+                </td>
+                <td className="px-4 py-3 text-right font-mono-data text-xs">
+                  {b.fields.CAHPFeePercent != null ? `${b.fields.CAHPFeePercent}%` : '—'}
+                </td>
+                <td className="px-4 py-3 text-right font-mono-data font-semibold">
+                  {b.fields.AmountBilled ? `$${b.fields.AmountBilled.toLocaleString()}` : '—'}
+                </td>
+                <td className="px-4 py-3">
+                  {b.fields.BillingStatus ? (
+                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${BILLING_STATUS_STYLES[b.fields.BillingStatus] || 'bg-gray-100'}`}>
+                      {b.fields.BillingStatus}
+                    </span>
+                  ) : '—'}
+                </td>
+                <td className="px-4 py-3 text-xs text-gray-700">{b.fields.QBSyncStatus || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Activity — audit log filtered to this property (PR-09c)
+// =============================================================================
+
+const ACTIVITY_ACTION_STYLES: Record<string, string> = {
+  CREATE: 'bg-green-100 text-green-800',
+  UPDATE: 'bg-blue-100 text-blue-800',
+  DELETE: 'bg-red-100 text-red-800',
+};
+
+function PropertyActivityTab({ propertyId }: { propertyId: string }) {
+  const { data, loading, error } = useSharePointList<AuditLog>(
+    LIST_NAMES.AuditLog,
+    { top: 500 }
+  );
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    // Direct property changes
+    return data
+      .filter(
+        (a) =>
+          a.fields.EntityType === 'Property' &&
+          String(a.fields.EntityId) === String(propertyId)
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.createdDateTime).getTime() - new Date(a.createdDateTime).getTime()
+      );
+  }, [data, propertyId]);
+
+  if (loading) return <TabLoading label="activity" />;
+  if (error) return <TabError error={error} />;
+
+  if (filtered.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500">No activity recorded for this property yet.</p>
+        <p className="text-xs text-gray-400 mt-2">
+          Every edit, create, or delete of this property is captured here. For broader audit data
+          (changes to related submittals, ownership, etc.) see the full <Link to="/audit" className="text-teal-700 underline">Audit Log</Link>.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700">
+          {filtered.length} event{filtered.length === 1 ? '' : 's'} affecting this property
+        </h3>
+        <p className="text-xs text-gray-500 mt-0.5">Newest first · click an event to see full diff in the Audit Log</p>
+      </div>
+      <ul className="divide-y divide-gray-100">
+        {filtered.map((row) => (
+          <li key={row.id} className="px-4 py-3 flex items-start gap-3 text-sm">
+            <span
+              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
+                ACTIVITY_ACTION_STYLES[row.fields.Action ?? ''] ?? 'bg-gray-100'
+              }`}
+            >
+              {row.fields.Action}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-gray-900">{row.fields.Title}</div>
+              {row.fields.ChangeSummary && (
+                <pre className="mt-1 text-xs text-gray-600 whitespace-pre-wrap font-mono-data">
+                  {row.fields.ChangeSummary}
+                </pre>
+              )}
+            </div>
+            <div className="text-xs text-gray-500 font-mono-data flex-shrink-0 text-right">
+              <div>{new Date(row.createdDateTime).toLocaleDateString()}</div>
+              <div className="text-gray-400">{row.createdBy?.user?.displayName ?? ''}</div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
