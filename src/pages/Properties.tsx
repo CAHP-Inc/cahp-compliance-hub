@@ -62,9 +62,8 @@ export function Properties() {
           </p>
         </div>
         <button
-          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-          title="Property creation wizard is on the Backlog (originally PR-05)"
+          onClick={() => navigate('/properties/new')}
+          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
         >
           <Icon name="plus" size={16} />
           New Property
@@ -186,7 +185,7 @@ export function Properties() {
       </div>
 
       <p className="text-xs text-gray-400 mt-4 text-center">
-        Click any property to drill into its detail page · Property creation wizard is on the Backlog.
+        Click any property to drill into its detail page · Click <strong>New Property</strong> to add one.
       </p>
     </div>
   );
