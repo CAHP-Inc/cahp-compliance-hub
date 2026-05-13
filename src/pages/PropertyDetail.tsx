@@ -10,6 +10,10 @@ import {
   type Submittal,
   type PropertyStatus,
   type SubmittalStatusValue,
+  type ComplianceDeadline,
+  type DeadlineStatus,
+  type Ownership,
+  type RelationshipType,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
@@ -53,14 +57,15 @@ const CHOICES = {
   PropertyStatus: ['Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold'] as const,
 } as const;
 
-type TabId = 'overview' | 'submittals' | 'documents' | 'compliance' | 'notes';
+type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'documents' | 'notes';
 
 const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'overview', label: 'Overview', shipped: true },
   { id: 'submittals', label: 'Submittals', shipped: true },
-  { id: 'documents', label: 'Documents', shipped: false },
-  { id: 'compliance', label: 'Compliance', shipped: false },
-  { id: 'notes', label: 'Notes', shipped: false },
+  { id: 'compliance', label: 'Compliance', shipped: true },
+  { id: 'ownership', label: 'Ownership', shipped: true },
+  { id: 'documents', label: 'Documents', shipped: true },
+  { id: 'notes', label: 'Notes', shipped: false }, // PR-08d adds new Notes list + thread
 ];
 
 export function PropertyDetail() {
@@ -287,6 +292,9 @@ export function PropertyDetail() {
         <OverviewTab display={display} editing={editing} onChange={handleFieldChange} />
       )}
       {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} />}
+      {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
+      {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
+      {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
     </div>
   );
 }
@@ -384,6 +392,396 @@ function SubmittalsTab({ submittals }: { submittals: Submittal[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Compliance — this property's deadlines
+// =============================================================================
+
+const DEADLINE_STATUS_STYLES: Record<DeadlineStatus, string> = {
+  Upcoming: 'bg-blue-100 text-blue-800',
+  'In Progress': 'bg-amber-100 text-amber-800',
+  Completed: 'bg-green-100 text-green-800',
+  Overdue: 'bg-red-100 text-red-800',
+  Missed: 'bg-red-200 text-red-900',
+};
+
+function PropertyComplianceTab({ propertyId }: { propertyId: string }) {
+  const navigate = useNavigate();
+  const { data: allDeadlines, loading, error } = useSharePointList<ComplianceDeadline>(
+    LIST_NAMES.ComplianceDeadlines,
+    { top: 500 }
+  );
+
+  const propertyDeadlines = useMemo(() => {
+    if (!allDeadlines) return [];
+    return allDeadlines
+      .filter((d) => String(d.fields.PropertyLookupId) === String(propertyId))
+      .sort((a, b) => {
+        const da = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Number.MAX_VALUE;
+        const db = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Number.MAX_VALUE;
+        return da - db;
+      });
+  }, [allDeadlines, propertyId]);
+
+  if (loading) return <TabLoading label="deadlines" />;
+  if (error) return <TabError error={error} />;
+
+  if (propertyDeadlines.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500">
+          No compliance deadlines tied to this property.
+        </p>
+        <p className="text-xs text-gray-400 mt-2">
+          To link a deadline to this property, open Compliance and set the Property field on that deadline.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+          <tr>
+            <th className="px-4 py-3 text-left">Deadline</th>
+            <th className="px-4 py-3 text-left">Type</th>
+            <th className="px-4 py-3 text-left">Due Date</th>
+            <th className="px-4 py-3 text-left">Status</th>
+            <th className="px-4 py-3 text-left">Owner</th>
+            <th className="px-4 py-3 text-left">Recurrence</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {propertyDeadlines.map((d) => (
+            <tr
+              key={d.id}
+              onClick={() => navigate(`/compliance/${d.id}`)}
+              className="hover:bg-gray-50 transition-colors cursor-pointer"
+            >
+              <td className="px-4 py-3 font-medium text-gray-900">{d.fields.Title}</td>
+              <td className="px-4 py-3 text-gray-700 text-xs">{d.fields.DeadlineType || '—'}</td>
+              <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                {formatDate(d.fields.DueDate) || '—'}
+              </td>
+              <td className="px-4 py-3">
+                {d.fields.DeadlineStatus ? (
+                  <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${DEADLINE_STATUS_STYLES[d.fields.DeadlineStatus] || 'bg-gray-100'}`}>
+                    {d.fields.DeadlineStatus}
+                  </span>
+                ) : '—'}
+              </td>
+              <td className="px-4 py-3 text-gray-700">{d.fields.ResponsibleParty || '—'}</td>
+              <td className="px-4 py-3 text-gray-700 text-xs">{d.fields.Recurrence || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Ownership — this property's ownership chain
+// =============================================================================
+
+const RELATIONSHIP_STYLES: Record<RelationshipType, string> = {
+  'Managing Member': 'bg-teal-100 text-teal-800',
+  Member: 'bg-blue-100 text-blue-800',
+  Owner: 'bg-purple-100 text-purple-800',
+  Subsidiary: 'bg-amber-100 text-amber-800',
+  'Beneficial Owner': 'bg-pink-100 text-pink-800',
+};
+
+function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+  const navigate = useNavigate();
+  const { data: allOwnership, loading, error } = useSharePointList<Ownership>(
+    LIST_NAMES.Ownership,
+    { top: 500 }
+  );
+
+  const directOwnership = useMemo(() => {
+    if (!allOwnership) return [];
+    return allOwnership
+      .filter((o) => String(o.fields.LinkedPropertyLookupId) === String(propertyId))
+      .sort((a, b) => (b.fields.OwnershipPercent ?? 0) - (a.fields.OwnershipPercent ?? 0));
+  }, [allOwnership, propertyId]);
+
+  if (loading) return <TabLoading label="ownership records" />;
+  if (error) return <TabError error={error} />;
+
+  if (directOwnership.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500 mb-2">
+          No ownership records on file for this property yet.
+        </p>
+        <Link
+          to="/ownership/new"
+          className="inline-block mt-2 text-sm text-teal-700 hover:text-teal-900 font-medium underline"
+        >
+          Add the first ownership entry →
+        </Link>
+      </div>
+    );
+  }
+
+  const totalPercent = directOwnership.reduce((sum, o) => sum + (o.fields.OwnershipPercent ?? 0), 0);
+
+  return (
+    <div>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Direct owners of {propertyTitle}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {directOwnership.length} record{directOwnership.length === 1 ? '' : 's'}
+              {totalPercent > 0 && ` · ${totalPercent.toFixed(2)}% total`}
+            </p>
+          </div>
+          <Link
+            to="/ownership/new"
+            className="text-xs text-teal-700 hover:text-teal-900 font-medium"
+          >
+            + Add owner
+          </Link>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+            <tr>
+              <th className="px-4 py-3 text-left">Entity</th>
+              <th className="px-4 py-3 text-left">Relationship</th>
+              <th className="px-4 py-3 text-right">%</th>
+              <th className="px-4 py-3 text-left">Parent Entity</th>
+              <th className="px-4 py-3 text-left">Effective</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {directOwnership.map((o) => (
+              <tr
+                key={o.id}
+                onClick={() => navigate(`/ownership/${o.id}`)}
+                className="hover:bg-gray-50 transition-colors cursor-pointer"
+              >
+                <td className="px-4 py-3 font-medium text-gray-900">{o.fields.Title}</td>
+                <td className="px-4 py-3">
+                  {o.fields.RelationshipType ? (
+                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${RELATIONSHIP_STYLES[o.fields.RelationshipType] || 'bg-gray-100'}`}>
+                      {o.fields.RelationshipType}
+                    </span>
+                  ) : '—'}
+                </td>
+                <td className="px-4 py-3 text-right font-mono-data">
+                  {o.fields.OwnershipPercent != null ? `${o.fields.OwnershipPercent}%` : '—'}
+                </td>
+                <td className="px-4 py-3 text-gray-700 text-xs">{o.fields.ParentEntity || '—'}</td>
+                <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                  {formatDate(o.fields.EffectiveDate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPercent > 0 && Math.abs(totalPercent - 100) > 0.01 && (
+        <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
+          <Icon name="alert" size={14} className="text-yellow-700 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-yellow-800">
+            Ownership percentages sum to {totalPercent.toFixed(2)}%, not 100%. Either some entries are missing,
+            or this property uses a multi-class structure where percentages are within a class (then class totals are what matter).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Documents — files linked to this property across libraries
+// =============================================================================
+
+/**
+ * Document libraries that have a Property lookup column.
+ * To add a new library: add it here, ensure it has a "Property" lookup column in SharePoint.
+ */
+const PROPERTY_LINKED_LIBRARIES = [
+  'AMI Certification Letters',
+  'DOR Correspondence',
+  'DOR Submittal Packages',
+  'Land Use Restriction Agreements',
+  'Operating Agreements',
+  'Org Charts',
+  'Property Deeds',
+  'Supporting Documentation',
+] as const;
+
+interface PropertyDocument {
+  id: string;
+  library: string;
+  filename: string;
+  webUrl?: string;
+  uploadDate?: string;
+  size?: number;
+  docType?: string;
+}
+
+function PropertyDocumentsTab({ propertyId }: { propertyId: string }) {
+  // Fetch each library in parallel — each useSharePointList is its own hook call
+  const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
+  const lib1 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[1], { top: 500 });
+  const lib2 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[2], { top: 500 });
+  const lib3 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[3], { top: 500 });
+  const lib4 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[4], { top: 500 });
+  const lib5 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[5], { top: 500 });
+  const lib6 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[6], { top: 500 });
+  const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
+
+  const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
+  const loading = libraries.some((l) => l.loading);
+  const errors = libraries.filter((l) => l.error).map((l) => l.error!.message);
+
+  const documents = useMemo(() => {
+    const docs: PropertyDocument[] = [];
+    libraries.forEach((lib, idx) => {
+      if (!lib.data) return;
+      const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
+      lib.data.forEach((item) => {
+        if (String(item.fields.PropertyLookupId) !== String(propertyId)) return;
+        docs.push({
+          id: `${libraryName}:${item.id}`,
+          library: libraryName,
+          filename: item.fields.FileLeafRef || item.fields.Title || '(unnamed)',
+          webUrl: item.webUrl,
+          uploadDate: item.fields.Modified || item.lastModifiedDateTime,
+          docType:
+            item.fields.LetterType ||
+            item.fields.PackageComponent ||
+            item.fields.LURAStatus ||
+            item.fields.SuppDocType ||
+            item.fields.EntityDocType ||
+            undefined,
+        });
+      });
+    });
+    return docs.sort((a, b) => {
+      const da = a.uploadDate ? new Date(a.uploadDate).getTime() : 0;
+      const db = b.uploadDate ? new Date(b.uploadDate).getTime() : 0;
+      return db - da;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
+
+  if (loading) return <TabLoading label={`documents across ${PROPERTY_LINKED_LIBRARIES.length} libraries`} />;
+  if (errors.length > 0) return <TabError error={new Error(errors[0])} />;
+
+  if (documents.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+        <p className="text-sm text-gray-500 mb-2">No documents tagged to this property yet.</p>
+        <p className="text-xs text-gray-400">
+          To link a document to this property, upload to one of the libraries in SharePoint and set the Property column.
+          Document upload from inside the app ships in Phase 2.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">
+            {documents.length} document{documents.length === 1 ? '' : 's'} tagged to this property
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Across {PROPERTY_LINKED_LIBRARIES.length} libraries · click filename to open in SharePoint
+          </p>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+            <tr>
+              <th className="px-4 py-3 text-left">Filename</th>
+              <th className="px-4 py-3 text-left">Library</th>
+              <th className="px-4 py-3 text-left">Type</th>
+              <th className="px-4 py-3 text-left">Modified</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {documents.map((doc) => (
+              <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 font-medium text-gray-900">
+                  {doc.webUrl ? (
+                    <a
+                      href={doc.webUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-teal-700 hover:text-teal-900 underline"
+                    >
+                      {doc.filename}
+                    </a>
+                  ) : (
+                    doc.filename
+                  )}
+                </td>
+                <td className="px-4 py-3 text-gray-700 text-xs">{doc.library}</td>
+                <td className="px-4 py-3 text-gray-700 text-xs">{doc.docType || '—'}</td>
+                <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                  {formatDate(doc.uploadDate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Raw shape returned by Graph for a document library item
+interface DocItemRaw {
+  id: string;
+  webUrl?: string;
+  lastModifiedDateTime: string;
+  fields: {
+    Title?: string;
+    FileLeafRef?: string;
+    PropertyLookupId?: string;
+    Modified?: string;
+    LetterType?: string;
+    PackageComponent?: string;
+    LURAStatus?: string;
+    SuppDocType?: string;
+    EntityDocType?: string;
+  };
+}
+
+// =============================================================================
+// Shared tab states
+// =============================================================================
+
+function TabLoading({ label }: { label: string }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-12 text-center shadow-card">
+      <div className="inline-flex items-center gap-3 text-gray-500">
+        <div className="w-4 h-4 rounded-full border-2 border-teal-500 border-r-transparent animate-spin" />
+        <span className="text-sm">Loading {label}…</span>
+      </div>
+    </div>
+  );
+}
+
+function TabError({ error }: { error: Error }) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+      <div className="font-semibold text-error mb-2 flex items-center gap-2">
+        <Icon name="alert" size={18} />
+        Failed to load
+      </div>
+      <p className="text-sm text-red-700 font-mono-data text-xs">{error.message}</p>
     </div>
   );
 }

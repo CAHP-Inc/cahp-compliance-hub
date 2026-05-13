@@ -24,6 +24,11 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-06a', label: 'Compliance Deadline editing + Mark Complete', status: 'done' as const },
   { id: 'PR-06b', label: 'Ownership Structure module (list + edit + create + delete)', status: 'done' as const },
   { id: 'PR-07', label: 'Audit log — automatic CRUD logging across all modules', status: 'done' as const },
+  { id: 'PR-08a', label: 'Property Detail: Compliance + Ownership + Documents tabs', status: 'done' as const },
+  { id: 'PR-08b', label: 'Property creation wizard', status: 'next' as const },
+  { id: 'PR-08c', label: 'Disposition workflow', status: 'pending' as const },
+  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'pending' as const },
+  { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'pending' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -41,23 +46,16 @@ const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
  * when you decide to schedule them.
  */
 const BACKLOG: { feature: string; origin: string; note?: string }[] = [
-  { feature: 'Portfolio dashboard', origin: 'PR-05' },
-  { feature: 'Property creation wizard', origin: 'PR-05' },
-  { feature: 'Property Detail: Documents tab', origin: 'PR-05' },
-  { feature: 'Property Detail: Compliance tab', origin: 'PR-05', note: 'show this property\'s deadlines inline' },
-  { feature: 'Property Detail: Notes tab', origin: 'PR-05', note: 'rethink — PropertyNotes field already exists on Overview' },
-  { feature: 'Property Detail: Ownership tab', origin: 'PR-06', note: 'show ownership chain for this property' },
-  { feature: 'Watch / follow button', origin: 'PR-05', note: 'requires notification plumbing' },
-  { feature: 'Disposition workflow', origin: 'PR-05' },
   { feature: 'Submittals top-level module', origin: 'Phase 2' },
   { feature: 'Submittals editing on detail page', origin: 'Phase 2' },
   { feature: 'Outstanding Items module', origin: 'Phase 2' },
   { feature: 'DOR Correspondence Log module', origin: 'Phase 2' },
   { feature: 'Known Issues Log module', origin: 'Phase 2' },
   { feature: 'Owner Communications module', origin: 'Phase 3' },
-  { feature: 'Document library file uploads + browser', origin: 'Phase 2' },
+  { feature: 'Document library file uploads + browser', origin: 'Phase 2', note: 'PR-08a added READ-ONLY listing per property' },
   { feature: 'Billing Tracker module', origin: 'Phase 3' },
   { feature: 'Reports module', origin: 'Phase 3' },
+  { feature: 'Watch / follow button', origin: 'Phase 3', note: 'tied to notifications' },
 ];
 
 export function MyDay() {
@@ -107,22 +105,21 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-07 / Phase 1 complete banner */}
+      {/* PR-08a banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            07
+            08a
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-07 deployed. <span className="text-success">Phase 1 is complete.</span>
+              PR-08a deployed. Property Detail sub-tabs are alive.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Every Create, Update, and Delete across Properties, Compliance Deadlines, and Ownership
-              now auto-logs to the <strong>Audit Log</strong> with timestamp, actor, before/after
-              JSON, and a readable diff. Open <strong>Audit</strong> in the nav to see the record of
-              every change. When DOR audits you in 3 years and asks "who changed this and when?",
-              you'll have an answer in 5 seconds.
+              Open any property and click <strong>Compliance</strong> to see its deadlines,
+              <strong> Ownership</strong> to see who owns it, or <strong>Documents</strong> to browse
+              files tagged to it across 8 SharePoint libraries. Each tab links out to the
+              source records or files.
             </p>
           </div>
         </div>
