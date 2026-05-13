@@ -16,6 +16,7 @@ import {
   type RelationshipType,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { DispositionModal } from '../components/DispositionModal';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -77,6 +78,7 @@ export function PropertyDetail() {
   const [draft, setDraft] = useState<PropertyFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [dispositionOpen, setDispositionOpen] = useState(false);
 
   const { data: property, loading, error, refetch } = useSharePointItem<Property>(
     LIST_NAMES.Properties, id
@@ -224,6 +226,16 @@ export function PropertyDetail() {
                 <Icon name="star" size={14} />
                 Watch
               </button>
+              {(property.fields.PropertyStatus === 'Active' || property.fields.PropertyStatus === 'Pending') && (
+                <button
+                  onClick={() => setDispositionOpen(true)}
+                  className="px-3 py-1.5 border border-red-300 text-error hover:bg-red-50 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors"
+                  title="Dispose this property (sold, withdrawn, or removed)"
+                >
+                  <Icon name="alert" size={14} />
+                  Dispose
+                </button>
+              )}
               <button
                 onClick={handleEdit}
                 className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors"
@@ -295,6 +307,14 @@ export function PropertyDetail() {
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
+
+      {dispositionOpen && (
+        <DispositionModal
+          property={property}
+          onClose={() => setDispositionOpen(false)}
+          onComplete={refetch}
+        />
+      )}
     </div>
   );
 }

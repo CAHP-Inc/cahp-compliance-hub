@@ -26,8 +26,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-07', label: 'Audit log — automatic CRUD logging across all modules', status: 'done' as const },
   { id: 'PR-08a', label: 'Property Detail: Compliance + Ownership + Documents tabs', status: 'done' as const },
   { id: 'PR-08b', label: 'Property creation wizard', status: 'done' as const },
-  { id: 'PR-08c', label: 'Disposition workflow', status: 'next' as const },
-  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'pending' as const },
+  { id: 'PR-08c', label: 'Disposition workflow', status: 'done' as const },
+  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'next' as const },
   { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'pending' as const },
 ];
 
@@ -105,21 +105,21 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-08b banner */}
+      {/* PR-08c banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            08b
+            08c
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-08b deployed. Property creation wizard is live.
+              PR-08c deployed. Disposition workflow is live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Open <strong>Properties</strong> and click <strong>New Property</strong>. Three-step
-              guided form (Identity & Location → Program Details → Review) writes a new record straight
-              to Properties Registry. Audit log records the create. You never have to touch SharePoint
-              UI to onboard a property again.
+              Open any Active or Pending property. There's now a red <strong>Dispose</strong> button
+              in the action bar. Guided modal captures disposition type (Sold / Withdrawn / Removed),
+              date, and reason. Updates PropertyStatus and writes a structured RemovedReason. The
+              whole transition is captured in the Audit Log.
             </p>
           </div>
         </div>
