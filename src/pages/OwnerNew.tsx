@@ -1,46 +1,60 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   createListItem,
+  useSharePointList,
   LIST_NAMES,
+  type Owner,
   type OwnerFields,
   type OwnerType,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { BreadcrumbBar, SaveErrorBanner } from '../components/detail';
 
-type WizardStep = 1 | 2 | 3;
+type WizardStep = 1 | 2 | 3 | 4;
 
 const STEP_INFO: Record<WizardStep, { title: string; subtitle: string }> = {
-  1: { title: 'Owner Type', subtitle: 'What kind of owner is this?' },
+  1: { title: 'Type Selection', subtitle: 'What kind of owner is this?' },
   2: { title: 'Entity Info', subtitle: 'Legal identity and contact info.' },
-  3: { title: 'Review & Create', subtitle: 'Confirm before writing to SharePoint.' },
+  3: { title: 'Members (optional)', subtitle: 'Add members of this entity now — or later from its detail page.' },
+  4: { title: 'Review & Create', subtitle: 'Confirm before writing to SharePoint.' },
 };
 
 const TYPE_CARDS: { value: OwnerType; title: string; description: string; icon: string }[] = [
   {
     value: 'Individual',
     title: 'Individual',
-    description: 'A natural person — Maksim Grushkovskiy, Brandy Turner. For joint owners (married couples), create one Individual record per person.',
+    description: 'A natural person. For joint owners (married couples), create one Individual record per person — keeps disbursement tracking clean.',
     icon: '👤',
   },
   {
     value: 'LLC',
     title: 'LLC',
-    description: 'A limited liability company — VanRock Holdings LLC, 135 Oakwood LLC. Can have members (other LLCs or Individuals).',
+    description: 'A limited liability company. Can have members (other LLCs or Individuals).',
     icon: '🏢',
   },
   {
     value: 'Nonprofit',
     title: 'Nonprofit',
-    description: 'A 501(c)(3) or similar nonprofit entity — CAHP SC LLC (despite the LLC name, treated as nonprofit for CAHP).',
+    description: 'A 501(c)(3) or similar nonprofit entity (e.g., Carolina Affordable Housing Project).',
     icon: '🏛️',
   },
 ];
 
+interface MemberDraft {
+  ownerLookupId: string;
+  role: 'Managing Member' | 'Member';
+  percent: number;
+}
+
 export function OwnerNew() {
   const navigate = useNavigate();
+
+  // Branching: Individual skips step 3 (Members); LLC/Nonprofit goes 1 → 2 → 3 → 4
   const [step, setStep] = useState<WizardStep>(1);
+
+  const { data: allOwners } = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
   const [form, setForm] = useState<Partial<OwnerFields>>({
     Title: '',
     OwnerType: undefined,
@@ -49,9 +63,18 @@ export function OwnerNew() {
     ContactEmail: '',
     OwnerNotes: '',
   });
+
+  const [members, setMembers] = useState<MemberDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const hasMembersStep = form.OwnerType === 'LLC' || form.OwnerType === 'Nonprofit';
+
+  // Visible steps depending on owner type
+  const visibleSteps: WizardStep[] = useMemo(() => {
+    return hasMembersStep ? [1, 2, 3, 4] : [1, 2, 4];
+  }, [hasMembersStep]);
 
   const handleChange = <K extends keyof OwnerFields>(field: K, value: OwnerFields[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -60,40 +83,69 @@ export function OwnerNew() {
 
   const validateStep = (s: WizardStep): string | null => {
     if (s === 1 && !form.OwnerType) return 'Choose an owner type to continue.';
-    if (s === 2) {
-      if (!form.Title || form.Title.trim() === '') return 'Legal name is required.';
+    if (s === 2 && (!form.Title || form.Title.trim() === '')) return 'Legal name is required.';
+    if (s === 3) {
+      // Members are optional — but if any are added, validate each
+      for (const m of members) {
+        if (!m.ownerLookupId) return 'Every added member must have an owner selected.';
+      }
     }
     return null;
   };
 
   const goNext = () => {
     const err = validateStep(step);
-    if (err) {
-      setValidationError(err);
-      return;
+    if (err) { setValidationError(err); return; }
+    // Find next visible step
+    const currentIdx = visibleSteps.indexOf(step);
+    if (currentIdx >= 0 && currentIdx < visibleSteps.length - 1) {
+      setStep(visibleSteps[currentIdx + 1]);
     }
-    if (step < 3) setStep((step + 1) as WizardStep);
   };
 
   const goBack = () => {
     setValidationError(null);
-    if (step > 1) setStep((step - 1) as WizardStep);
+    const currentIdx = visibleSteps.indexOf(step);
+    if (currentIdx > 0) setStep(visibleSteps[currentIdx - 1]);
   };
 
   const handleCreate = async () => {
-    const e1 = validateStep(1);
-    const e2 = validateStep(2);
-    if (e1) { setValidationError(e1); setStep(1); return; }
-    if (e2) { setValidationError(e2); setStep(2); return; }
+    // Re-validate all visible steps
+    for (const s of visibleSteps) {
+      const err = validateStep(s);
+      if (err) { setValidationError(err); setStep(s); return; }
+    }
 
     setSaving(true);
     setError(null);
     try {
+      // 1. Create the Owner record
       const fields: Record<string, unknown> = {};
       Object.entries(form).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') fields[k] = v;
       });
       const created = await createListItem<{ id: string }>(LIST_NAMES.Owners, fields);
+
+      // 2. Create member ownership rows (if any) — these are entity-to-entity
+      // The new owner is the PARENT; each member has OwnerLookupId = their owner, ParentOwnerLookupId = the new owner
+      for (const m of members) {
+        const member = allOwners?.find((o) => String(o.id) === String(m.ownerLookupId));
+        if (!member) continue;
+        try {
+          await createListItem(LIST_NAMES.Ownership, {
+            Title: member.fields.Title,
+            OwnerLookupId: m.ownerLookupId,
+            ParentOwnerLookupId: created.id,
+            RelationshipType: m.role,
+            OwnershipPercent: m.percent,
+            SourceDocument: 'Owner Creation Wizard',
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn(`Member row for ${member.fields.Title} failed:`, e);
+        }
+      }
+
       navigate(`/owners/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -104,6 +156,25 @@ export function OwnerNew() {
   const inputClass =
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
 
+  const addMember = () => {
+    setMembers((prev) => [...prev, { ownerLookupId: '', role: 'Member', percent: 0 }]);
+  };
+
+  const updateMember = (idx: number, patch: Partial<MemberDraft>) => {
+    setMembers((prev) => prev.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
+  };
+
+  const removeMember = (idx: number) => {
+    setMembers((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const totalPercent = members.reduce((sum, m) => sum + (m.percent || 0), 0);
+
+  // Pretty-print visible step number (1-indexed within the visible flow)
+  const stepDisplayNumber = visibleSteps.indexOf(step) + 1;
+  const totalVisibleSteps = visibleSteps.length;
+  const isLastStep = step === visibleSteps[visibleSteps.length - 1];
+
   return (
     <div>
       <BreadcrumbBar parentLabel="Owners" parentTo="/owners" currentLabel="New Owner" />
@@ -113,12 +184,14 @@ export function OwnerNew() {
         <p className="text-sm text-gray-500 mt-1">{STEP_INFO[step].subtitle}</p>
       </div>
 
-      {/* Stepper */}
+      {/* Stepper — shows only visible steps */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 p-4">
         <div className="flex items-center gap-2 sm:gap-4">
-          {([1, 2, 3] as WizardStep[]).map((s, idx) => {
+          {visibleSteps.map((s, idx) => {
             const isCurrent = s === step;
-            const isComplete = s < step;
+            const sIdx = visibleSteps.indexOf(s);
+            const stepIdx = visibleSteps.indexOf(step);
+            const isComplete = sIdx < stepIdx;
             return (
               <div key={s} className="flex items-center gap-2 sm:gap-4 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
@@ -131,18 +204,20 @@ export function OwnerNew() {
                           : 'bg-gray-100 text-gray-400'
                     }`}
                   >
-                    {isComplete ? <Icon name="check" size={14} /> : s}
+                    {isComplete ? <Icon name="check" size={14} /> : idx + 1}
                   </div>
                   <div className="hidden sm:block min-w-0">
                     <div className={`text-xs font-semibold ${isCurrent ? 'text-teal-700' : isComplete ? 'text-success' : 'text-gray-400'}`}>
-                      Step {s}
+                      Step {idx + 1}
                     </div>
                     <div className={`text-sm truncate ${isCurrent ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
                       {STEP_INFO[s].title}
                     </div>
                   </div>
                 </div>
-                {idx < 2 && <div className={`flex-1 h-0.5 ${isComplete ? 'bg-success' : 'bg-gray-200'}`} />}
+                {idx < visibleSteps.length - 1 && (
+                  <div className={`flex-1 h-0.5 ${isComplete ? 'bg-success' : 'bg-gray-200'}`} />
+                )}
               </div>
             );
           })}
@@ -157,7 +232,7 @@ export function OwnerNew() {
         </div>
       )}
 
-      {/* Step 1 — Type selection (card picker) */}
+      {/* Step 1 — Type Selection */}
       {step === 1 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {TYPE_CARDS.map((card) => (
@@ -189,10 +264,10 @@ export function OwnerNew() {
                 onChange={(e) => handleChange('Title', e.target.value)}
                 placeholder={
                   form.OwnerType === 'Individual'
-                    ? 'e.g., Maksim Grushkovskiy'
+                    ? 'e.g., Stan Gendlin'
                     : form.OwnerType === 'LLC'
                       ? 'e.g., VanRock Holdings LLC'
-                      : 'e.g., CAHP SC LLC'
+                      : 'e.g., Carolina Affordable Housing Project'
                 }
                 className={inputClass}
                 autoFocus
@@ -241,8 +316,90 @@ export function OwnerNew() {
         </div>
       )}
 
-      {/* Step 3 — Review */}
-      {step === 3 && (
+      {/* Step 3 — Members (LLC/Nonprofit only) */}
+      {step === 3 && hasMembersStep && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-card">
+          <p className="text-sm text-gray-600 mb-4">
+            Add members of <strong>{form.Title || 'this entity'}</strong> now, or skip and add them later from the owner detail page.
+            Each member must be an existing Owner record. <button
+              type="button"
+              onClick={() => navigate('/owners/new')}
+              className="text-teal-700 hover:text-teal-900 font-medium underline"
+            >Create one first</button> if it doesn't exist yet.
+          </p>
+
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-gray-700">Members</div>
+            <button
+              onClick={addMember}
+              className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"
+            >
+              <Icon name="plus" size={12} />
+              Add Member
+            </button>
+          </div>
+
+          {members.length === 0 ? (
+            <div className="bg-gray-50 rounded-md p-4 text-center">
+              <p className="text-sm text-gray-500 italic">
+                No members added. That's fine — you can add them later from <strong>{form.Title || 'this entity'}</strong>'s detail page.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {members.map((m, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-gray-50 p-2 rounded">
+                  <select
+                    value={m.ownerLookupId}
+                    onChange={(e) => updateMember(idx, { ownerLookupId: e.target.value })}
+                    className={`${inputClass} bg-white flex-1`}
+                  >
+                    <option value="">— pick owner —</option>
+                    {allOwners?.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.fields.Title} {o.fields.OwnerType ? `(${o.fields.OwnerType})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={m.role}
+                    onChange={(e) => updateMember(idx, { role: e.target.value as 'Managing Member' | 'Member' })}
+                    className={`${inputClass} bg-white w-40`}
+                  >
+                    <option value="Member">Member</option>
+                    <option value="Managing Member">Managing Member</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={m.percent}
+                    onChange={(e) => updateMember(idx, { percent: Number(e.target.value) })}
+                    className={`${inputClass} w-24 font-mono-data text-right`}
+                    min={0} max={100} step="0.01"
+                    placeholder="%"
+                  />
+                  <button
+                    onClick={() => removeMember(idx)}
+                    className="text-error hover:text-red-700 px-2"
+                    title="Remove"
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {members.length > 0 && (
+            <div className="mt-3 text-xs text-gray-500">
+              Total: <span className="font-mono-data font-semibold">{totalPercent.toFixed(2)}%</span>
+              {Math.abs(totalPercent - 100) > 0.01 && (
+                <span className="text-warning"> · members should sum to 100%</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 4 — Review */}
+      {step === 4 && (
         <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-card">
           <h3 className="text-base font-semibold text-teal-700 mb-4">Review before creating</h3>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
@@ -258,12 +415,29 @@ export function OwnerNew() {
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{form.OwnerNotes}</p>
             </div>
           )}
+          {hasMembersStep && members.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                {members.length} Member{members.length === 1 ? '' : 's'} will be added
+              </div>
+              <ul className="space-y-1 text-sm">
+                {members.map((m, idx) => {
+                  const owner = allOwners?.find((o) => String(o.id) === String(m.ownerLookupId));
+                  return (
+                    <li key={idx} className="flex items-center gap-2">
+                      <span className="font-medium">{owner?.fields.Title ?? '(missing)'}</span>
+                      <span className="text-xs text-gray-500">— {m.role}, {m.percent}%</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
             <Icon name="alert" size={14} className="text-blue-700 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-blue-900">
-              Clicking <strong>Create Owner</strong> writes a new record to the Owners list and lands
-              you on the new owner's detail page, where you can add Members (if LLC/Nonprofit) or
-              link them to properties.
+              Clicking <strong>Create Owner</strong> writes the new record and{' '}
+              {hasMembersStep && members.length > 0 ? `${members.length} ownership row${members.length === 1 ? '' : 's'} for members` : 'lands you on the owner detail page'}.
             </p>
           </div>
         </div>
@@ -279,7 +453,8 @@ export function OwnerNew() {
           Cancel
         </button>
         <div className="flex items-center gap-2">
-          {step > 1 && (
+          <span className="text-xs text-gray-400 hidden sm:inline">Step {stepDisplayNumber} of {totalVisibleSteps}</span>
+          {stepDisplayNumber > 1 && (
             <button
               onClick={goBack}
               disabled={saving}
@@ -288,7 +463,7 @@ export function OwnerNew() {
               ← Back
             </button>
           )}
-          {step < 3 && (
+          {!isLastStep && (
             <button
               onClick={goNext}
               className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium transition-colors"
@@ -296,7 +471,7 @@ export function OwnerNew() {
               Next →
             </button>
           )}
-          {step === 3 && (
+          {isLastStep && (
             <button
               onClick={handleCreate}
               disabled={saving}

@@ -167,7 +167,8 @@ export async function createListItem<TItem>(
 export async function updateListItem<TItem>(
   listName: string,
   itemId: string,
-  fields: Record<string, unknown>
+  fields: Record<string, unknown>,
+  options?: { reason?: string }
 ): Promise<TItem> {
   const siteId = await getSiteId();
 
@@ -193,6 +194,7 @@ export async function updateListItem<TItem>(
     before: beforeFields,
     after: fields,
     entityTitle: (beforeFields?.Title as string) ?? (fields.Title as string) ?? '(no title)',
+    reason: options?.reason,
   });
 
   return updated;
@@ -258,6 +260,7 @@ interface AuditLogInput {
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   entityTitle: string;
+  reason?: string;          // User-supplied reason (e.g., ownership change: Buy-In, Buy-Out, Estate, etc.)
 }
 
 /**
@@ -313,7 +316,9 @@ function buildChangeSummary(input: AuditLogInput): string {
     return `Record permanently deleted.`;
   }
   // UPDATE — compute field-by-field diff
-  if (!input.before || !input.after) return '(no diff available)';
+  if (!input.before || !input.after) {
+    return input.reason ? `(no diff available) — Reason: ${input.reason}` : '(no diff available)';
+  }
 
   const lines: string[] = [];
   const fieldsToCheck = Object.keys(input.after);
@@ -324,7 +329,8 @@ function buildChangeSummary(input: AuditLogInput): string {
       lines.push(`${field}: "${formatValue(oldVal)}" → "${formatValue(newVal)}"`);
     }
   }
-  return lines.length > 0 ? lines.join('\n') : '(no changes detected)';
+  const summary = lines.length > 0 ? lines.join('\n') : '(no changes detected)';
+  return input.reason ? `${summary}\n— Reason: ${input.reason}` : summary;
 }
 
 function formatValue(v: unknown): string {

@@ -351,6 +351,11 @@ export function OwnerDetail() {
         </div>
       )}
 
+      {/* Cascade Preview — list of properties affected by member changes (LLC/Nonprofit only) */}
+      {(owner.fields.OwnerType === 'LLC' || owner.fields.OwnerType === 'Nonprofit') && (
+        <CascadePreviewSection ownerId={owner.id} ownership={ownership.data ?? []} owners={owners.data ?? []} />
+      )}
+
       {/* Owns Interest In (other LLCs) */}
       {directMemberships.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
@@ -451,4 +456,131 @@ function maskTaxID(taxId: string | undefined): string {
   if (!taxId) return '';
   if (taxId.length <= 4) return '••••';
   return '••••••' + taxId.slice(-4);
+}
+
+// =============================================================================
+// CascadePreviewSection — properties affected by member changes (Spec §3.4.2, §5.4)
+// =============================================================================
+//
+// For LLCs and Nonprofits: shows every property where this entity holds direct
+// OR indirect interest. Used to warn the user "if you change Stan's % of VanRock,
+// these 5 properties are affected."
+// =============================================================================
+
+function CascadePreviewSection({
+  ownerId,
+  ownership,
+  owners,
+}: {
+  ownerId: string;
+  ownership: Ownership[];
+  owners: Owner[];
+}) {
+  const navigate = useNavigate();
+  const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+
+  const affectedProperties = useMemo(() => {
+    if (!properties.data) return [];
+    const propsById = new Map(properties.data.map((p) => [String(p.id), p]));
+
+    // Direct: properties where this owner has a direct ownership row
+    const directPropertyIds = new Set<string>();
+    ownership
+      .filter(
+        (o) =>
+          String(o.fields.OwnerLookupId) === String(ownerId) &&
+          o.fields.LinkedPropertyLookupId
+      )
+      .forEach((o) => directPropertyIds.add(String(o.fields.LinkedPropertyLookupId)));
+
+    // Indirect: walk DOWN to find properties held by entities this owner has stake in
+    const visited = new Set<string>([String(ownerId)]);
+    const indirectPropertyIds = new Set<string>();
+
+    function walkDown(currentOwnerId: string) {
+      const childRels = ownership.filter(
+        (o) => String(o.fields.ParentOwnerLookupId) === String(currentOwnerId)
+      );
+      for (const rel of childRels) {
+        const childOwnerId = rel.fields.OwnerLookupId;
+        if (!childOwnerId || visited.has(String(childOwnerId))) continue;
+        visited.add(String(childOwnerId));
+
+        ownership
+          .filter(
+            (o) =>
+              String(o.fields.OwnerLookupId) === String(childOwnerId) &&
+              o.fields.LinkedPropertyLookupId
+          )
+          .forEach((o) =>
+            indirectPropertyIds.add(String(o.fields.LinkedPropertyLookupId))
+          );
+
+        walkDown(String(childOwnerId));
+      }
+    }
+    walkDown(String(ownerId));
+
+    // Remove direct from indirect (avoid double-count)
+    directPropertyIds.forEach((id) => indirectPropertyIds.delete(id));
+
+    return [
+      ...Array.from(directPropertyIds).map((id) => ({
+        property: propsById.get(id),
+        kind: 'direct' as const,
+      })),
+      ...Array.from(indirectPropertyIds).map((id) => ({
+        property: propsById.get(id),
+        kind: 'indirect' as const,
+      })),
+    ].filter((x) => x.property);
+  }, [ownerId, ownership, owners, properties.data]);
+
+  if (affectedProperties.length === 0) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">Cascade Preview</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            No properties currently affected. When this entity gets ownership stake in a property (directly or via members), affected properties will list here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700">Cascade Preview</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Editing this entity's members propagates to{' '}
+          <strong>{affectedProperties.length} {affectedProperties.length === 1 ? 'property' : 'properties'}</strong>{' '}
+          on the next org chart render. Click any property to navigate.
+        </p>
+      </div>
+      <ul className="divide-y divide-gray-100">
+        {affectedProperties.map(({ property, kind }) =>
+          property ? (
+            <li
+              key={property.id}
+              onClick={() => navigate(`/properties/${property.id}`)}
+              className="px-4 py-2.5 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+            >
+              <span className="text-sm font-medium text-gray-900">{property.fields.Title}</span>
+              <span
+                className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${
+                  kind === 'direct'
+                    ? 'bg-teal-100 text-teal-800'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {kind === 'direct' ? 'Direct' : 'Indirect'}
+              </span>
+            </li>
+          ) : null
+        )}
+      </ul>
+    </div>
+  );
 }

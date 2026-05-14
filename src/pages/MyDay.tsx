@@ -32,6 +32,7 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-09a', label: 'Owners entity master + recursive ownership engine', status: 'done' as const },
   { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'done' as const },
   { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'done' as const },
+  { id: 'PR-09d', label: 'Strict spec gap closure (5 lists, wizards, cascade, reason, CAHP Entity)', status: 'done' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -108,7 +109,7 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-09c / Phase 1 strict-closure complete banner */}
+      {/* PR-09d / Phase 1 strict-closure complete banner */}
       <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
@@ -116,16 +117,18 @@ export function MyDay() {
           </div>
           <div className="flex-1">
             <div className="font-bold text-teal-900 text-lg">
-              Phase 1 is complete — per the strict v1.0 spec.
+              Phase 1 is closed — strictly, against the v1.0 spec.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              PR-09c shipped. Property Wizard is now <strong>6 steps with atomic creates</strong> — finishing
-              the wizard auto-generates the first Submittal (Initial filing, Draft status), 7 Outstanding
-              Items for initial document collection, and Ownership rows including CAHP SC LLC at 0.01%
-              Managing Member. Property Detail now has all <strong>9 sub-tabs</strong> per spec
-              (Correspondence, Billing, and Activity added). Audit Log has a <strong>CSV export</strong>.
-              Combined with PR-09a (Owners entity master + recursive engine) and PR-09b (Org Chart 3 layouts),
-              every Phase 1 hard gap is closed. Phase 2 starts on solid ground.
+              PR-09d shipped. Closed all 6 spec gaps: <strong>5 missing SharePoint Lists provisioned</strong>
+              (CAHP Users, Owner Communications, Document Metadata, Disbursements, Notifications),
+              <strong> Owner Wizard branches</strong> with optional Members step for LLC/Nonprofit,
+              <strong> Owner Detail Cascade Preview</strong> section now distinct from Members subtitle,
+              <strong> Property Wizard step order</strong> corrected (Ownership before Filing Config),
+              <strong> Ownership change reason</strong> dropdown enforced on save (Buy-In / Buy-Out / Estate / Initial Filing / Other),
+              and <strong>CAHP Entity module</strong> live at <em>/cahp-entity</em>.
+              Every Phase 1 deliverable from spec §16.1 now has a corresponding shipped artifact.
+              Phase 2 (Submittals + DOR Cascade + Outstanding Items + Document upload) starts on a clean foundation.
             </p>
           </div>
         </div>

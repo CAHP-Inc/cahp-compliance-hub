@@ -45,9 +45,9 @@ type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
   1: { title: 'Identity & Location', subtitle: 'Who is this property and where is it?' },
-  2: { title: 'Program Details', subtitle: 'How does it fit the CAHP affordability program?' },
-  3: { title: 'Filing Config', subtitle: 'CAHP fee and first submittal setup.' },
-  4: { title: 'Ownership', subtitle: 'Direct members of this property LLC.' },
+  2: { title: 'Property Details', subtitle: 'Units, AMI program, lifecycle.' },
+  3: { title: 'Ownership', subtitle: 'Direct members of this property LLC.' },
+  4: { title: 'Filing Config', subtitle: 'CAHP fee and first submittal setup.' },
   5: { title: 'Initial Documents', subtitle: 'Auto-created Outstanding Items for document collection.' },
   6: { title: 'Review & Create', subtitle: 'Last look before writing everything to SharePoint.' },
 };
@@ -399,53 +399,8 @@ export function PropertyNew() {
         </div>
       )}
 
-      {/* Step 3 — Filing Config */}
+      {/* Step 3 — Ownership Setup */}
       {step === 3 && (
-        <Section title="CAHP Filing Configuration" fullWidth>
-          <Field label="CAHP Fee Percent">
-            <input
-              type="number"
-              value={filingConfig.cahpFeePercent}
-              onChange={(e) => setFilingConfig({ ...filingConfig, cahpFeePercent: Number(e.target.value) })}
-              className={`${inputClass} font-mono-data`}
-              min={0} max={100} step="0.1"
-            />
-            <p className="text-xs text-gray-400 mt-1">Share of tax savings billed by CAHP. Typically 30–50%.</p>
-          </Field>
-          <Field label="First Filing Type">
-            <select
-              value={filingConfig.firstFilingType}
-              onChange={(e) => setFilingConfig({ ...filingConfig, firstFilingType: e.target.value as 'Initial' | 'Annual' })}
-              className={`${inputClass} bg-white`}
-            >
-              {CHOICES.FilingType.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <p className="text-xs text-gray-400 mt-1"><strong>Initial</strong> for the first CAHP filing on a property; <strong>Annual</strong> for ongoing.</p>
-          </Field>
-          <Field label="Tax Year">
-            <select
-              value={filingConfig.firstFilingTaxYear}
-              onChange={(e) => setFilingConfig({ ...filingConfig, firstFilingTaxYear: e.target.value as CahpTaxYear })}
-              className={`${inputClass} bg-white font-mono-data`}
-            >
-              {CHOICES.TaxYear.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label="Annual Filing Required">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={filingConfig.annualFilingRequired}
-                onChange={(e) => setFilingConfig({ ...filingConfig, annualFilingRequired: e.target.checked })}
-              />
-              <span className="text-sm text-gray-700">Auto-create annual submittals each January 1</span>
-            </label>
-          </Field>
-        </Section>
-      )}
-
-      {/* Step 4 — Ownership Setup */}
-      {step === 4 && (
         <div>
           <Section title="Ownership Members" fullWidth>
             {/* CAHP SC LLC pre-fill */}
@@ -528,6 +483,51 @@ export function PropertyNew() {
             </div>
           </Section>
         </div>
+      )}
+
+      {/* Step 4 — Filing Config */}
+      {step === 4 && (
+        <Section title="CAHP Filing Configuration" fullWidth>
+          <Field label="CAHP Fee Percent">
+            <input
+              type="number"
+              value={filingConfig.cahpFeePercent}
+              onChange={(e) => setFilingConfig({ ...filingConfig, cahpFeePercent: Number(e.target.value) })}
+              className={`${inputClass} font-mono-data`}
+              min={0} max={100} step="0.1"
+            />
+            <p className="text-xs text-gray-400 mt-1">Share of tax savings billed by CAHP. Typically 30–50%.</p>
+          </Field>
+          <Field label="First Filing Type">
+            <select
+              value={filingConfig.firstFilingType}
+              onChange={(e) => setFilingConfig({ ...filingConfig, firstFilingType: e.target.value as 'Initial' | 'Annual' })}
+              className={`${inputClass} bg-white`}
+            >
+              {CHOICES.FilingType.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1"><strong>Initial</strong> for the first CAHP filing on a property; <strong>Annual</strong> for ongoing.</p>
+          </Field>
+          <Field label="Tax Year">
+            <select
+              value={filingConfig.firstFilingTaxYear}
+              onChange={(e) => setFilingConfig({ ...filingConfig, firstFilingTaxYear: e.target.value as CahpTaxYear })}
+              className={`${inputClass} bg-white font-mono-data`}
+            >
+              {CHOICES.TaxYear.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Annual Filing Required">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={filingConfig.annualFilingRequired}
+                onChange={(e) => setFilingConfig({ ...filingConfig, annualFilingRequired: e.target.checked })}
+              />
+              <span className="text-sm text-gray-700">Auto-create annual submittals each January 1</span>
+            </label>
+          </Field>
+        </Section>
       )}
 
       {/* Step 5 — Initial Documents Preview */}

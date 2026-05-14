@@ -29,6 +29,17 @@ const RELATIONSHIP_STYLES: Record<RelationshipType, string> = {
   'Beneficial Owner': 'bg-pink-100 text-pink-800 border-pink-200',
 };
 
+// PR-09d gap #5 — per spec §5.5, every ownership UPDATE captures a reason
+type OwnershipChangeReason = 'Buy-In' | 'Buy-Out' | 'Estate' | 'Initial Filing' | 'Other';
+
+const CHANGE_REASONS: OwnershipChangeReason[] = [
+  'Buy-In',
+  'Buy-Out',
+  'Estate',
+  'Initial Filing',
+  'Other',
+];
+
 const CHOICES = {
   RelationshipType: [
     'Managing Member', 'Member', 'Owner', 'Subsidiary', 'Beneficial Owner',
@@ -43,6 +54,12 @@ export function OwnershipDetail() {
   const [draft, setDraft] = useState<OwnershipFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // PR-09d gap #5 — ownership changes require a reason per spec §5.5
+  const [reasonModalOpen, setReasonModalOpen] = useState(false);
+  const [reason, setReason] = useState<OwnershipChangeReason | ''>('');
+  const [reasonNotes, setReasonNotes] = useState('');
+  const [pendingChanges, setPendingChanges] = useState<Record<string, unknown> | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { data: ownership, loading, error, refetch } = useSharePointItem<Ownership>(
@@ -81,22 +98,40 @@ export function OwnershipDetail() {
 
   const handleSave = async () => {
     if (!draft || !ownership) return;
+    // Compute pending changes; if there are any, open the reason modal before writing
+    const changes: Record<string, unknown> = {};
+    (Object.keys(draft) as (keyof OwnershipFields)[]).forEach((k) => {
+      const oldVal = ownership.fields[k];
+      const newVal = draft[k];
+      if (oldVal !== newVal) {
+        changes[k as string] = newVal === '' ? null : newVal;
+      }
+    });
+    if (Object.keys(changes).length === 0) {
+      setEditing(false);
+      return;
+    }
+    setPendingChanges(changes);
+    setReason('');
+    setReasonNotes('');
+    setReasonModalOpen(true);
+  };
+
+  const confirmSave = async () => {
+    if (!ownership || !pendingChanges) return;
+    if (!reason) {
+      setSaveError('Reason is required for ownership changes.');
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
-      const changes: Record<string, unknown> = {};
-      (Object.keys(draft) as (keyof OwnershipFields)[]).forEach((k) => {
-        const oldVal = ownership.fields[k];
-        const newVal = draft[k];
-        if (oldVal !== newVal) {
-          changes[k as string] = newVal === '' ? null : newVal;
-        }
-      });
-      if (Object.keys(changes).length > 0) {
-        await updateListItem(LIST_NAMES.Ownership, ownership.id, changes);
-        await refetch();
-      }
+      const fullReason = reasonNotes ? `${reason} — ${reasonNotes}` : reason;
+      await updateListItem(LIST_NAMES.Ownership, ownership.id, pendingChanges, { reason: fullReason });
+      await refetch();
       setEditing(false);
+      setReasonModalOpen(false);
+      setPendingChanges(null);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -347,6 +382,65 @@ export function OwnershipDetail() {
           />
         </Section>
       </div>
+
+      {/* PR-09d gap #5 — Ownership change reason modal */}
+      {reasonModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-5">
+            <h3 className="text-lg font-bold text-teal-700 mb-2">Reason for change</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Per audit policy (Spec §5.5), every ownership change is logged with a reason. This will appear in the audit log alongside the diff.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason <span className="text-error">*</span></label>
+                <select
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value as OwnershipChangeReason | '')}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
+                  autoFocus
+                >
+                  <option value="">— select —</option>
+                  {CHANGE_REASONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <textarea
+                  value={reasonNotes}
+                  onChange={(e) => setReasonNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Brief context, e.g., 'OA Amendment 2024, Stan exits to Cara'"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 resize-y"
+                />
+              </div>
+            </div>
+            <SaveErrorBanner error={saveError} />
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  setReasonModalOpen(false);
+                  setPendingChanges(null);
+                }}
+                disabled={saving}
+                className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmSave}
+                disabled={saving || !reason}
+                className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {saving && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
+                {saving ? 'Saving…' : 'Save with Reason'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
