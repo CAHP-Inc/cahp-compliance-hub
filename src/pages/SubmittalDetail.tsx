@@ -1,19 +1,32 @@
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
+  updateListItem,
   LIST_NAMES,
   type Submittal,
+  type SubmittalFields,
   type Property,
   type Correspondence,
   type OutstandingItem,
   type AuditLog,
   type SubmittalStatusValue,
   type SubmittalFilingType,
+  type CahpTaxYear,
+  type CahpState,
+  type FilingMethod,
+  getBeneficialOwnershipTree,
+  type Ownership,
+  type Owner,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
-import { BreadcrumbBar } from '../components/detail';
+import {
+  BreadcrumbBar,
+  EditableField,
+  SaveErrorBanner,
+  EditingActionButtons,
+} from '../components/detail';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -32,7 +45,6 @@ const FILING_TYPE_STYLES: Record<SubmittalFilingType, string> = {
   'Amendment': 'bg-amber-100 text-amber-800',
 };
 
-// Pipeline visualization — spec §3.6.4
 const PIPELINE_STAGES: { status: SubmittalStatusValue; label: string }[] = [
   { status: 'Draft', label: 'Draft' },
   { status: 'Filed', label: 'Filed' },
@@ -43,21 +55,135 @@ const PIPELINE_STAGES: { status: SubmittalStatusValue; label: string }[] = [
 
 const TERMINAL_STATUSES: SubmittalStatusValue[] = ['Approved', 'Denied', 'Withdrawn'];
 
+const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
+const STATES: CahpState[] = ['SC', 'NC'];
+const FILING_METHODS: FilingMethod[] = ['Online Portal (SC)', 'Paper Mail (NC)'];
+const FILING_TYPES: SubmittalFilingType[] = ['Initial', 'Annual', 'Amendment'];
+
+// ─────────────────────────────────────────────────────────────
+// Allowed transitions — spec §3.6.4
+// ─────────────────────────────────────────────────────────────
+type Transition = {
+  to: SubmittalStatusValue;
+  label: string;
+  description: string;
+  style: 'primary' | 'warning' | 'danger' | 'success' | 'neutral';
+  requiresFields?: (keyof SubmittalFields)[];     // Fields that must be set BEFORE allowing transition
+};
+
+const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
+  'Draft': [
+    {
+      to: 'Filed',
+      label: 'File with DOR',
+      description: 'Mark this submittal as filed. Captures filing date + confirmation #, freezes the org chart snapshot.',
+      style: 'primary',
+      requiresFields: ['DateFiled', 'ConfirmationNumber'],
+    },
+    {
+      to: 'Withdrawn',
+      label: 'Withdraw',
+      description: 'Cancel this submittal. Terminal status.',
+      style: 'danger',
+    },
+  ],
+  'Package Mailed (NC)': [
+    {
+      to: 'Filed',
+      label: 'Mark as Filed',
+      description: 'DOR confirmed receipt of mailed package.',
+      style: 'primary',
+      requiresFields: ['DateFiled', 'ConfirmationNumber'],
+    },
+    { to: 'Withdrawn', label: 'Withdraw', description: 'Cancel this submittal.', style: 'danger' },
+  ],
+  'Filed': [
+    {
+      to: 'Letter Received - Action Needed',
+      label: 'Letter Received (action needed)',
+      description: 'DOR sent a letter requesting more info or clarification.',
+      style: 'warning',
+    },
+    {
+      to: 'Approved',
+      label: 'Approved',
+      description: 'DOR approved. Opens approval workflow modal to capture tax savings + create Billing.',
+      style: 'success',
+    },
+    { to: 'Denied', label: 'Denied', description: 'DOR denied this submittal. Terminal.', style: 'danger' },
+    { to: 'Withdrawn', label: 'Withdraw', description: 'Withdraw before further DOR action.', style: 'neutral' },
+  ],
+  'Letter Received - Action Needed': [
+    {
+      to: 'Responded - Awaiting DOR',
+      label: 'Mark Responded',
+      description: 'Response sent to DOR. Awaiting their next move.',
+      style: 'primary',
+    },
+    { to: 'Withdrawn', label: 'Withdraw', description: 'Withdraw the submittal.', style: 'danger' },
+  ],
+  'Responded - Awaiting DOR': [
+    {
+      to: 'Letter Received - Action Needed',
+      label: 'Another Letter Received',
+      description: 'DOR sent another letter requiring response.',
+      style: 'warning',
+    },
+    {
+      to: 'Approved',
+      label: 'Approved',
+      description: 'DOR approved. Opens approval workflow modal.',
+      style: 'success',
+    },
+    { to: 'Denied', label: 'Denied', description: 'DOR denied. Terminal.', style: 'danger' },
+  ],
+  'Approved': [],   // Terminal — but show appeal-not-yet-supported note
+  'Denied': [],     // Terminal — appeal logic in Phase 3 maybe
+  'Withdrawn': [],  // Terminal
+};
+
+const TRANSITION_STYLES: Record<Transition['style'], string> = {
+  primary: 'bg-teal-700 hover:bg-teal-900 text-white border-transparent',
+  warning: 'bg-amber-600 hover:bg-amber-700 text-white border-transparent',
+  danger: 'bg-red-600 hover:bg-red-700 text-white border-transparent',
+  success: 'bg-green-600 hover:bg-green-700 text-white border-transparent',
+  neutral: 'bg-white hover:bg-gray-50 text-gray-700 border-gray-300',
+};
+
 export function SubmittalDetail() {
   const { id } = useParams<{ id: string }>();
 
-  const { data: submittal, loading, error } = useSharePointItem<Submittal>(LIST_NAMES.Submittals, id);
+  const { data: submittal, loading, error, refetch } = useSharePointItem<Submittal>(
+    LIST_NAMES.Submittals,
+    id
+  );
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const correspondence = useSharePointList<Correspondence>(LIST_NAMES.Correspondence, { top: 500 });
   const outstanding = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
   const auditLog = useSharePointList<AuditLog>(LIST_NAMES.AuditLog, { top: 200 });
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
+  // Editing state
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<SubmittalFields | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Transition modal state
+  const [activeTransition, setActiveTransition] = useState<Transition | null>(null);
+  const [transitionFields, setTransitionFields] = useState<Record<string, string>>({});
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (submittal && !editing) setDraft({ ...submittal.fields });
+  }, [submittal?.id, submittal?.lastModifiedDateTime, editing]);
 
   const property = useMemo(() => {
     if (!submittal || !properties.data || !submittal.fields.PropertyLookupId) return null;
     return properties.data.find((p) => String(p.id) === String(submittal.fields.PropertyLookupId)) ?? null;
   }, [submittal, properties.data]);
 
-  // Related correspondence — filter by property
   const relatedCorrespondence = useMemo(() => {
     if (!submittal || !correspondence.data) return [];
     const propertyId = submittal.fields.PropertyLookupId;
@@ -71,28 +197,24 @@ export function SubmittalDetail() {
       });
   }, [submittal, correspondence.data]);
 
-  // Action plan — outstanding items for this property still open
   const actionPlan = useMemo(() => {
     if (!submittal || !outstanding.data) return [];
     const propertyId = submittal.fields.PropertyLookupId;
     if (!propertyId) return [];
-    return outstanding.data
-      .filter(
-        (o) =>
-          String(o.fields.PropertyLookupId) === String(propertyId) &&
-          o.fields.ItemStatus !== 'Received' &&
-          o.fields.ItemStatus !== 'Not Applicable'
-      );
+    return outstanding.data.filter(
+      (o) =>
+        String(o.fields.PropertyLookupId) === String(propertyId) &&
+        o.fields.ItemStatus !== 'Received' &&
+        o.fields.ItemStatus !== 'Not Applicable'
+    );
   }, [submittal, outstanding.data]);
 
-  // Activity for this submittal
   const submittalActivity = useMemo(() => {
     if (!submittal || !auditLog.data) return [];
     return auditLog.data
       .filter(
         (a) =>
-          a.fields.EntityType === 'Submittal' &&
-          String(a.fields.EntityId) === String(submittal.id)
+          a.fields.EntityType === 'Submittal' && String(a.fields.EntityId) === String(submittal.id)
       )
       .sort(
         (a, b) =>
@@ -111,7 +233,7 @@ export function SubmittalDetail() {
     );
   }
 
-  if (error || !submittal) {
+  if (error || !submittal || !draft) {
     return (
       <div>
         <BreadcrumbBar parentLabel="Submittals" parentTo="/submittals" currentLabel="Submittal Detail" />
@@ -123,13 +245,130 @@ export function SubmittalDetail() {
     );
   }
 
+  const display = editing ? draft : submittal.fields;
   const f = submittal.fields;
-  const statusIdx = f.SubmittalStatus
-    ? PIPELINE_STAGES.findIndex((s) => s.status === f.SubmittalStatus)
-    : -1;
-  const isTerminal = f.SubmittalStatus ? TERMINAL_STATUSES.includes(f.SubmittalStatus) : false;
-  const isDenied = f.SubmittalStatus === 'Denied';
-  const isWithdrawn = f.SubmittalStatus === 'Withdrawn';
+  const currentStatus = f.SubmittalStatus ?? 'Draft';
+  const transitions = ALLOWED_TRANSITIONS[currentStatus] ?? [];
+  const isTerminal = TERMINAL_STATUSES.includes(currentStatus);
+  const statusIdx = PIPELINE_STAGES.findIndex((s) => s.status === currentStatus);
+
+  const handleFieldChange = <K extends keyof SubmittalFields>(field: K, value: SubmittalFields[K]) => {
+    setDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleEdit = () => {
+    setDraft({ ...submittal.fields });
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const handleCancel = () => {
+    setDraft({ ...submittal.fields });
+    setSaveError(null);
+    setEditing(false);
+  };
+
+  const handleSave = async () => {
+    if (!draft) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const changed: Record<string, unknown> = {};
+      Object.keys(draft).forEach((key) => {
+        const k = key as keyof SubmittalFields;
+        if (draft[k] !== submittal.fields[k]) {
+          changed[k] = draft[k] === '' ? null : draft[k];
+        }
+      });
+      if (Object.keys(changed).length === 0) {
+        setEditing(false);
+        return;
+      }
+      await updateListItem(LIST_NAMES.Submittals, submittal.id, changed);
+      await refetch();
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
+  // Status transitions
+  // ────────────────────────────────────────────────────────
+
+  const startTransition = (transition: Transition) => {
+    setActiveTransition(transition);
+    setTransitionFields({});
+    setTransitionError(null);
+  };
+
+  const cancelTransition = () => {
+    setActiveTransition(null);
+    setTransitionFields({});
+    setTransitionError(null);
+  };
+
+  const confirmTransition = async () => {
+    if (!activeTransition) return;
+    // Validate required fields
+    const missing: string[] = [];
+    (activeTransition.requiresFields ?? []).forEach((field) => {
+      const existingValue = f[field];
+      const inputValue = transitionFields[field];
+      if (!existingValue && !inputValue) missing.push(String(field));
+    });
+    if (missing.length > 0) {
+      setTransitionError(`Required: ${missing.join(', ')}`);
+      return;
+    }
+
+    setSaving(true);
+    setTransitionError(null);
+    try {
+      const updates: Record<string, unknown> = {
+        SubmittalStatus: activeTransition.to,
+      };
+      // Apply transition-time field captures
+      Object.entries(transitionFields).forEach(([k, v]) => {
+        if (v) updates[k] = k === 'DateFiled' ? new Date(v).toISOString() : v;
+      });
+
+      // Spec §3.6.6 — On Draft → Filed transition, freeze org chart snapshot
+      const fromDraftToFiled =
+        (currentStatus === 'Draft' || currentStatus === 'Package Mailed (NC)') &&
+        activeTransition.to === 'Filed';
+      if (fromDraftToFiled && submittal.fields.PropertyLookupId && ownership.data && owners.data) {
+        const tree = getBeneficialOwnershipTree(
+          'property',
+          String(submittal.fields.PropertyLookupId),
+          ownership.data,
+          owners.data
+        );
+        const snapshot = {
+          version: 1,
+          capturedAt: new Date().toISOString(),
+          propertyId: submittal.fields.PropertyLookupId,
+          tree: serializeTree(tree),
+        };
+        updates.OrgChartSnapshotJSON = JSON.stringify(snapshot);
+        updates.OrgChartSnapshotDate = new Date().toISOString();
+      }
+
+      await updateListItem(LIST_NAMES.Submittals, submittal.id, updates);
+      await refetch();
+      cancelTransition();
+    } catch (err) {
+      setTransitionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTransitionFieldChange = (field: string, value: string) => {
+    setTransitionFields((prev) => ({ ...prev, [field]: value }));
+  };
 
   return (
     <div>
@@ -164,26 +403,36 @@ export function SubmittalDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1.5 border border-dashed border-gray-300 text-gray-500 rounded-md text-xs font-medium italic">
-            Editing & status transitions ship in PR-10b
-          </span>
+          {!editing ? (
+            <button
+              onClick={handleEdit}
+              className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5"
+            >
+              <Icon name="settings" size={14} />
+              Edit
+            </button>
+          ) : (
+            <EditingActionButtons saving={saving} onCancel={handleCancel} onSave={handleSave} />
+          )}
         </div>
       </div>
 
-      {/* Status pipeline visualization */}
+      <SaveErrorBanner error={saveError} />
+
+      {/* Status pipeline */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 p-5">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Status Pipeline</div>
-        {isTerminal && (isDenied || isWithdrawn) ? (
-          <div className={`p-3 rounded-md ${isDenied ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
-            <p className="text-sm font-semibold">{isDenied ? 'Denied' : 'Withdrawn'}</p>
+        {isTerminal && (currentStatus === 'Denied' || currentStatus === 'Withdrawn') ? (
+          <div className={`p-3 rounded-md ${currentStatus === 'Denied' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+            <p className="text-sm font-semibold">{currentStatus}</p>
             <p className="text-xs text-gray-600 mt-1">
-              {isDenied
-                ? 'DOR denied this submittal. No billing record will be created. Appeal possible.'
-                : 'Submittal withdrawn before DOR action. No billing record will be created.'}
+              {currentStatus === 'Denied'
+                ? 'DOR denied this submittal. No billing record created. Appeal logic ships in Phase 3.'
+                : 'Submittal withdrawn before DOR action. No billing record created.'}
             </p>
           </div>
         ) : (
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-3">
             {PIPELINE_STAGES.map((stage, idx) => {
               const reached = statusIdx >= idx;
               const isCurrent = statusIdx === idx;
@@ -209,31 +458,131 @@ export function SubmittalDetail() {
             })}
           </div>
         )}
+
+        {/* Transition buttons */}
+        {transitions.length > 0 && !editing && (
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider self-center mr-1">Next:</span>
+            {transitions.map((t) => (
+              <button
+                key={t.to}
+                onClick={() => startTransition(t)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${TRANSITION_STYLES[t.style]}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isTerminal && currentStatus === 'Approved' && (
+          <div className="pt-2 border-t border-gray-100 text-xs text-green-700 italic">
+            Approved. Billing record auto-creation ships in PR-10d (Approval Workflow modal).
+          </div>
+        )}
       </div>
 
       {/* Metadata + Action Plan two-column */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Left two-thirds: metadata */}
         <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg shadow-card p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Submittal Metadata</h3>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-            <Row label="Filing Type" value={f.FilingType} />
-            <Row label="Tax Year" value={f.cahpTaxYear} mono />
-            <Row label="State" value={f.cahpState} mono />
-            <Row label="Filing Method" value={f.FilingMethod} />
-            <Row label="Date Filed" value={formatDate(f.DateFiled)} mono />
-            <Row label="Confirmation #" value={f.ConfirmationNumber} mono />
-            <Row label="Mail Tracking #" value={f.MailTrackingNumber} mono />
-            <Row label="Approved Abatement" value={f.ApprovedAbatement != null ? `$${f.ApprovedAbatement.toLocaleString()}` : undefined} mono />
-            <Row label="Next Action" value={f.NextAction} />
-            <Row label="Next Action Due" value={formatDate(f.NextActionDue)} mono />
+            <EditableField
+              label="Title"
+              value={display.Title}
+              editing={editing}
+              onChange={(v) => handleFieldChange('Title', v as string)}
+              required
+            />
+            <EditableField
+              label="Filing Type"
+              value={display.FilingType}
+              editing={editing}
+              type="choice"
+              choices={FILING_TYPES}
+              onChange={(v) => handleFieldChange('FilingType', v as SubmittalFilingType)}
+            />
+            <EditableField
+              label="Tax Year"
+              value={display.cahpTaxYear}
+              editing={editing}
+              type="choice"
+              choices={TAX_YEARS}
+              onChange={(v) => handleFieldChange('cahpTaxYear', v as CahpTaxYear)}
+              mono
+            />
+            <EditableField
+              label="State"
+              value={display.cahpState}
+              editing={editing}
+              type="choice"
+              choices={STATES}
+              onChange={(v) => handleFieldChange('cahpState', v as CahpState)}
+              mono
+            />
+            <EditableField
+              label="Filing Method"
+              value={display.FilingMethod}
+              editing={editing}
+              type="choice"
+              choices={FILING_METHODS}
+              onChange={(v) => handleFieldChange('FilingMethod', v as FilingMethod)}
+            />
+            <EditableField
+              label="Date Filed"
+              value={display.DateFiled}
+              editing={editing}
+              type="date"
+              onChange={(v) => handleFieldChange('DateFiled', v as string)}
+              mono
+            />
+            <EditableField
+              label="Confirmation #"
+              value={display.ConfirmationNumber}
+              editing={editing}
+              onChange={(v) => handleFieldChange('ConfirmationNumber', v as string)}
+              mono
+            />
+            <EditableField
+              label="Mail Tracking #"
+              value={display.MailTrackingNumber}
+              editing={editing}
+              onChange={(v) => handleFieldChange('MailTrackingNumber', v as string)}
+              mono
+            />
+            <EditableField
+              label="Approved Abatement"
+              value={display.ApprovedAbatement?.toString()}
+              editing={editing}
+              type="number"
+              onChange={(v) => handleFieldChange('ApprovedAbatement', v === '' ? undefined : Number(v))}
+              mono
+            />
+            <EditableField
+              label="Next Action"
+              value={display.NextAction}
+              editing={editing}
+              onChange={(v) => handleFieldChange('NextAction', v as string)}
+            />
+            <EditableField
+              label="Next Action Due"
+              value={display.NextActionDue}
+              editing={editing}
+              type="date"
+              onChange={(v) => handleFieldChange('NextActionDue', v as string)}
+              mono
+            />
           </dl>
-          {f.SubmittalNotes && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Notes</div>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{f.SubmittalNotes}</p>
-            </div>
-          )}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <EditableField
+              label="Notes"
+              value={display.SubmittalNotes}
+              editing={editing}
+              type="textarea"
+              rows={4}
+              onChange={(v) => handleFieldChange('SubmittalNotes', v as string)}
+            />
+          </div>
           {f.OrgChartSnapshotJSON && (
             <div className="mt-4 pt-4 border-t border-gray-100">
               <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
@@ -246,12 +595,14 @@ export function SubmittalDetail() {
                   : 'Snapshot captured (date unknown)'}
                 {' · '}
                 <span className="font-mono-data">{f.OrgChartSnapshotJSON.length.toLocaleString()} bytes</span>
+                {' · '}
+                <em>Rendered view ships in PR-10c</em>
               </p>
             </div>
           )}
         </div>
 
-        {/* Right one-third: action plan */}
+        {/* Action plan */}
         <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700">Action Plan</h3>
@@ -287,7 +638,7 @@ export function SubmittalDetail() {
         </div>
       </div>
 
-      {/* Correspondence Thread */}
+      {/* Correspondence */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">DOR Correspondence</h3>
@@ -357,20 +708,155 @@ export function SubmittalDetail() {
           </ul>
         )}
       </div>
+
+      {/* Transition modal */}
+      {activeTransition && (
+        <TransitionModal
+          transition={activeTransition}
+          currentFields={f}
+          inputFields={transitionFields}
+          onFieldChange={handleTransitionFieldChange}
+          onCancel={cancelTransition}
+          onConfirm={confirmTransition}
+          saving={saving}
+          error={transitionError}
+          willFreezeOrgChart={
+            (currentStatus === 'Draft' || currentStatus === 'Package Mailed (NC)') &&
+            activeTransition.to === 'Filed'
+          }
+        />
+      )}
     </div>
   );
 }
 
-function Row({ label, value, mono }: { label: string; value?: string | number; mono?: boolean }) {
-  const hasValue = value !== null && value !== undefined && value !== '';
+// =============================================================================
+// Transition Modal — captures fields required for status transition + warns about side effects
+// =============================================================================
+
+function TransitionModal({
+  transition,
+  currentFields,
+  inputFields,
+  onFieldChange,
+  onCancel,
+  onConfirm,
+  saving,
+  error,
+  willFreezeOrgChart,
+}: {
+  transition: Transition;
+  currentFields: SubmittalFields;
+  inputFields: Record<string, string>;
+  onFieldChange: (field: string, value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  saving: boolean;
+  error: string | null;
+  willFreezeOrgChart: boolean;
+}) {
+  const inputClass =
+    'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
+
   return (
-    <div className="flex items-start gap-3 py-0.5">
-      <dt className="text-sm text-gray-500 w-40 flex-shrink-0">{label}</dt>
-      <dd className={`text-sm flex-1 ${mono ? 'font-mono-data' : ''} ${hasValue ? 'text-gray-900' : 'text-gray-300'}`}>
-        {hasValue ? String(value) : '—'}
-      </dd>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-5">
+        <h3 className="text-lg font-bold text-teal-700 mb-1">Transition to {transition.to}</h3>
+        <p className="text-sm text-gray-600 mb-4">{transition.description}</p>
+
+        {willFreezeOrgChart && (
+          <div className="mb-4 bg-gold-50 border border-gold-200 rounded-md p-3 flex items-start gap-2">
+            <Icon name="alert" size={14} className="text-gold-700 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-teal-900">
+              <strong>Org chart snapshot will be captured.</strong> The current ownership tree freezes onto this submittal at the moment of filing.
+              Future ownership changes will not retroactively alter this snapshot — critical for DOR audit defensibility.
+            </p>
+          </div>
+        )}
+
+        {transition.requiresFields && transition.requiresFields.length > 0 && (
+          <div className="space-y-3 mb-4">
+            {transition.requiresFields.map((field) => {
+              const currentValue = currentFields[field];
+              if (currentValue) {
+                // Already set — show it as a confirmation, not an input
+                return (
+                  <div key={String(field)} className="text-sm">
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-0.5">
+                      {String(field)} <span className="text-gray-400">(already set)</span>
+                    </label>
+                    <p className="font-mono-data text-gray-900">
+                      {field === 'DateFiled' && typeof currentValue === 'string'
+                        ? new Date(currentValue).toLocaleDateString()
+                        : String(currentValue)}
+                    </p>
+                  </div>
+                );
+              }
+              return (
+                <div key={String(field)}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {String(field)} <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type={field === 'DateFiled' ? 'date' : 'text'}
+                    value={inputFields[String(field)] ?? ''}
+                    onChange={(e) => onFieldChange(String(field), e.target.value)}
+                    className={`${inputClass} font-mono-data`}
+                    autoFocus={transition.requiresFields?.[0] === field}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-3 bg-red-50 border border-red-200 rounded-md p-2 text-xs text-red-800">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 mt-5">
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={saving}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 ${TRANSITION_STYLES[transition.style]}`}
+          >
+            {saving && <div className="w-3 h-3 rounded-full border-2 border-current border-r-transparent animate-spin opacity-70" />}
+            {saving ? 'Saving…' : `Confirm Transition to ${transition.to}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Serialize the ownership tree for snapshot storage.
+ * We strip down to just the data needed to render later — no recursive Owner / Ownership object refs.
+ */
+function serializeTree(tree: ReturnType<typeof getBeneficialOwnershipTree>): unknown {
+  return tree.map((node) => ({
+    ownerId: node.owner?.id,
+    ownerTitle: node.owner?.fields.Title,
+    ownerType: node.owner?.fields.OwnerType,
+    relationshipType: node.relationship.fields.RelationshipType,
+    ownershipPercent: node.relationship.fields.OwnershipPercent,
+    effectiveDate: node.relationship.fields.EffectiveDate,
+    children: serializeTree(node.children),
+  }));
 }
 
 function formatDate(iso: string | undefined): string | undefined {
