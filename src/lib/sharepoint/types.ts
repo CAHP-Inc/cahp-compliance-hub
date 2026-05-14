@@ -302,7 +302,17 @@ export type ItemCategory =
   | 'Determination Letter'
   | 'Other';
 
-export type ItemStatus = 'Requested' | 'Overdue' | 'Received' | 'Not Applicable';
+export type ItemStatus =
+  | 'Not Started'        // PR-11b — primary new status
+  | 'In Progress'        // PR-11b
+  | 'Blocked'            // PR-11b
+  | 'Done'               // PR-11b
+  | 'Requested'          // legacy (maps to Not Started in kanban)
+  | 'Overdue'            // legacy — overdue is a visual treatment in PR-11b
+  | 'Received'           // legacy (maps to Done in kanban)
+  | 'Not Applicable';    // legacy — closed bucket
+
+export type ItemPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 
 export interface OutstandingItemFields {
   Title: string;                              // Item Needed
@@ -314,6 +324,10 @@ export interface OutstandingItemFields {
   FollowUpCount?: number;
   ItemOwner?: string;
   ItemNotes?: string;
+  // PR-11b additions
+  DueDate?: string;
+  Priority?: ItemPriority;
+  AssignedTo?: string;
 }
 
 export type OutstandingItem = SharePointListItem<OutstandingItemFields>;

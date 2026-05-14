@@ -15,6 +15,8 @@ import { Submittals } from './pages/Submittals';
 import { SubmittalDetail } from './pages/SubmittalDetail';
 import { CorrespondencePage } from './pages/CorrespondencePage';
 import { CorrespondenceDetail } from './pages/CorrespondenceDetail';
+import { OutstandingItems } from './pages/OutstandingItems';
+import { OutstandingItemDetail } from './pages/OutstandingItemDetail';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -30,7 +32,9 @@ function App() {
         <AppShell>
           <Routes>
             <Route path="/" element={<MyDay />} />
-            <Route path="/outstanding" element={<PlaceholderPage title="Outstanding Items" icon="alert" plannedPR="PR-07" />} />
+            <Route path="/outstanding" element={<OutstandingItems />} />
+            <Route path="/outstanding-items" element={<OutstandingItems />} />
+            <Route path="/outstanding-items/:id" element={<OutstandingItemDetail />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/properties/new" element={<PropertyNew />} />

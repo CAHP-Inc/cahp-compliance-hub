@@ -38,7 +38,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'done' as const },
   { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'done' as const },
   { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'done' as const },
-  { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'next' as const },
+  { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
+  { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -115,24 +116,25 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-11a banner */}
+      {/* PR-11b banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            11a
+            11b
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-11a deployed. DOR Correspondence is now a full CRUD module with cascade-and-surface.
+              PR-11b deployed. Outstanding Items is the master task spine.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Correspondence</strong> in the nav now shows the full module — list with KPIs (YTD, Response Due ≤14d, Overdue),
-              filters by type/direction/search, and detail page with inline editing. The <strong>Log Letter modal</strong> is the
-              canonical cascade-and-surface example from spec §3.7.3: one user action creates the correspondence record,
-              auto-creates an Outstanding Item if response deadline is set, updates the related submittal to "Letter Received - Action Needed"
-              when the letter type requires response, and writes audit entries for every record touched. A real-time
-              <strong> Cascade Preview</strong> in the modal shows which side effects will fire before you click save.
-              Document attachment (the 4th cascade step) ships in PR-11c with the Documents module.
+              <strong>Outstanding</strong> in the nav now opens a real module —
+              <strong> kanban view</strong> (Not Started / In Progress / Blocked / Done) with quick-move dropdowns on each card,
+              <strong> list view</strong> toggle for table-style scanning,
+              KPIs (Total / Open / Overdue / Critical), and filters by priority, assignee, property, plus search.
+              Detail page supports inline editing of all fields including new <strong>DueDate / Priority / AssignedTo</strong>.
+              Overdue items get red borders + flags. Legacy items with status "Requested" auto-map to "Not Started" column;
+              "Received" maps to "Done". You'll see the auto-created items from PropertyWizard and the DOR Correspondence
+              cascade here. <strong>PR-11c</strong> next: Document upload routing to SharePoint Document Libraries.
             </p>
           </div>
         </div>
