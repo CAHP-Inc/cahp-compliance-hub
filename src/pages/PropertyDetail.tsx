@@ -380,6 +380,7 @@ function OverviewTab({
 }
 
 function SubmittalsTab({ submittals }: { submittals: Submittal[] }) {
+  const navigate = useNavigate();
   if (submittals.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
@@ -404,7 +405,11 @@ function SubmittalsTab({ submittals }: { submittals: Submittal[] }) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {submittals.map((s) => (
-            <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+            <tr
+              key={s.id}
+              onClick={() => navigate(`/submittals/${s.id}`)}
+              className="hover:bg-gray-50 transition-colors cursor-pointer"
+            >
               <td className="px-4 py-3 font-medium text-gray-900">{s.fields.Title}</td>
               <td className="px-4 py-3 text-gray-700 font-mono-data">{s.fields.cahpTaxYear || '—'}</td>
               <td className="px-4 py-3 text-gray-700 text-xs">{s.fields.FilingMethod || '—'}</td>

@@ -123,6 +123,9 @@ export type SubmittalStatusValue =
 
 export type FilingMethod = 'Online Portal (SC)' | 'Paper Mail (NC)';
 
+// PR-10a — spec §3.6.3
+export type SubmittalFilingType = 'Initial' | 'Annual' | 'Amendment';
+
 export interface SubmittalFields {
   Title: string;                              // Submittal Label
   PropertyLookupId?: string;                  // → Properties Registry
@@ -130,6 +133,7 @@ export interface SubmittalFields {
   cahpTaxYear?: CahpTaxYear;
   cahpState?: CahpState;
   SubmittalStatus?: SubmittalStatusValue;
+  FilingType?: SubmittalFilingType;           // PR-10a — Initial / Annual / Amendment
   FilingMethod?: FilingMethod;
   DateFiled?: string;
   ConfirmationNumber?: string;
@@ -138,6 +142,9 @@ export interface SubmittalFields {
   NextActionDue?: string;
   ApprovedAbatement?: number;
   SubmittalNotes?: string;
+  // PR-10c — org chart version freeze on Draft→Filed transition (JSON snapshot)
+  OrgChartSnapshotJSON?: string;
+  OrgChartSnapshotDate?: string;
 }
 
 export type Submittal = SharePointListItem<SubmittalFields>;

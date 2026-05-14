@@ -33,6 +33,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'done' as const },
   { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'done' as const },
   { id: 'PR-09d', label: 'Strict spec gap closure (5 lists, wizards, cascade, reason, CAHP Entity)', status: 'done' as const },
+  { id: 'PR-10a', label: 'Submittals module — list + detail (read-only)', status: 'done' as const },
+  { id: 'PR-10b', label: 'Submittal editing + status pipeline transitions', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -109,26 +111,21 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-09d / Phase 1 strict-closure complete banner */}
-      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
+      {/* PR-10a banner — Phase 2 kickoff */}
+      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
-            <Icon name="check" size={20} />
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
+            10a
           </div>
           <div className="flex-1">
-            <div className="font-bold text-teal-900 text-lg">
-              Phase 1 is closed — strictly, against the v1.0 spec.
+            <div className="font-semibold text-teal-900">
+              Phase 2 kicked off. PR-10a: Submittals module live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              PR-09d shipped. Closed all 6 spec gaps: <strong>5 missing SharePoint Lists provisioned</strong>
-              (CAHP Users, Owner Communications, Document Metadata, Disbursements, Notifications),
-              <strong> Owner Wizard branches</strong> with optional Members step for LLC/Nonprofit,
-              <strong> Owner Detail Cascade Preview</strong> section now distinct from Members subtitle,
-              <strong> Property Wizard step order</strong> corrected (Ownership before Filing Config),
-              <strong> Ownership change reason</strong> dropdown enforced on save (Buy-In / Buy-Out / Estate / Initial Filing / Other),
-              and <strong>CAHP Entity module</strong> live at <em>/cahp-entity</em>.
-              Every Phase 1 deliverable from spec §16.1 now has a corresponding shipped artifact.
-              Phase 2 (Submittals + DOR Cascade + Outstanding Items + Document upload) starts on a clean foundation.
+              <strong>Submittals</strong> is now a top-level module — list with filters/search/KPIs, detail page with
+              full status-pipeline visualization, metadata, related correspondence, action plan, and activity log.
+              Read-only for now; <strong>PR-10b</strong> wires editing and status transitions. Property Detail's
+              Submittals tab now navigates to the detail page on click.
             </p>
           </div>
         </div>
