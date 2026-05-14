@@ -35,7 +35,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-09d', label: 'Strict spec gap closure (5 lists, wizards, cascade, reason, CAHP Entity)', status: 'done' as const },
   { id: 'PR-10a', label: 'Submittals module — list + detail (read-only)', status: 'done' as const },
   { id: 'PR-10b', label: 'Submittal editing + status pipeline transitions', status: 'done' as const },
-  { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'next' as const },
+  { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'done' as const },
+  { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -112,24 +113,23 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-10b banner */}
+      {/* PR-10c banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            10b
+            10c
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-10b deployed. Submittals are now editable + the status pipeline transitions.
+              PR-10c deployed. Frozen org charts render from the snapshot, not live data.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Open any submittal → <strong>Edit</strong> button toggles inline editing of all 11 metadata fields.
-              Below the pipeline visualization, <strong>action buttons appear for legal next-status transitions only</strong>
-              (Draft → File with DOR, Filed → Letter Received / Approved / Denied, etc.).
-              Transitions that require fields (filing date, confirmation #) prompt a modal that validates inputs first.
-              The <strong>Draft → Filed</strong> transition automatically captures the org chart snapshot per spec §3.6.6 —
-              every direct + indirect ownership relationship is frozen as JSON on the submittal. The Approval Workflow
-              modal (tax savings → Billing + Disbursement creation) lands in PR-10d.
+              Every filed submittal now has an <strong>Org Chart Snapshot section</strong> below the metadata —
+              renders all 3 layouts (Detailed / Beneficial / DOR-Friendly) from the JSON captured at the moment of filing.
+              Subsequent ownership edits do not affect this view. The capture timestamp is shown prominently.
+              Critical for DOR audit defensibility: "here's what the chain looked like when we filed,"
+              even years later when the live data has drifted. <strong>PR-10d</strong> next: Approval Workflow
+              modal that auto-creates Billing + Disbursement on the Filed → Approved transition.
             </p>
           </div>
         </div>

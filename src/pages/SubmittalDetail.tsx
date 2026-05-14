@@ -27,6 +27,7 @@ import {
   SaveErrorBanner,
   EditingActionButtons,
 } from '../components/detail';
+import { SubmittalOrgChartSnapshot } from '../components/SubmittalOrgChartSnapshot';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -583,23 +584,6 @@ export function SubmittalDetail() {
               onChange={(v) => handleFieldChange('SubmittalNotes', v as string)}
             />
           </div>
-          {f.OrgChartSnapshotJSON && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                <Icon name="check" size={12} className="text-success" />
-                Org Chart Snapshot Frozen
-              </div>
-              <p className="text-xs text-gray-600">
-                {f.OrgChartSnapshotDate
-                  ? `Captured ${new Date(f.OrgChartSnapshotDate).toLocaleString()}`
-                  : 'Snapshot captured (date unknown)'}
-                {' · '}
-                <span className="font-mono-data">{f.OrgChartSnapshotJSON.length.toLocaleString()} bytes</span>
-                {' · '}
-                <em>Rendered view ships in PR-10c</em>
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Action plan */}
@@ -636,6 +620,15 @@ export function SubmittalDetail() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* Org Chart Snapshot — PR-10c — frozen historical org chart */}
+      <div className="mb-6">
+        <SubmittalOrgChartSnapshot
+          snapshotJSON={f.OrgChartSnapshotJSON}
+          capturedAt={f.OrgChartSnapshotDate}
+          propertyTitle={property?.fields.Title ?? '(unlinked property)'}
+        />
       </div>
 
       {/* Correspondence */}
