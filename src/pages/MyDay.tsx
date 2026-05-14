@@ -36,7 +36,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-10a', label: 'Submittals module — list + detail (read-only)', status: 'done' as const },
   { id: 'PR-10b', label: 'Submittal editing + status pipeline transitions', status: 'done' as const },
   { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'done' as const },
-  { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'next' as const },
+  { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'done' as const },
+  { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -113,23 +114,25 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-10c banner */}
-      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
+      {/* PR-10d banner — Submittals epic complete */}
+      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            10c
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
+            <Icon name="check" size={20} />
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">
-              PR-10c deployed. Frozen org charts render from the snapshot, not live data.
+            <div className="font-bold text-teal-900 text-lg">
+              Submittals epic (PR-10a → 10d) complete.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Every filed submittal now has an <strong>Org Chart Snapshot section</strong> below the metadata —
-              renders all 3 layouts (Detailed / Beneficial / DOR-Friendly) from the JSON captured at the moment of filing.
-              Subsequent ownership edits do not affect this view. The capture timestamp is shown prominently.
-              Critical for DOR audit defensibility: "here's what the chain looked like when we filed,"
-              even years later when the live data has drifted. <strong>PR-10d</strong> next: Approval Workflow
-              modal that auto-creates Billing + Disbursement on the Filed → Approved transition.
+              PR-10d shipped. The <strong>Filed → Approved</strong> transition now opens the
+              <strong> Approval Workflow modal</strong> — capture the approval letter ref and tax savings amount;
+              CAHP Fee % is editable per submittal (default 50%). On confirm: status flips to Approved,
+              <strong> 1 Billing row</strong> auto-created (Ready to Invoice, QB Not Synced),
+              <strong> 1 Disbursement row</strong> auto-created (Pending status, owner allocation TBD).
+              Every record audit-logged. Submittals epic is now fully wired end-to-end: Draft creation →
+              filing with snapshot freeze → letter cycles → approval → billing + disbursement creation.
+              Phase 2 continues: <strong>PR-11a</strong> next, DOR Correspondence full CRUD with cascade.
             </p>
           </div>
         </div>

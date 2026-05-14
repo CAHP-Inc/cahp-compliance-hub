@@ -265,6 +265,28 @@ export interface BillingFields {
 export type Billing = SharePointListItem<BillingFields>;
 
 // =============================================================================
+// LIST: Disbursements (provisioned PR-09d — DOR refund passthroughs to owners)
+// =============================================================================
+
+export type DisbursementStatus = 'Pending' | 'Issued' | 'Cleared' | 'Voided';
+
+export interface DisbursementFields {
+  Title: string;                              // Disbursement Reference
+  DisbProperty?: string;                       // Lookup → Properties Registry (raw name for now)
+  DisbPropertyLookupId?: string;               // Standard SP lookup-id field shape
+  DisbSubmittalLookupId?: string;              // → Submittals Tracker
+  DisbOwnerLookupId?: string;                  // → Owners
+  DisbAmount?: number;
+  DisbStatus?: DisbursementStatus;
+  DisbIssueDate?: string;
+  DisbClearDate?: string;
+  DisbCheckNum?: string;
+  DisbNotes?: string;
+}
+
+export type Disbursement = SharePointListItem<DisbursementFields>;
+
+// =============================================================================
 // LIST: Outstanding Items Checklist
 // =============================================================================
 
@@ -430,6 +452,7 @@ export const LIST_NAMES = {
   AuditLog: 'AuditLog',
   PropertyNotes: 'Property Notes',
   Owners: 'Owners',
+  Disbursements: 'Disbursements',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
