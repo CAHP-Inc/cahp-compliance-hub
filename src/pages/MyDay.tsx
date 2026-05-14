@@ -39,7 +39,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'done' as const },
   { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'done' as const },
   { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
-  { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'next' as const },
+  { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
+  { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -116,25 +117,22 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-11b banner */}
+      {/* PR-11c banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            11b
+            11c
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-11b deployed. Outstanding Items is the master task spine.
+              PR-11c deployed. Documents now upload from inside the app.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Outstanding</strong> in the nav now opens a real module —
-              <strong> kanban view</strong> (Not Started / In Progress / Blocked / Done) with quick-move dropdowns on each card,
-              <strong> list view</strong> toggle for table-style scanning,
-              KPIs (Total / Open / Overdue / Critical), and filters by priority, assignee, property, plus search.
-              Detail page supports inline editing of all fields including new <strong>DueDate / Priority / AssignedTo</strong>.
-              Overdue items get red borders + flags. Legacy items with status "Requested" auto-map to "Not Started" column;
-              "Received" maps to "Done". You'll see the auto-created items from PropertyWizard and the DOR Correspondence
-              cascade here. <strong>PR-11c</strong> next: Document upload routing to SharePoint Document Libraries.
+              Two upload entry points: <strong>Property Detail → Documents tab → Upload Document</strong> (pick library + drop file)
+              and <strong>Log Letter modal → Attachment field</strong> (auto-routes to DOR Correspondence library).
+              Files go into the right SharePoint library; PropertyID metadata is set automatically so they surface on the property's Documents tab.
+              4 MB simple-upload limit for now — larger files still need to go through the SharePoint web UI directly (chunked upload can be added if it becomes a friction point).
+              Every upload is audit-logged. <strong>PR-11d</strong> next: Untagged Documents cleanup queue.
             </p>
           </div>
         </div>

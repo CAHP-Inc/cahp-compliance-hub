@@ -28,6 +28,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
 import { LogLetterModal } from '../components/LogLetterModal';
+import { UploadDocumentModal } from '../components/UploadDocumentModal';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -317,7 +318,7 @@ export function PropertyDetail() {
       {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
       {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
-      {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} />}
+      {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'activity' && id && <PropertyActivityTab propertyId={id} />}
       {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
 
@@ -1286,7 +1287,9 @@ interface PropertyDocument {
   docType?: string;
 }
 
-function PropertyDocumentsTab({ propertyId }: { propertyId: string }) {
+function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+
   // Fetch each library in parallel — each useSharePointList is its own hook call
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
   const lib1 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[1], { top: 500 });
@@ -1300,6 +1303,8 @@ function PropertyDocumentsTab({ propertyId }: { propertyId: string }) {
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
   const loading = libraries.some((l) => l.loading);
   const errors = libraries.filter((l) => l.error).map((l) => l.error!.message);
+
+  const refetchAll = () => libraries.forEach((l) => l.refetch?.());
 
   const documents = useMemo(() => {
     const docs: PropertyDocument[] = [];
@@ -1335,65 +1340,95 @@ function PropertyDocumentsTab({ propertyId }: { propertyId: string }) {
   if (loading) return <TabLoading label={`documents across ${PROPERTY_LINKED_LIBRARIES.length} libraries`} />;
   if (errors.length > 0) return <TabError error={new Error(errors[0])} />;
 
-  if (documents.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
-        <p className="text-sm text-gray-500 mb-2">No documents tagged to this property yet.</p>
-        <p className="text-xs text-gray-400">
-          To link a document to this property, upload to one of the libraries in SharePoint and set the Property column.
-          Document upload from inside the app ships in Phase 2.
-        </p>
-      </div>
-    );
-  }
+  const handleUploadSuccess = () => {
+    setUploadOpen(false);
+    refetchAll();
+  };
 
   return (
     <div>
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">
-            {documents.length} document{documents.length === 1 ? '' : 's'} tagged to this property
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Across {PROPERTY_LINKED_LIBRARIES.length} libraries · click filename to open in SharePoint
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700">
+          {documents.length === 0
+            ? 'No documents tagged to this property yet'
+            : `${documents.length} document${documents.length === 1 ? '' : 's'} tagged to this property`}
+        </h3>
+        <button
+          onClick={() => setUploadOpen(true)}
+          className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"
+        >
+          <Icon name="plus" size={12} />
+          Upload Document
+        </button>
+      </div>
+
+      {documents.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500 mb-3">No documents tagged to this property yet.</p>
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={14} />
+            Upload First Document
+          </button>
+          <p className="text-xs text-gray-400 mt-3">
+            Pick a library + a file; PropertyID metadata is set automatically.
           </p>
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-            <tr>
-              <th className="px-4 py-3 text-left">Filename</th>
-              <th className="px-4 py-3 text-left">Library</th>
-              <th className="px-4 py-3 text-left">Type</th>
-              <th className="px-4 py-3 text-left">Modified</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {documents.map((doc) => (
-              <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 font-medium text-gray-900">
-                  {doc.webUrl ? (
-                    <a
-                      href={doc.webUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-teal-700 hover:text-teal-900 underline"
-                    >
-                      {doc.filename}
-                    </a>
-                  ) : (
-                    doc.filename
-                  )}
-                </td>
-                <td className="px-4 py-3 text-gray-700 text-xs">{doc.library}</td>
-                <td className="px-4 py-3 text-gray-700 text-xs">{doc.docType || '—'}</td>
-                <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                  {formatDate(doc.uploadDate)}
-                </td>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <div className="px-4 py-2 border-b border-gray-100 bg-gray-50">
+            <p className="text-xs text-gray-500">
+              Across {PROPERTY_LINKED_LIBRARIES.length} libraries · click filename to open in SharePoint
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Filename</th>
+                <th className="px-4 py-3 text-left">Library</th>
+                <th className="px-4 py-3 text-left">Type</th>
+                <th className="px-4 py-3 text-left">Modified</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {documents.map((doc) => (
+                <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {doc.webUrl ? (
+                      <a
+                        href={doc.webUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal-700 hover:text-teal-900 underline"
+                      >
+                        {doc.filename}
+                      </a>
+                    ) : (
+                      doc.filename
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-700 text-xs">{doc.library}</td>
+                  <td className="px-4 py-3 text-gray-700 text-xs">{doc.docType || '—'}</td>
+                  <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                    {formatDate(doc.uploadDate)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {uploadOpen && (
+        <UploadDocumentModal
+          propertyId={propertyId}
+          propertyTitle={propertyTitle}
+          onSuccess={handleUploadSuccess}
+          onClose={() => setUploadOpen(false)}
+        />
+      )}
     </div>
   );
 }

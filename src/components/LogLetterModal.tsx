@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   useSharePointList,
   createListItem,
   updateListItem,
+  uploadDocument,
   LIST_NAMES,
   type Property,
   type Submittal,
@@ -78,6 +79,10 @@ export function LogLetterModal({
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [cascadeLog, setCascadeLog] = useState<string[]>([]);
+
+  // PR-11c — optional file attachment, routed to DOR Correspondence library
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter submittals to those linked to the chosen property
   const submittalChoices = useMemo(() => {
@@ -189,9 +194,22 @@ export function LogLetterModal({
         }
       }
 
-      // ──────────────── CASCADE STEP 4: file document (Phase 2 — handled by Documents module PR-11c) ────────────────
-      // PR-11c will add a file picker here that uploads to the property's Documents library
-      // with PropertyID metadata. For now, document attachment is manual.
+      // ──────────────── CASCADE STEP 4: upload document to DOR Correspondence library (PR-11c) ────────────────
+      if (attachment) {
+        try {
+          await uploadDocument({
+            libraryName: 'DOR Correspondence',
+            filename: attachment.name,
+            file: attachment,
+            metadata: { PropertyLookupId: propertyId },
+          });
+          setCascadeLog((prev) => [...prev, `✓ Document "${attachment.name}" uploaded to DOR Correspondence library`]);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('Document upload failed:', e);
+          setCascadeLog((prev) => [...prev, `⚠ Document upload failed (correspondence record still saved): ${e instanceof Error ? e.message : String(e)}`]);
+        }
+      }
 
       setCascadeLog((prev) => [...prev, `✓ All audit log entries written`]);
 
@@ -351,6 +369,24 @@ export function LogLetterModal({
               disabled={saving}
             />
           </Field>
+
+          <Field label="Attachment (optional)">
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+              disabled={saving}
+              className="text-xs file:mr-2 file:px-2 file:py-1 file:border-0 file:rounded file:bg-teal-700 file:text-white file:font-medium hover:file:bg-teal-900"
+            />
+            {attachment && (
+              <p className="text-[11px] text-gray-500 mt-1 font-mono-data">
+                {attachment.name} · {(attachment.size / 1024).toFixed(1)} KB
+              </p>
+            )}
+            <p className="text-[11px] text-gray-400 mt-1">
+              Uploads to <strong>DOR Correspondence</strong> SharePoint library with PropertyID tag set. Large files upload in chunks.
+            </p>
+          </Field>
         </div>
 
         {/* Cascade preview */}
@@ -368,8 +404,9 @@ export function LogLetterModal({
               {willUpdateSubmittal ? '✓' : '○'} <strong>Submittal status</strong> → Letter Received - Action Needed
               {!willUpdateSubmittal && ' (no submittal linked or letter type doesn\'t require response)'}
             </li>
-            <li className="text-gray-500">
-              ○ <strong>Document attachment</strong> (manual for now — ships in PR-11c)
+            <li className={attachment ? '' : 'text-gray-500 line-through'}>
+              {attachment ? '✓' : '○'} <strong>Document attachment</strong>
+              {attachment ? ` (${attachment.name} → DOR Correspondence library)` : ' (no file picked)'}
             </li>
             <li>✓ <strong>Audit log</strong> entries for every record touched</li>
           </ul>

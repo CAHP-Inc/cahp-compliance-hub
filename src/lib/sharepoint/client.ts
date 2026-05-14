@@ -236,8 +236,204 @@ export async function deleteListItem(listName: string, itemId: string): Promise<
 }
 
 // =============================================================================
-// AUDIT LOGGING
+// DOCUMENT LIBRARY OPERATIONS (PR-11c)
 // =============================================================================
+//
+// SharePoint document libraries are exposed via Graph as both Lists and Drives:
+//   - List view: `/sites/{siteId}/lists/{libraryName}/items` — gives metadata items
+//   - Drive view: `/sites/{siteId}/drives/{driveId}/...` — gives file operations
+//
+// To upload a file: PUT to /sites/{siteId}/drives/{driveId}/root:/{filename}:/content
+// Then PATCH the corresponding listItem/fields to set PropertyLookupId metadata.
+// =============================================================================
+
+/** Cached drive IDs by library name — drives are stable per library, lookup once. */
+const driveIdCache = new Map<string, string>();
+
+async function getDriveIdForLibrary(libraryName: string): Promise<string> {
+  if (driveIdCache.has(libraryName)) return driveIdCache.get(libraryName)!;
+  const siteId = await getSiteId();
+  const response: { drive: { id: string } } = await graphClient
+    .api(`/sites/${siteId}/lists/${encodeURIComponent(libraryName)}`)
+    .expand('drive')
+    .get();
+  if (!response.drive?.id) {
+    throw new Error(`Library "${libraryName}" has no associated drive`);
+  }
+  driveIdCache.set(libraryName, response.drive.id);
+  return response.drive.id;
+}
+
+export interface DocumentUploadOptions {
+  libraryName: string;
+  filename: string;
+  file: File | Blob;
+  /** Metadata fields to set on the uploaded document's listItem (PropertyLookupId, etc.) */
+  metadata?: Record<string, unknown>;
+  /** Progress callback (0-100) — currently fires only at start (0) and end (100); chunked upload TBD */
+  onProgress?: (percent: number) => void;
+}
+
+export interface DocumentUploadResult {
+  itemId: string;
+  driveItemId: string;
+  webUrl: string;
+  filename: string;
+  size: number;
+}
+
+/**
+ * Upload a file to a SharePoint Document Library and set metadata.
+ *
+ * Uses Graph's two upload paths automatically based on file size:
+ *   - Files ≤ 4 MB: single PUT (simple upload, 1 round-trip)
+ *   - Files > 4 MB: upload session with 10 MiB chunks
+ *
+ * Chunked uploads report real per-chunk progress through `onProgress`.
+ * On chunk failure the upload aborts — caller can retry by invoking again.
+ */
+export async function uploadDocument(options: DocumentUploadOptions): Promise<DocumentUploadResult> {
+  const { libraryName, filename, file, metadata, onProgress } = options;
+
+  onProgress?.(0);
+
+  const driveId = await getDriveIdForLibrary(libraryName);
+  const encodedName = encodeURIComponent(filename);
+
+  // Pick upload path by size
+  const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024; // 4 MB
+  let uploaded: { id: string; webUrl: string; size: number; name: string };
+
+  if (file.size <= SIMPLE_UPLOAD_LIMIT) {
+    // ─── Simple upload — single PUT ──────────────────────────
+    uploaded = await graphClient
+      .api(`/drives/${driveId}/root:/${encodedName}:/content`)
+      .header('Content-Type', file.type || 'application/octet-stream')
+      .put(file);
+    onProgress?.(100);
+  } else {
+    // ─── Chunked upload — upload session ──────────────────────
+    uploaded = await uploadInChunks(driveId, encodedName, file, onProgress);
+  }
+
+  // Set metadata if provided
+  let listItemId: string | null = null;
+  if (metadata && Object.keys(metadata).length > 0) {
+    try {
+      const updated: { id: string } = await graphClient
+        .api(`/drives/${driveId}/items/${uploaded.id}/listItem/fields`)
+        .patch(metadata);
+      listItemId = updated.id ?? null;
+    } catch (e) {
+      // Metadata patch failure is recoverable — file is uploaded; user can re-tag later
+      // eslint-disable-next-line no-console
+      console.warn('Metadata patch failed after upload:', e);
+    }
+  }
+
+  // If we don't have a listItemId from the patch, fetch it
+  if (!listItemId) {
+    try {
+      const li: { id: string } = await graphClient
+        .api(`/drives/${driveId}/items/${uploaded.id}/listItem`)
+        .get();
+      listItemId = li.id;
+    } catch {
+      listItemId = uploaded.id; // fallback
+    }
+  }
+
+  // Audit log
+  await tryAuditLog({
+    listName: libraryName,
+    action: 'CREATE',
+    itemId: listItemId,
+    after: { Title: uploaded.name, ...(metadata ?? {}) },
+    entityTitle: uploaded.name,
+  });
+
+  return {
+    itemId: listItemId,
+    driveItemId: uploaded.id,
+    webUrl: uploaded.webUrl,
+    filename: uploaded.name,
+    size: uploaded.size,
+  };
+}
+
+/**
+ * Chunked upload via Graph upload session.
+ *
+ * Per Microsoft docs: chunk sizes must be multiples of 320 KiB (327,680 bytes).
+ * 10 MiB is the sweet spot for most networks — large enough to amortize HTTP overhead
+ * but small enough that one failed chunk doesn't waste much progress.
+ *
+ * The upload session URL is pre-signed by Graph at session creation time, so chunk
+ * PUTs do NOT require an auth header — they use the bare `fetch` API rather than graphClient.
+ */
+async function uploadInChunks(
+  driveId: string,
+  encodedName: string,
+  file: File | Blob,
+  onProgress?: (percent: number) => void
+): Promise<{ id: string; webUrl: string; size: number; name: string }> {
+  const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MiB — multiple of 320 KiB
+
+  // 1. Create upload session — returns a pre-signed uploadUrl
+  const session: { uploadUrl: string; expirationDateTime: string } = await graphClient
+    .api(`/drives/${driveId}/root:/${encodedName}:/createUploadSession`)
+    .post({
+      item: {
+        '@microsoft.graph.conflictBehavior': 'rename', // auto-rename on collision
+      },
+    });
+
+  const uploadUrl = session.uploadUrl;
+  let finalItem: { id: string; webUrl: string; size: number; name: string } | null = null;
+
+  // 2. PUT each chunk with Content-Range header
+  for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+    const chunkEnd = Math.min(offset + CHUNK_SIZE, file.size);
+    const chunk = file.slice(offset, chunkEnd);
+    const contentRange = `bytes ${offset}-${chunkEnd - 1}/${file.size}`;
+
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': contentRange },
+      body: chunk,
+    });
+
+    if (!response.ok) {
+      // Best-effort cleanup — DELETE the session so we don't leak partial uploads
+      try {
+        await fetch(uploadUrl, { method: 'DELETE' });
+      } catch {
+        // ignore — session will expire on its own
+      }
+      throw new Error(
+        `Chunk upload failed at byte ${offset} (status ${response.status}). ` +
+          `Retry by clicking Upload again.`
+      );
+    }
+
+    // Progress: percent of bytes uploaded
+    onProgress?.(Math.round((chunkEnd / file.size) * 100));
+
+    // The final chunk's response body contains the completed driveItem
+    if (chunkEnd === file.size) {
+      finalItem = (await response.json()) as typeof finalItem;
+    }
+    // Intermediate chunks return 202 Accepted with `nextExpectedRanges` — we don't need it
+    // because we're uploading sequentially without parallelism. Body is discarded.
+  }
+
+  if (!finalItem) {
+    throw new Error('Upload finished but Graph did not return a driveItem.');
+  }
+  return finalItem;
+}
+
+
 
 /** Map SharePoint list names to human-readable entity type labels for the audit log. */
 const ENTITY_TYPE_LABELS: Record<string, string> = {
