@@ -17,6 +17,7 @@ import { CorrespondencePage } from './pages/CorrespondencePage';
 import { CorrespondenceDetail } from './pages/CorrespondenceDetail';
 import { OutstandingItems } from './pages/OutstandingItems';
 import { OutstandingItemDetail } from './pages/OutstandingItemDetail';
+import { UntaggedDocuments } from './pages/UntaggedDocuments';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -35,6 +36,7 @@ function App() {
             <Route path="/outstanding" element={<OutstandingItems />} />
             <Route path="/outstanding-items" element={<OutstandingItems />} />
             <Route path="/outstanding-items/:id" element={<OutstandingItemDetail />} />
+            <Route path="/untagged-documents" element={<UntaggedDocuments />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/properties/new" element={<PropertyNew />} />
@@ -56,7 +58,7 @@ function App() {
             <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
             <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Phase 3" />} />
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
-            <Route path="/untagged" element={<PlaceholderPage title="Untagged Documents" icon="alert" plannedPR="Phase 2" />} />
+            <Route path="/untagged" element={<UntaggedDocuments />} />
             <Route path="/reports" element={<PlaceholderPage title="Reports" icon="file" plannedPR="Phase 3" />} />
             <Route path="/audit" element={<Audit />} />
             <Route path="/settings" element={<PlaceholderPage title="Settings" icon="settings" plannedPR="Phase 3" />} />

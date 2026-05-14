@@ -40,7 +40,7 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'done' as const },
   { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
   { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
-  { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'next' as const },
+  { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -117,22 +117,25 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-11c banner */}
-      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
+      {/* PR-11d / Phase 2 complete banner */}
+      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            11c
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
+            <Icon name="check" size={20} />
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">
-              PR-11c deployed. Documents now upload from inside the app.
+            <div className="font-bold text-teal-900 text-lg">
+              Phase 2 complete. PR-11d shipped — Untagged Documents queue live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Two upload entry points: <strong>Property Detail → Documents tab → Upload Document</strong> (pick library + drop file)
-              and <strong>Log Letter modal → Attachment field</strong> (auto-routes to DOR Correspondence library).
-              Files go into the right SharePoint library; PropertyID metadata is set automatically so they surface on the property's Documents tab.
-              4 MB simple-upload limit for now — larger files still need to go through the SharePoint web UI directly (chunked upload can be added if it becomes a friction point).
-              Every upload is audit-logged. <strong>PR-11d</strong> next: Untagged Documents cleanup queue.
+              <strong>Untagged Docs</strong> in the nav scans all 8 property-linked SharePoint libraries for files without
+              the PropertyID tag, shows them grouped, and provides bulk-tag actions. Multi-select with the header checkbox,
+              pick a property from the bulk dropdown, click Tag — updates fire in parallel (concurrency 5) for speed.
+              Per-row dropdowns for one-off tagging. Useful for cleaning up Zoho imports or direct SharePoint uploads.
+              <br /><br />
+              <strong>Phase 2 epics shipped:</strong> Submittals (10a-10d), DOR Correspondence + cascade (11a),
+              Outstanding Items kanban (11b), chunked document upload (11c), Untagged cleanup (11d).
+              Phase 3 next: Owner Communications, full Billing/Disbursements UI, Reports, Notifications. Or hold and stabilize.
             </p>
           </div>
         </div>
