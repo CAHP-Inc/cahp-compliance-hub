@@ -37,7 +37,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-10b', label: 'Submittal editing + status pipeline transitions', status: 'done' as const },
   { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'done' as const },
   { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'done' as const },
-  { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'next' as const },
+  { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'done' as const },
+  { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -114,25 +115,24 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-10d banner — Submittals epic complete */}
-      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
+      {/* PR-11a banner */}
+      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
-            <Icon name="check" size={20} />
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
+            11a
           </div>
           <div className="flex-1">
-            <div className="font-bold text-teal-900 text-lg">
-              Submittals epic (PR-10a → 10d) complete.
+            <div className="font-semibold text-teal-900">
+              PR-11a deployed. DOR Correspondence is now a full CRUD module with cascade-and-surface.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              PR-10d shipped. The <strong>Filed → Approved</strong> transition now opens the
-              <strong> Approval Workflow modal</strong> — capture the approval letter ref and tax savings amount;
-              CAHP Fee % is editable per submittal (default 50%). On confirm: status flips to Approved,
-              <strong> 1 Billing row</strong> auto-created (Ready to Invoice, QB Not Synced),
-              <strong> 1 Disbursement row</strong> auto-created (Pending status, owner allocation TBD).
-              Every record audit-logged. Submittals epic is now fully wired end-to-end: Draft creation →
-              filing with snapshot freeze → letter cycles → approval → billing + disbursement creation.
-              Phase 2 continues: <strong>PR-11a</strong> next, DOR Correspondence full CRUD with cascade.
+              <strong>Correspondence</strong> in the nav now shows the full module — list with KPIs (YTD, Response Due ≤14d, Overdue),
+              filters by type/direction/search, and detail page with inline editing. The <strong>Log Letter modal</strong> is the
+              canonical cascade-and-surface example from spec §3.7.3: one user action creates the correspondence record,
+              auto-creates an Outstanding Item if response deadline is set, updates the related submittal to "Letter Received - Action Needed"
+              when the letter type requires response, and writes audit entries for every record touched. A real-time
+              <strong> Cascade Preview</strong> in the modal shows which side effects will fire before you click save.
+              Document attachment (the 4th cascade step) ships in PR-11c with the Documents module.
             </p>
           </div>
         </div>

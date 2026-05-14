@@ -224,6 +224,7 @@ export interface CorrespondenceFields {
   Direction?: CorrespondenceDirection;
   LetterType?: LetterType;
   PropertyLookupId?: string;                  // → Properties Registry
+  CorrSubmittalLookupId?: string;             // → Submittals Tracker (PR-11a)
   DateReceived?: string;
   DateResponded?: string;
   ResponseDue?: string;

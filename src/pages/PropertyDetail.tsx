@@ -27,6 +27,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
+import { LogLetterModal } from '../components/LogLetterModal';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -526,7 +527,9 @@ function PropertyComplianceTab({ propertyId }: { propertyId: string }) {
 // =============================================================================
 
 function PropertyCorrespondenceTab({ propertyId }: { propertyId: string }) {
-  const { data, loading, error } = useSharePointList<Correspondence>(
+  const navigate = useNavigate();
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const { data, loading, error, refetch } = useSharePointList<Correspondence>(
     LIST_NAMES.Correspondence,
     { top: 500 }
   );
@@ -545,42 +548,77 @@ function PropertyCorrespondenceTab({ propertyId }: { propertyId: string }) {
   if (loading) return <TabLoading label="DOR correspondence" />;
   if (error) return <TabError error={error} />;
 
-  if (filtered.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
-        <p className="text-sm text-gray-500">No DOR correspondence tied to this property.</p>
-        <p className="text-xs text-gray-400 mt-2">
-          Log a letter in the DOR Correspondence module and set the Property field to link it here.
-          Full Correspondence CRUD ships in Phase 2.
-        </p>
-      </div>
-    );
-  }
+  const handleLogSuccess = () => {
+    setLogModalOpen(false);
+    refetch?.();
+  };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-          <tr>
-            <th className="px-4 py-3 text-left">Subject</th>
-            <th className="px-4 py-3 text-left">Direction</th>
-            <th className="px-4 py-3 text-left">Type</th>
-            <th className="px-4 py-3 text-left">Received</th>
-            <th className="px-4 py-3 text-left">Response Due</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {filtered.map((c) => (
-            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-              <td className="px-4 py-3 font-medium text-gray-900">{c.fields.Title}</td>
-              <td className="px-4 py-3 text-xs text-gray-700">{c.fields.Direction || '—'}</td>
-              <td className="px-4 py-3 text-xs text-gray-700">{c.fields.LetterType || '—'}</td>
-              <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.DateReceived)}</td>
-              <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.ResponseDue)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700">
+          {filtered.length === 0
+            ? 'No DOR correspondence on file'
+            : `${filtered.length} letter${filtered.length === 1 ? '' : 's'} for this property`}
+        </h3>
+        <button
+          onClick={() => setLogModalOpen(true)}
+          className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"
+        >
+          <Icon name="plus" size={12} />
+          Log Letter
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500 mb-3">No DOR correspondence tied to this property yet.</p>
+          <button
+            onClick={() => setLogModalOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={14} />
+            Log First Letter
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Subject</th>
+                <th className="px-4 py-3 text-left">Direction</th>
+                <th className="px-4 py-3 text-left">Type</th>
+                <th className="px-4 py-3 text-left">Received</th>
+                <th className="px-4 py-3 text-left">Response Due</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((c) => (
+                <tr
+                  key={c.id}
+                  onClick={() => navigate(`/correspondence/${c.id}`)}
+                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  <td className="px-4 py-3 font-medium text-gray-900">{c.fields.Title}</td>
+                  <td className="px-4 py-3 text-xs text-gray-700">{c.fields.Direction || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-700">{c.fields.LetterType || '—'}</td>
+                  <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.DateReceived)}</td>
+                  <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{formatDate(c.fields.ResponseDue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {logModalOpen && (
+        <LogLetterModal
+          onClose={() => setLogModalOpen(false)}
+          onSuccess={handleLogSuccess}
+          defaultPropertyId={propertyId}
+        />
+      )}
     </div>
   );
 }

@@ -13,6 +13,8 @@ import { OwnerNew } from './pages/OwnerNew';
 import { CAHPEntity } from './pages/CAHPEntity';
 import { Submittals } from './pages/Submittals';
 import { SubmittalDetail } from './pages/SubmittalDetail';
+import { CorrespondencePage } from './pages/CorrespondencePage';
+import { CorrespondenceDetail } from './pages/CorrespondenceDetail';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -43,7 +45,8 @@ function App() {
             <Route path="/cahp-entity" element={<PlaceholderPage title="CAHP Entity" icon="star" plannedPR="PR-06" />} />
             <Route path="/submittals" element={<Submittals />} />
             <Route path="/submittals/:id" element={<SubmittalDetail />} />
-            <Route path="/correspondence" element={<PlaceholderPage title="DOR Correspondence" icon="mail" plannedPR="Phase 2" />} />
+            <Route path="/correspondence" element={<CorrespondencePage />} />
+            <Route path="/correspondence/:id" element={<CorrespondenceDetail />} />
             <Route path="/comms" element={<PlaceholderPage title="Owner Communications" icon="mail" plannedPR="Phase 3" />} />
             <Route path="/compliance" element={<Compliance />} />
             <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
