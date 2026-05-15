@@ -43,7 +43,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
   { id: 'PR-12-removed', label: 'Billing module removed — deferred to future, status tracking only', status: 'done' as const },
   { id: 'PR-13a', label: 'Owner Communications module', status: 'done' as const },
-  { id: 'PR-14a', label: 'Reports foundation — 6 category cards + export pipeline', status: 'next' as const },
+  { id: 'PR-14a', label: 'Reports foundation — 6 category cards + 3 working reports', status: 'done' as const },
+  { id: 'PR-14b', label: 'Reports implementation — fill out remaining + Audit Pack bundles', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -120,23 +121,24 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-13a banner */}
+      {/* PR-14a banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            13a
+            14a
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-13a deployed. Owner Communications module live.
+              PR-14a deployed. Reports module live with 3 working reports.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Owner Communications</strong> in the nav now opens a full CRUD module — single timeline of every
-              non-DOR conversation (emails, calls, meetings, SMS, vendor calls). KPIs (Total YTD / Needs Follow-up /
-              Emails This Month / Calls This Month), filters by type/status/search, detail page with Quick Close + edit.
-              <strong> Log Communication modal</strong> captures subject + type + direction + property/owner + participants + notes.
-              Setting a Response Due + linking a property auto-creates an Outstanding Item with Medium priority.
-              <strong> PR-14a</strong> next: Reports foundation — 6 category cards.
+              <strong>Reports</strong> in the nav now shows 17 pre-built reports across 6 categories. Three run end-to-end as CSV downloads today:
+              <strong> Annual Filing Report</strong> (submittals filed this year),
+              <strong> Compliance Status Report</strong> (per-property deadline state),
+              and <strong>Outstanding Items by Owner</strong> (open items grouped by assignee).
+              Each report card shows its status — Available (green), Pending Billing Module (gray, deferred until Billing is reactivated),
+              or Coming in PR-14b (gold). Schedule button is disabled across the board — recurring delivery is a future capability.
+              <strong> PR-14b</strong> next: fill out remaining reports + assemble multi-file Audit Pack bundles.
             </p>
           </div>
         </div>
