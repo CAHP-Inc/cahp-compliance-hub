@@ -22,11 +22,11 @@ const EMAIL_ROLE_MAP: Record<string, Role> = {
   // commit, push. Production picks up the change on the next deploy.
   // ============================================================
   'bturner@newshirepm.com': 'Admin',
+  'stan@vanrockre.com': 'Admin',
+  'bdebruin@redcedarhomes.com': 'Admin',
   'lheckman@redcedarhomes.com': 'Contributor',
 
   // Future team members (uncomment and update emails when adding):
-  // 'bryan@cahphousing.org': 'Admin',
-  // 'stan@vanrock.com': 'Admin',
   // 'cara@newshirepm.com': 'Contributor',
   // 'chris@newshirepm.com': 'Accounting',
 };
