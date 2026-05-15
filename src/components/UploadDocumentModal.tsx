@@ -19,13 +19,20 @@ export const PROPERTY_LINKED_LIBRARIES = [
 
 export type PropertyLinkedLibrary = (typeof PROPERTY_LINKED_LIBRARIES)[number];
 
+export type UploadScope =
+  | { type: 'property'; propertyId: string; propertyTitle?: string }
+  | { type: 'owner'; ownerId: string; ownerTitle?: string };
+
 /**
  * Suggested library per property document context — used to pre-select the dropdown
  * when the modal is opened from a workflow with a hint (e.g., the Log Letter modal
  * always wants "DOR Correspondence").
  */
 export interface UploadDocumentModalProps {
-  propertyId: string;
+  /** Modern API — pass a scope. Property or owner. */
+  scope?: UploadScope;
+  /** Legacy API — kept for backward compat with existing call sites */
+  propertyId?: string;
   propertyTitle?: string;
   /** Default library to pre-select. If omitted, "Supporting Documentation" is used. */
   defaultLibrary?: PropertyLinkedLibrary;
@@ -35,12 +42,20 @@ export interface UploadDocumentModalProps {
 }
 
 export function UploadDocumentModal({
-  propertyId,
-  propertyTitle,
+  scope,
+  propertyId: legacyPropertyId,
+  propertyTitle: legacyPropertyTitle,
   defaultLibrary,
   onSuccess,
   onClose,
 }: UploadDocumentModalProps) {
+  // Normalize: if legacy props were used, build a property scope
+  const effectiveScope: UploadScope = scope ?? {
+    type: 'property',
+    propertyId: legacyPropertyId!,
+    propertyTitle: legacyPropertyTitle,
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [library, setLibrary] = useState<PropertyLinkedLibrary>(
@@ -73,11 +88,16 @@ export function UploadDocumentModal({
     setProgress(0);
 
     try {
+      const metadata =
+        effectiveScope.type === 'property'
+          ? { PropertyLookupId: effectiveScope.propertyId }
+          : { OwnerLookupId: effectiveScope.ownerId };
+
       const result = await uploadDocument({
         libraryName: library,
         filename: file.name,
         file,
-        metadata: { PropertyLookupId: propertyId },
+        metadata,
         onProgress: setProgress,
       });
 
@@ -92,18 +112,24 @@ export function UploadDocumentModal({
     }
   };
 
+  const scopeLabel =
+    effectiveScope.type === 'property'
+      ? effectiveScope.propertyTitle
+      : effectiveScope.ownerTitle;
+  const metadataLabel = effectiveScope.type === 'property' ? 'PropertyID' : 'OwnerID';
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-5">
         <h3 className="text-lg font-bold text-teal-700 mb-1">Upload Document</h3>
         <p className="text-sm text-gray-600 mb-4">
-          {propertyTitle ? (
+          {scopeLabel ? (
             <>
-              Uploading to <strong>{propertyTitle}</strong>. File goes into the SharePoint library you pick;
-              PropertyID metadata is set automatically so it shows up on this property's Documents tab.
+              Uploading to <strong>{scopeLabel}</strong>. File goes into the SharePoint library you pick;
+              {' '}{metadataLabel} metadata is set automatically so it surfaces in the right places.
             </>
           ) : (
-            <>File goes into the SharePoint library you pick; PropertyID is set automatically.</>
+            <>File goes into the SharePoint library you pick; {metadataLabel} is set automatically.</>
           )}
         </p>
 

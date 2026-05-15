@@ -8,6 +8,7 @@ import {
   type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 
 /**
  * CAHP Entity module — Spec §3.5.
@@ -293,7 +294,7 @@ function CAHPEntityTab({
       )}
 
       {/* Property Memberships */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden mb-6">
         <div className="px-4 py-3 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">Property Memberships</h3>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -339,6 +340,15 @@ function CAHPEntityTab({
           </table>
         )}
       </div>
+
+      {/* Documents — files tagged to this entity */}
+      <EntityDocumentsSection
+        ownerIds={[String(entity.id)]}
+        primaryOwnerTitle={entity.fields.Title}
+        title="Entity Documents"
+        subtitle="OAs, formation docs, determination letters, entity-level correspondence. Referenced from property filings."
+        uploadOwnerId={String(entity.id)}
+      />
     </div>
   );
 }

@@ -19,21 +19,18 @@ import { Icon } from '../components/ui/Icon';
 
 const STATUS_LABEL: Record<ReportStatus, string> = {
   'available': 'Available',
-  'pending-billing': 'Pending Billing Module',
   'pending-pr14b': 'Coming in PR-14b',
 };
 
 const STATUS_STYLES: Record<ReportStatus, string> = {
   'available': 'bg-success/10 text-success border-success/30',
-  'pending-billing': 'bg-gray-100 text-gray-500 border-gray-200',
   'pending-pr14b': 'bg-gold-100 text-gold-900 border-gold-200',
 };
 
-const CATEGORY_ICONS: Record<ReportCategory, 'star' | 'file' | 'calendar' | 'dollar' | 'check' | 'folder'> = {
+const CATEGORY_ICONS: Record<ReportCategory, 'star' | 'file' | 'calendar' | 'check' | 'folder'> = {
   'Owner Reports': 'star',
   'DOR Audit Pack': 'file',
   'Year-End / Annual': 'calendar',
-  'Financial': 'dollar',
   'Operational': 'check',
   'Backup and Export': 'folder',
 };
@@ -112,8 +109,7 @@ export function ReportsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-teal-700">Reports</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Pre-built reports across six categories. Click Run Now to download as CSV.
-          Schedule (recurring delivery) and Custom Report Builder are deferred to a future phase.
+          Pre-built reports. Click Run Now to download as CSV.
         </p>
       </div>
 

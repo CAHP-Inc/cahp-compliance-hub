@@ -15,13 +15,11 @@ export type ReportCategory =
   | 'Owner Reports'
   | 'DOR Audit Pack'
   | 'Year-End / Annual'
-  | 'Financial'
   | 'Operational'
   | 'Backup and Export';
 
 export type ReportStatus =
   | 'available'           // Run Now works
-  | 'pending-billing'     // Disabled — needs Billing module to be reactivated
   | 'pending-pr14b';      // Coming in PR-14b
 
 export interface ReportDescriptor {
@@ -40,30 +38,6 @@ export interface ReportDescriptor {
 
 export const REPORTS: ReportDescriptor[] = [
   // ─── Owner Reports ───
-  {
-    id: 'year-end-tax-summary',
-    name: 'Year-End Tax Summary',
-    description: 'CAHP fees billed + tax savings achieved per owner for the calendar year.',
-    category: 'Owner Reports',
-    status: 'pending-billing',
-    filenameBase: 'year-end-tax-summary',
-  },
-  {
-    id: 'refund-history',
-    name: 'Refund History',
-    description: 'All DOR refunds received YTD, by owner and property.',
-    category: 'Owner Reports',
-    status: 'pending-billing',
-    filenameBase: 'refund-history',
-  },
-  {
-    id: 'cahp-fee-statement',
-    name: 'CAHP Fee Statement',
-    description: 'Invoiceable + invoiced fee history with payment status, by owner.',
-    category: 'Owner Reports',
-    status: 'pending-billing',
-    filenameBase: 'cahp-fee-statement',
-  },
   {
     id: 'property-holdings',
     name: 'Property Holdings Statement',
@@ -109,46 +83,12 @@ export const REPORTS: ReportDescriptor[] = [
     filenameBase: 'annual-filing-report',
   },
   {
-    id: 'year-over-year',
-    name: 'Year-over-Year Comparison',
-    description: 'Tax savings and filing volume compared to prior years.',
-    category: 'Year-End / Annual',
-    status: 'pending-billing',
-    filenameBase: 'year-over-year',
-  },
-  {
     id: 'compliance-status',
     name: 'Compliance Status Report',
     description: 'Each property with current compliance status and outstanding deadlines.',
     category: 'Year-End / Annual',
     status: 'available',
     filenameBase: 'compliance-status',
-  },
-
-  // ─── Financial — all billing-dependent ───
-  {
-    id: 'fee-revenue-summary',
-    name: 'CAHP Fee Revenue Summary',
-    description: 'Revenue by month/quarter/year with QB sync status.',
-    category: 'Financial',
-    status: 'pending-billing',
-    filenameBase: 'fee-revenue-summary',
-  },
-  {
-    id: 'disbursement-report',
-    name: 'Disbursement Report',
-    description: 'All disbursements to owners with payment method and 1099 threshold flags.',
-    category: 'Financial',
-    status: 'pending-billing',
-    filenameBase: 'disbursement-report',
-  },
-  {
-    id: 'outstanding-balances',
-    name: 'Outstanding Balances',
-    description: 'Invoiced but unpaid CAHP fees + pending disbursements.',
-    category: 'Financial',
-    status: 'pending-billing',
-    filenameBase: 'outstanding-balances',
   },
 
   // ─── Operational ───

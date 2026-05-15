@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../lib/session';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import type { Role } from '../lib/permissions';
-import { useSharePointList, LIST_NAMES, type Property, type ComplianceDeadline, type DeadlineStatus } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type ComplianceDeadline, type DeadlineStatus, type OutstandingItem, type Submittal } from '../lib/sharepoint';
 
 const TODAY = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
@@ -44,6 +44,7 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-12-removed', label: 'Billing module removed — deferred to future, status tracking only', status: 'done' as const },
   { id: 'PR-13a', label: 'Owner Communications module', status: 'done' as const },
   { id: 'PR-14a', label: 'Reports foundation — 6 category cards + 3 working reports', status: 'done' as const },
+  { id: 'PR-14-hardening', label: 'My Day widgets + reports cleanup + CAHP entity documents', status: 'done' as const },
   { id: 'PR-14b', label: 'Reports implementation — fill out remaining + Audit Pack bundles', status: 'next' as const },
 ];
 
@@ -81,6 +82,13 @@ export function MyDay() {
     { top: 200 }
   );
   const { data: allDeadlines } = useSharePointList<ComplianceDeadline>(LIST_NAMES.ComplianceDeadlines, { top: 500 });
+  const { data: allItems } = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
+  const { data: allSubmittals } = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+
+  const propertiesById = useMemo(() => {
+    if (!properties) return new Map<string, Property>();
+    return new Map(properties.map((p) => [String(p.id), p]));
+  }, [properties]);
 
   const upcomingDeadlines = useMemo(() => {
     if (!allDeadlines) return [];
@@ -102,6 +110,54 @@ export function MyDay() {
       .slice(0, 5);
   }, [allDeadlines]);
 
+  // Outstanding Items widget — open items, overdue first, then by due date / priority
+  const openItems = useMemo(() => {
+    if (!allItems) return [];
+    const isClosed = (s: string | undefined) =>
+      s === 'Done' || s === 'Received' || s === 'Not Applicable';
+    const priorityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+
+    return allItems
+      .filter((i) => !isClosed(i.fields.ItemStatus))
+      .sort((a, b) => {
+        const aOverdue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() < Date.now() : false;
+        const bOverdue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() < Date.now() : false;
+        if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+        const aP = priorityOrder[a.fields.Priority ?? 'Medium'] ?? 2;
+        const bP = priorityOrder[b.fields.Priority ?? 'Medium'] ?? 2;
+        if (aP !== bP) return aP - bP;
+        const aDue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Infinity;
+        const bDue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Infinity;
+        return aDue - bDue;
+      })
+      .slice(0, 8);
+  }, [allItems]);
+
+  const openItemsTotal = useMemo(() => {
+    if (!allItems) return 0;
+    const isClosed = (s: string | undefined) =>
+      s === 'Done' || s === 'Received' || s === 'Not Applicable';
+    return allItems.filter((i) => !isClosed(i.fields.ItemStatus)).length;
+  }, [allItems]);
+
+  // Submittal Next Actions — submittals with a NextAction set that aren't in terminal state
+  const submittalsWithNextAction = useMemo(() => {
+    if (!allSubmittals) return [];
+    const terminal = ['Approved', 'Denied', 'Withdrawn'];
+    return allSubmittals
+      .filter((s) => {
+        if (!s.fields.NextAction) return false;
+        if (s.fields.SubmittalStatus && terminal.includes(s.fields.SubmittalStatus)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aDue = a.fields.NextActionDue ? new Date(a.fields.NextActionDue).getTime() : Infinity;
+        const bDue = b.fields.NextActionDue ? new Date(b.fields.NextActionDue).getTime() : Infinity;
+        return aDue - bDue;
+      })
+      .slice(0, 6);
+  }, [allSubmittals]);
+
   if (!user || !role) return null;
 
   const realRoleConfig = realRole ? ROLE_PERMISSIONS[realRole] : null;
@@ -121,24 +177,24 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-14a banner */}
+      {/* Hardening banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            14a
+            14
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              PR-14a deployed. Reports module live with 3 working reports.
+              Operational hardening shipped.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Reports</strong> in the nav now shows 17 pre-built reports across 6 categories. Three run end-to-end as CSV downloads today:
-              <strong> Annual Filing Report</strong> (submittals filed this year),
-              <strong> Compliance Status Report</strong> (per-property deadline state),
-              and <strong>Outstanding Items by Owner</strong> (open items grouped by assignee).
-              Each report card shows its status — Available (green), Pending Billing Module (gray, deferred until Billing is reactivated),
-              or Coming in PR-14b (gold). Schedule button is disabled across the board — recurring delivery is a future capability.
-              <strong> PR-14b</strong> next: fill out remaining reports + assemble multi-file Audit Pack bundles.
+              <strong>My Day</strong> now surfaces Outstanding Items (open, urgency-sorted) and Submittal Next Actions
+              widgets — both directly below Upcoming Deadlines. <strong>Reports</strong> dropped the
+              billing-dependent entries to reduce confusion for the team. <strong>CAHP Entity</strong> has its own
+              Documents section so OAs, formation docs, and determination letters live in one place and surface as
+              <strong> CAHP Entity Reference Documents</strong> at the top of every property's Documents tab. The
+              <strong> Untagged Documents</strong> queue now lets you bulk-tag to either a Property or an Owner/Entity.
+              <strong> PR-14b</strong> next: fill out remaining reports + Audit Pack bundles.
             </p>
           </div>
         </div>
@@ -231,6 +287,148 @@ export function MyDay() {
                       {d.fields.DeadlineStatus}
                     </span>
                   )}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Outstanding Items widget */}
+      {openItems.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-teal-700 flex items-center gap-2">
+                <Icon name="inbox" size={16} />
+                Outstanding Items
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Open · sorted by urgency · {openItemsTotal} total open
+              </p>
+            </div>
+            <Link
+              to="/outstanding-items"
+              className="text-xs text-teal-700 hover:text-teal-900 font-medium"
+            >
+              View all →
+            </Link>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {openItems.map((i) => {
+              const property = i.fields.PropertyLookupId
+                ? propertiesById.get(String(i.fields.PropertyLookupId))
+                : null;
+              const dueDate = i.fields.DueDate ? new Date(i.fields.DueDate) : null;
+              const daysOut = dueDate ? Math.round((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+              const isOverdue = daysOut !== null && daysOut < 0;
+              const priority = i.fields.Priority ?? 'Medium';
+              const priorityStyle =
+                priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                priority === 'High' ? 'bg-amber-100 text-amber-800' :
+                priority === 'Medium' ? 'bg-blue-100 text-blue-800' :
+                'bg-gray-100 text-gray-600';
+              return (
+                <Link
+                  key={i.id}
+                  to={`/outstanding-items/${i.id}`}
+                  className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {isOverdue && <span className="text-error mr-1">⚠</span>}
+                      {i.fields.Title}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {property ? property.fields.Title : <span className="italic">unassigned property</span>}
+                      {i.fields.AssignedTo && <span> · {i.fields.AssignedTo}</span>}
+                    </div>
+                  </div>
+                  <span className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold ${priorityStyle}`}>
+                    {priority}
+                  </span>
+                  <div className="text-right flex-shrink-0 w-20">
+                    {dueDate ? (
+                      <>
+                        <div className={`text-xs font-mono-data ${isOverdue ? 'text-error font-bold' : 'text-gray-700'}`}>
+                          {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                        <div className="text-[10px] text-gray-500">
+                          {isOverdue ? `${Math.abs(daysOut!)}d overdue` : daysOut === 0 ? 'Today' : `in ${daysOut}d`}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-gray-400">no due date</span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Submittal Next Actions widget */}
+      {submittalsWithNextAction.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-teal-700 flex items-center gap-2">
+                <Icon name="file" size={16} />
+                Submittal Next Actions
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Submittals with a pending action
+              </p>
+            </div>
+            <Link
+              to="/submittals"
+              className="text-xs text-teal-700 hover:text-teal-900 font-medium"
+            >
+              View all →
+            </Link>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {submittalsWithNextAction.map((s) => {
+              const property = s.fields.PropertyLookupId
+                ? propertiesById.get(String(s.fields.PropertyLookupId))
+                : null;
+              const dueDate = s.fields.NextActionDue ? new Date(s.fields.NextActionDue) : null;
+              const daysOut = dueDate ? Math.round((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+              const isOverdue = daysOut !== null && daysOut < 0;
+              return (
+                <Link
+                  key={s.id}
+                  to={`/submittals/${s.id}`}
+                  className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {isOverdue && <span className="text-error mr-1">⚠</span>}
+                      {s.fields.Title}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5 truncate">
+                      <span className="italic">{s.fields.NextAction}</span>
+                      {property && <span> · {property.fields.Title}</span>}
+                      {s.fields.SubmittalStatus && (
+                        <span className="ml-1.5 font-mono-data text-teal-700">{s.fields.SubmittalStatus}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 w-20">
+                    {dueDate ? (
+                      <>
+                        <div className={`text-xs font-mono-data ${isOverdue ? 'text-error font-bold' : 'text-gray-700'}`}>
+                          {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                        <div className="text-[10px] text-gray-500">
+                          {isOverdue ? `${Math.abs(daysOut!)}d overdue` : daysOut === 0 ? 'Today' : `in ${daysOut}d`}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-gray-400">no due date</span>
+                    )}
+                  </div>
                 </Link>
               );
             })}

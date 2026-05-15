@@ -33,6 +33,7 @@ import { DispositionModal } from '../components/DispositionModal';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
+import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -1482,6 +1483,9 @@ interface PropertyDocument {
 function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
   const [uploadOpen, setUploadOpen] = useState(false);
 
+  // Owners fetch — to identify CAHP entities for the reference section
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
   // Fetch each library in parallel — each useSharePointList is its own hook call
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
   const lib1 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[1], { top: 500 });
@@ -1537,8 +1541,27 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
     refetchAll();
   };
 
+  // Identify CAHP entity owners (anything with "CAHP" or Carolina Affordable Housing Project)
+  const cahpEntityIds =
+    owners.data
+      ?.filter((o) => {
+        const title = (o.fields.Title ?? '').toLowerCase();
+        return title.includes('cahp') || title.includes('carolina affordable housing project');
+      })
+      .map((o) => String(o.id)) ?? [];
+
   return (
     <div>
+      {/* CAHP entity reference docs — surfaced for filing reference. Not property-tagged. */}
+      {cahpEntityIds.length > 0 && (
+        <EntityDocumentsSection
+          ownerIds={cahpEntityIds}
+          title="CAHP Entity Reference Documents"
+          subtitle="Entity-level docs (OAs, formation, determination letters) used across all property filings."
+          variant="inline"
+        />
+      )}
+
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">
           {documents.length === 0

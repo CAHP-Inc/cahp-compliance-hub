@@ -4,6 +4,7 @@ import {
   updateListItem,
   LIST_NAMES,
   type Property,
+  type Owner,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { PROPERTY_LINKED_LIBRARIES } from '../components/UploadDocumentModal';
@@ -27,14 +28,18 @@ interface DocItemRaw {
     Title?: string;
     FileLeafRef?: string;
     PropertyLookupId?: string;
+    OwnerLookupId?: string;
     Modified?: string;
     Editor?: { LookupValue?: string };
     File_x0020_Size?: string;
   };
 }
 
+type TagMode = 'property' | 'owner';
+
 export function UntaggedDocuments() {
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
 
   // Fetch all 8 libraries in parallel
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -47,14 +52,16 @@ export function UntaggedDocuments() {
   const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
 
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
-  const loading = libraries.some((l) => l.loading) || properties.loading;
+  const loading = libraries.some((l) => l.loading) || properties.loading || owners.loading;
   const errors = libraries.filter((l) => l.error).map((l) => l.error!.message);
 
   // Filters / state
   const [search, setSearch] = useState('');
   const [libraryFilter, setLibraryFilter] = useState<string>('All');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [tagMode, setTagMode] = useState<TagMode>('property');
   const [bulkPropertyId, setBulkPropertyId] = useState<string>('');
+  const [bulkOwnerId, setBulkOwnerId] = useState<string>('');
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [appliedCount, setAppliedCount] = useState<number | null>(null);
@@ -65,9 +72,11 @@ export function UntaggedDocuments() {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((item) => {
-        const tag = item.fields.PropertyLookupId;
-        const isUntagged = !tag || tag === '' || tag === '0';
-        if (!isUntagged) return;
+        const propertyTag = item.fields.PropertyLookupId;
+        const ownerTag = item.fields.OwnerLookupId;
+        const noProperty = !propertyTag || propertyTag === '' || propertyTag === '0';
+        const noOwner = !ownerTag || ownerTag === '' || ownerTag === '0';
+        if (!noProperty || !noOwner) return; // tagged to at least one — skip
         docs.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,
@@ -112,6 +121,13 @@ export function UntaggedDocuments() {
     );
   }, [properties.data]);
 
+  const sortedOwners = useMemo(() => {
+    if (!owners.data) return [];
+    return [...owners.data].sort((a, b) =>
+      (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')
+    );
+  }, [owners.data]);
+
   const refetchAll = () => libraries.forEach((l) => l.refetch?.());
 
   // Selection
@@ -132,21 +148,18 @@ export function UntaggedDocuments() {
     setSelectedIds(new Set());
   };
 
-  // Bulk-tag
+  // Bulk-tag — works in either mode
   const applyBulkTag = async () => {
-    if (!bulkPropertyId || selectedIds.size === 0) return;
+    const targetId = tagMode === 'property' ? bulkPropertyId : bulkOwnerId;
+    if (!targetId || selectedIds.size === 0) return;
 
     setApplying(true);
     setApplyError(null);
     setAppliedCount(null);
 
-    // Group selected items by library so we can batch the updates
     const itemsToUpdate = filtered.filter((d) => selectedIds.has(d.id));
-
     let succeeded = 0;
     const failures: string[] = [];
-
-    // Update in parallel — but not too aggressively; cap to 5 concurrent
     const queue = [...itemsToUpdate];
     const concurrency = 5;
 
@@ -155,7 +168,11 @@ export function UntaggedDocuments() {
         const doc = queue.shift();
         if (!doc) break;
         try {
-          await updateListItem(doc.library, doc.itemId, { PropertyLookupId: bulkPropertyId });
+          const metadata =
+            tagMode === 'property'
+              ? { PropertyLookupId: targetId }
+              : { OwnerLookupId: targetId };
+          await updateListItem(doc.library, doc.itemId, metadata);
           succeeded++;
         } catch (e) {
           failures.push(`${doc.filename}: ${e instanceof Error ? e.message : String(e)}`);
@@ -172,6 +189,7 @@ export function UntaggedDocuments() {
     }
     clearSelection();
     setBulkPropertyId('');
+    setBulkOwnerId('');
     await refetchAll();
   };
 
@@ -285,36 +303,68 @@ export function UntaggedDocuments() {
 
       {/* Bulk-action bar */}
       {selectedIds.size > 0 && (
-        <div className="mb-4 bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-center gap-3 flex-wrap shadow-card">
-          <span className="text-sm font-medium text-teal-900">
-            {selectedIds.size} selected
-          </span>
-          <select
-            value={bulkPropertyId}
-            onChange={(e) => setBulkPropertyId(e.target.value)}
-            disabled={applying}
-            className="flex-1 min-w-[200px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
-          >
-            <option value="">— tag as property —</option>
-            {sortedProperties.map((p) => (
-              <option key={p.id} value={p.id}>{p.fields.Title}</option>
-            ))}
-          </select>
-          <button
-            onClick={applyBulkTag}
-            disabled={applying || !bulkPropertyId}
-            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {applying && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
-            {applying ? `Tagging ${selectedIds.size}…` : `Tag ${selectedIds.size}`}
-          </button>
-          <button
-            onClick={clearSelection}
-            disabled={applying}
-            className="text-xs text-gray-600 hover:text-gray-900 underline disabled:opacity-50"
-          >
-            Clear
-          </button>
+        <div className="mb-4 bg-teal-50 border border-teal-200 rounded-lg p-3 shadow-card">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-medium text-teal-900">
+              {selectedIds.size} selected
+            </span>
+            <div className="inline-flex bg-white border border-teal-300 rounded overflow-hidden">
+              <button
+                onClick={() => setTagMode('property')}
+                disabled={applying}
+                className={`px-2.5 py-1 text-xs font-medium ${tagMode === 'property' ? 'bg-teal-700 text-white' : 'text-teal-700 hover:bg-teal-50'} disabled:opacity-50`}
+              >
+                Tag to Property
+              </button>
+              <button
+                onClick={() => setTagMode('owner')}
+                disabled={applying}
+                className={`px-2.5 py-1 text-xs font-medium border-l border-teal-300 ${tagMode === 'owner' ? 'bg-teal-700 text-white' : 'text-teal-700 hover:bg-teal-50'} disabled:opacity-50`}
+              >
+                Tag to Owner / Entity
+              </button>
+            </div>
+            {tagMode === 'property' ? (
+              <select
+                value={bulkPropertyId}
+                onChange={(e) => setBulkPropertyId(e.target.value)}
+                disabled={applying}
+                className="flex-1 min-w-[200px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
+              >
+                <option value="">— pick property —</option>
+                {sortedProperties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.fields.Title}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={bulkOwnerId}
+                onChange={(e) => setBulkOwnerId(e.target.value)}
+                disabled={applying}
+                className="flex-1 min-w-[200px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
+              >
+                <option value="">— pick owner / entity —</option>
+                {sortedOwners.map((o) => (
+                  <option key={o.id} value={o.id}>{o.fields.Title}</option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={applyBulkTag}
+              disabled={applying || (tagMode === 'property' ? !bulkPropertyId : !bulkOwnerId)}
+              className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {applying && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
+              {applying ? `Tagging ${selectedIds.size}…` : `Tag ${selectedIds.size}`}
+            </button>
+            <button
+              onClick={clearSelection}
+              disabled={applying}
+              className="text-xs text-gray-600 hover:text-gray-900 underline disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </div>
         </div>
       )}
 
@@ -324,7 +374,7 @@ export function UntaggedDocuments() {
           <Icon name="check" size={32} className="text-success mx-auto mb-2" />
           <p className="text-base font-semibold text-green-900 mb-1">All documents tagged</p>
           <p className="text-sm text-green-800">
-            Every file across the {PROPERTY_LINKED_LIBRARIES.length} property-linked libraries has a PropertyID set. Nothing to clean up.
+            Every file across the {PROPERTY_LINKED_LIBRARIES.length} property-linked libraries has a PropertyID or OwnerID set. Nothing to clean up.
           </p>
         </div>
       ) : filtered.length === 0 ? (
