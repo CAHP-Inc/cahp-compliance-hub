@@ -1627,22 +1627,15 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId, lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
 
-  if (loading) return <TabLoading label={`documents across ${PROPERTY_LINKED_LIBRARIES.length} libraries`} />;
-  if (errors.length > 0) return <TabError error={new Error(errors[0])} />;
-
-  const handleUploadSuccess = () => {
-    setUploadOpen(false);
-    refetchAll();
-  };
-
-  // Identify CAHP entity owners (anything with "CAHP" or Carolina Affordable Housing Project)
-  const cahpEntityIds =
-    owners.data
+  // Identify CAHP entity owners — must be computed BEFORE any early return to keep hook order stable
+  const cahpEntityIds = useMemo(() => {
+    return owners.data
       ?.filter((o) => {
         const title = (o.fields.Title ?? '').toLowerCase();
         return title.includes('cahp') || title.includes('carolina affordable housing project');
       })
       .map((o) => String(o.id)) ?? [];
+  }, [owners.data]);
 
   // Identify property's direct-owner entity IDs (the LLCs that hold this property)
   const propertyOwnerIds = useMemo(() => {
@@ -1657,8 +1650,15 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
       }
     });
     return Array.from(ids);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownership?.data, propertyId, cahpEntityIds.join(',')]);
+  }, [ownership?.data, propertyId, cahpEntityIds]);
+
+  if (loading) return <TabLoading label={`documents across ${PROPERTY_LINKED_LIBRARIES.length} libraries`} />;
+  if (errors.length > 0) return <TabError error={new Error(errors[0])} />;
+
+  const handleUploadSuccess = () => {
+    setUploadOpen(false);
+    refetchAll();
+  };
 
   return (
     <div>
