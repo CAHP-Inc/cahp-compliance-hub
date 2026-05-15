@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
 import {
   useSharePointList,
+  useSharePointItem,
   createListItem,
   LIST_NAMES,
   type Owner,
   type Ownership,
   type Submittal,
+  type Property,
   type ItemCategory,
   type ItemStatus,
   type ItemPriority,
@@ -67,6 +69,8 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
 
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const propertyItem = useSharePointItem<Property>(LIST_NAMES.Properties, propertyId);
+  const propertyState = propertyItem.data?.fields.cahpState;
 
   // Fetch all 8 libraries to auto-match
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -86,18 +90,24 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const [createOnlyUnmatched, setCreateOnlyUnmatched] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Find CAHP entity IDs
+  // Find CAHP entity IDs — state-aware (exclude opposite-state entities)
   const cahpOwnerIds = useMemo(() => {
     if (!owners.data) return new Set<string>();
     return new Set(
       owners.data
         .filter((o) => {
           const t = (o.fields.Title ?? '').toLowerCase();
-          return t.includes('cahp') || t.includes('carolina affordable housing project');
+          const isCahp = t.includes('cahp') || t.includes('carolina affordable housing project');
+          if (!isCahp) return false;
+          if (propertyState && o.fields.OwnerState) {
+            if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
+            if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
+          }
+          return true;
         })
         .map((o) => String(o.id))
     );
-  }, [owners.data]);
+  }, [owners.data, propertyState]);
 
   // Find property's direct-owner entity IDs (LLCs that own this property)
   const propertyOwnerIds = useMemo(() => {
@@ -119,10 +129,13 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       let matchedDoc: { filename: string; url: string; library: string } | undefined;
 
       // CAHP-scoped items: check the dedicated CAHP Entity Documents library first by filename match
-      // Filename matching is loose — look for keywords in the template title
+      // Filter by OwnerLookupId state-scope; untagged docs count as shared (visible everywhere)
       if (template.scope === 'cahp' && cahpLib.data && cahpLib.data.length > 0) {
         const keywords = extractKeywords(template.title);
         const candidate = cahpLib.data.find((doc) => {
+          const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+          // Skip docs tagged to entities NOT in scope (e.g. NC LLC docs when filing an SC property)
+          if (ownerTag && !cahpOwnerIds.has(ownerTag)) return false;
           const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
           return keywords.some((kw) => filename.includes(kw));
         });

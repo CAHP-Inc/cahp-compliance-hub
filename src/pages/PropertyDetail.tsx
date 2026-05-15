@@ -337,7 +337,7 @@ export function PropertyDetail() {
       {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
       {activeTab === 'outstanding' && id && <PropertyOutstandingTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
-      {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} propertyTitle={property.fields.Title} />}
+      {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} propertyTitle={property.fields.Title} propertyState={property.fields.cahpState} />}
       {activeTab === 'activity' && id && <PropertyActivityTab propertyId={id} />}
       {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
 
@@ -1573,7 +1573,15 @@ interface PropertyDocument {
   docType?: string;
 }
 
-function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+function PropertyDocumentsTab({
+  propertyId,
+  propertyTitle,
+  propertyState,
+}: {
+  propertyId: string;
+  propertyTitle: string;
+  propertyState?: 'SC' | 'NC';
+}) {
   const [uploadOpen, setUploadOpen] = useState(false);
 
   // Owners + ownership fetch — to identify CAHP entities + property-owner entities for reference sections
@@ -1628,14 +1636,24 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
   }, [propertyId, lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
 
   // Identify CAHP entity owners — must be computed BEFORE any early return to keep hook order stable
+  // State-aware: for an SC property, exclude CAHP NC LLC's docs (and vice versa).
+  // The nonprofit (no state) is always included since it's the umbrella parent.
   const cahpEntityIds = useMemo(() => {
     return owners.data
       ?.filter((o) => {
         const title = (o.fields.Title ?? '').toLowerCase();
-        return title.includes('cahp') || title.includes('carolina affordable housing project');
+        const isCahp = title.includes('cahp') || title.includes('carolina affordable housing project');
+        if (!isCahp) return false;
+        // State-scope filter — only applies if propertyState is set and the owner has a state
+        if (propertyState && o.fields.OwnerState) {
+          // Exclude entities whose state is the OPPOSITE of this property's state
+          if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
+          if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
+        }
+        return true;
       })
       .map((o) => String(o.id)) ?? [];
-  }, [owners.data]);
+  }, [owners.data, propertyState]);
 
   // Identify property's direct-owner entity IDs (the LLCs that hold this property)
   const propertyOwnerIds = useMemo(() => {

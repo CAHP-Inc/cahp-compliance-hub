@@ -81,9 +81,16 @@ export function EntityDocumentsSection({
     const collected: AggregatedDoc[] = [];
 
     // 1. Files from the dedicated CAHP Entity Documents library
-    // (only when useCahpEntityLibrary is true — every file here is a CAHP entity doc by virtue of being in this library)
+    // Filter by OwnerLookupId match (with untagged files treated as "shared" — visible everywhere)
     if (useCahpEntityLibrary && cahpLib.data) {
       cahpLib.data.forEach((item) => {
+        const ownerTag = item.fields.OwnerLookupId ? String(item.fields.OwnerLookupId) : null;
+        // If no ownerIds restriction OR doc is untagged OR doc's tag matches one of ownerIds — include
+        const include =
+          ownerIds.length === 0 ||      // no scope restriction → show all
+          !ownerTag ||                  // untagged → shared, show everywhere
+          ownerIdSet.has(ownerTag);     // tagged to one of the in-scope entities
+        if (!include) return;
         collected.push({
           id: `${CAHP_ENTITY_LIBRARY}:${item.id}`,
           itemId: item.id,

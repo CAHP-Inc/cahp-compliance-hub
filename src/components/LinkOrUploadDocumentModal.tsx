@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
 import {
   useSharePointList,
+  useSharePointItem,
   updateListItem,
   LIST_NAMES,
   type Owner,
+  type Property,
   type OutstandingItem,
   type ItemStatus,
 } from '../lib/sharepoint';
@@ -75,8 +77,11 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
   const propertyId = item.fields.PropertyLookupId ? String(item.fields.PropertyLookupId) : null;
   const itemCategory = item.fields.ItemCategory;
   const suggestedLibrary = itemCategory ? CATEGORY_TO_LIBRARY[itemCategory] : undefined;
+  // Fetch property to know its state — drives CAHP entity filtering
+  const propertyItem = useSharePointItem<Property>(LIST_NAMES.Properties, propertyId ?? undefined);
+  const propertyState = propertyItem.data?.fields.cahpState;
 
-  // Identify CAHP entities for filtering
+  // Identify CAHP entities for filtering — state-aware
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const cahpOwnerIds = useMemo(() => {
     if (!owners.data) return new Set<string>();
@@ -84,11 +89,17 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
       owners.data
         .filter((o) => {
           const t = (o.fields.Title ?? '').toLowerCase();
-          return t.includes('cahp') || t.includes('carolina affordable housing project');
+          const isCahp = t.includes('cahp') || t.includes('carolina affordable housing project');
+          if (!isCahp) return false;
+          if (propertyState && o.fields.OwnerState) {
+            if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
+            if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
+          }
+          return true;
         })
         .map((o) => String(o.id))
     );
-  }, [owners.data]);
+  }, [owners.data, propertyState]);
 
   // Fetch all 8 libraries
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -112,18 +123,29 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
   const availableDocs = useMemo(() => {
     const docs: AvailableDoc[] = [];
 
-    // 1. CAHP Entity Documents library — every file is a CAHP reference doc
+    // 1. CAHP Entity Documents library — filtered by OwnerLookupId (untagged = shared)
     if (cahpLib.data) {
       cahpLib.data.forEach((doc) => {
         if (!doc.webUrl) return;
+        const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+        // Skip if tagged to an out-of-scope entity (e.g. NC LLC doc on SC property)
+        if (ownerTag && !cahpOwnerIds.has(ownerTag)) return;
+        // Resolve scope label from the tagged owner (or "CAHP Entity" if untagged/shared)
+        let scopeLabel = 'CAHP Entity';
+        if (ownerTag) {
+          const ownerName = owners.data?.find((o) => String(o.id) === ownerTag)?.fields.Title;
+          if (ownerName) scopeLabel = ownerName;
+        } else {
+          scopeLabel = 'CAHP Entity (shared)';
+        }
         docs.push({
           id: `${CAHP_ENTITY_LIBRARY}:${doc.id}`,
-          library: CAHP_ENTITY_LIBRARY as 'Supporting Documentation', // type narrow — treated like Supporting Documentation for downstream
+          library: CAHP_ENTITY_LIBRARY as 'Supporting Documentation', // type narrow
           filename: doc.fields.FileLeafRef || doc.fields.Title || '(unnamed)',
           webUrl: doc.webUrl,
           uploadDate: doc.fields.Modified || doc.lastModifiedDateTime,
           scope: 'cahp-entity',
-          scopeLabel: 'CAHP Entity',
+          scopeLabel,
         });
       });
     }
