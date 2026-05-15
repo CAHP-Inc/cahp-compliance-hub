@@ -13,43 +13,6 @@ const TODAY = new Date().toLocaleDateString('en-US', {
   day: 'numeric',
 });
 
-const PHASE_1_PROGRESS = [
-  { id: 'PR-01', label: 'Repo scaffolding + AppShell + GH Pages deploy', status: 'done' as const },
-  { id: 'PR-02', label: 'MSAL auth + role detection from M365', status: 'done' as const },
-  { id: 'PR-03', label: 'SharePoint inventory + schema mapping', status: 'done' as const },
-  { id: 'PR-04', label: 'Graph SDK data layer + Properties list view', status: 'done' as const },
-  { id: 'PR-05a', label: 'Property Detail page (Overview + Submittals tabs)', status: 'done' as const },
-  { id: 'PR-05b', label: 'Compliance Deadlines module + My Day widget', status: 'done' as const },
-  { id: 'PR-05c', label: 'Inline editing on Property Detail', status: 'done' as const },
-  { id: 'PR-06a', label: 'Compliance Deadline editing + Mark Complete', status: 'done' as const },
-  { id: 'PR-06b', label: 'Ownership Structure module (list + edit + create + delete)', status: 'done' as const },
-  { id: 'PR-07', label: 'Audit log — automatic CRUD logging across all modules', status: 'done' as const },
-  { id: 'PR-08a', label: 'Property Detail: Compliance + Ownership + Documents tabs', status: 'done' as const },
-  { id: 'PR-08b', label: 'Property creation wizard', status: 'done' as const },
-  { id: 'PR-08c', label: 'Disposition workflow', status: 'done' as const },
-  { id: 'PR-08d', label: 'Property Notes thread (new SharePoint list)', status: 'done' as const },
-  { id: 'PR-08e', label: 'Portfolio dashboard + polish', status: 'done' as const },
-  { id: 'PR-09a', label: 'Owners entity master + recursive ownership engine', status: 'done' as const },
-  { id: 'PR-09b', label: 'Org Chart rendering (3 layouts)', status: 'done' as const },
-  { id: 'PR-09c', label: 'Property Wizard 6-step atomic + Audit CSV + remaining sub-tabs', status: 'done' as const },
-  { id: 'PR-09d', label: 'Strict spec gap closure (5 lists, wizards, cascade, reason, CAHP Entity)', status: 'done' as const },
-  { id: 'PR-10a', label: 'Submittals module — list + detail (read-only)', status: 'done' as const },
-  { id: 'PR-10b', label: 'Submittal editing + status pipeline transitions', status: 'done' as const },
-  { id: 'PR-10c', label: 'Org chart version freeze (rendered view of snapshot)', status: 'done' as const },
-  { id: 'PR-10d', label: 'Approval Workflow modal — tax savings → Billing + Disbursement', status: 'done' as const },
-  { id: 'PR-11a', label: 'DOR Correspondence full CRUD with cascade', status: 'done' as const },
-  { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
-  { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
-  { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
-  { id: 'PR-12-removed', label: 'Billing module removed — deferred to future, status tracking only', status: 'done' as const },
-  { id: 'PR-13a', label: 'Owner Communications module', status: 'done' as const },
-  { id: 'PR-14a', label: 'Reports foundation — 6 category cards + 3 working reports', status: 'done' as const },
-  { id: 'PR-14-hardening', label: 'My Day widgets + reports cleanup + CAHP entity documents', status: 'done' as const },
-  { id: 'PR-14b', label: 'Filing Checklist + doc linkage + owner docs + expanded categories', status: 'done' as const },
-  { id: 'PR-15a', label: 'Notifications system — bell + feed + triggers', status: 'done' as const },
-  { id: 'PR-15b', label: 'Compliance AMI Dashboard polish — KPIs + quick filters + coverage gaps', status: 'done' as const },
-];
-
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
   Upcoming: 'bg-blue-100 text-blue-800',
   'In Progress': 'bg-amber-100 text-amber-800',
@@ -57,16 +20,6 @@ const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
   Overdue: 'bg-red-100 text-red-800',
   Missed: 'bg-red-200 text-red-900',
 };
-
-/**
- * Backlog — items intentionally deferred, not in scope for current phases.
- * Things that have shipped are removed from this list.
- */
-const BACKLOG: { feature: string; origin: string; note?: string }[] = [
-  { feature: 'Billing Tracker module (full)', origin: 'Phase 3', note: 'SP schema provisioned; UI deferred. Status tracking on submittals still works.' },
-  { feature: 'Tenant-facing portal', origin: 'Phase 4+', note: 'Currently no tenant-facing surface' },
-  { feature: 'Recurring report scheduling (auto-email)', origin: 'Phase 4+', note: 'On-demand reports work today' },
-];
 
 export function MyDay() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
@@ -168,31 +121,6 @@ export function MyDay() {
         <p className="text-base text-gray-700 mt-3">
           Good morning, <span className="font-semibold">{user.name.split(' ')[0]}</span>. Welcome to the CAHP Compliance Hub.
         </p>
-      </div>
-
-      {/* PR-16 complete banner */}
-      <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-success text-white font-bold text-xs flex items-center justify-center font-mono-data">
-            ✓
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold text-green-900">
-              PR-16 deployed. Everything wired up minus Billing.
-            </div>
-            <p className="text-sm text-gray-700 mt-1">
-              <strong>Documents hub</strong> at <code className="bg-white px-1 rounded">/documents</code> — portfolio-wide
-              view of all 8 SP libraries with stats. <strong>Property → Filing Checklist</strong> button on every
-              property (no need to create a submittal first). <strong>Compliance → New Deadline</strong> works.
-              <strong> Reports</strong> — all 8 previously-pending reports now run, including Per-Property Audit Pack
-              (multi-sheet Excel bundle), Portfolio Audit Pack, Document Expiration Calendar, Untagged Documents,
-              Property Holdings Statement, Org Chart History (JSON), Full Database Export (xlsx), and SharePoint Library
-              Snapshot (JSON). <strong>Settings</strong> at <code className="bg-white px-1 rounded">/settings</code> —
-              profile, access list, role/permissions matrix, and system info. Stale Phase 2 messages cleaned up,
-              wizard categories aligned with DOR taxonomy. <strong>The system is operationally complete.</strong>
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* Portfolio at a glance */}
@@ -431,53 +359,6 @@ export function MyDay() {
         </div>
       )}
 
-      {/* Phase 1 progress */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-teal-700">Phase 1 Build Progress</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Weeks 1-3 — Foundation</p>
-        </div>
-        <div className="divide-y divide-gray-100">
-          {PHASE_1_PROGRESS.map((pr) => (
-            <div key={pr.id} className="px-5 py-3 flex items-center gap-3">
-              <div className="font-mono-data text-xs font-semibold text-gray-400 w-12">{pr.id}</div>
-              <div className="flex-1 text-sm text-gray-700">{pr.label}</div>
-              <StatusBadge status={pr.status} />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Backlog — outstanding work from earlier planning */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-teal-700">Backlog</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Originally scoped but not yet shipped · {BACKLOG.length} items
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-              <tr>
-                <th className="px-5 py-2 text-left">Feature</th>
-                <th className="px-5 py-2 text-left w-32">Originally In</th>
-                <th className="px-5 py-2 text-left">Note</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {BACKLOG.map((item) => (
-                <tr key={item.feature}>
-                  <td className="px-5 py-2 text-gray-700">{item.feature}</td>
-                  <td className="px-5 py-2 font-mono-data text-xs text-gray-500">{item.origin}</td>
-                  <td className="px-5 py-2 text-xs text-gray-500 italic">{item.note || ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       {/* Dev-only role override (hidden in production builds) */}
       {import.meta.env.DEV && setDevRoleOverride && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg shadow-card">
@@ -526,21 +407,3 @@ export function MyDay() {
   );
 }
 
-function StatusBadge({ status }: { status: 'done' | 'next' | 'pending' }) {
-  if (status === 'done') {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-        <Icon name="check" size={14} />
-        Done
-      </span>
-    );
-  }
-  if (status === 'next') {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 bg-gold-50 px-2 py-0.5 rounded">
-        Next
-      </span>
-    );
-  }
-  return <span className="text-xs text-gray-400">Pending</span>;
-}

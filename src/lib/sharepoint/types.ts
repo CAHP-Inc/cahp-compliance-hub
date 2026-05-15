@@ -436,7 +436,7 @@ export type KnownIssue = SharePointListItem<KnownIssueFields>;
 // LIST: Owners — entity master (PR-09a)
 // =============================================================================
 
-export type OwnerType = 'Individual' | 'LLC' | 'Nonprofit';
+export type OwnerType = 'Individual' | 'LLC' | 'Nonprofit' | 'Trust' | 'Corporation';
 
 export interface OwnerFields {
   Title?: string;                  // Legal entity name (e.g., "VanRock Holdings LLC")

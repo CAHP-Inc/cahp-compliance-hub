@@ -39,6 +39,18 @@ const TYPE_CARDS: { value: OwnerType; title: string; description: string; icon: 
     description: 'A 501(c)(3) or similar nonprofit entity (e.g., Carolina Affordable Housing Project).',
     icon: '🏛️',
   },
+  {
+    value: 'Trust',
+    title: 'Trust',
+    description: 'A trust holding interests on behalf of beneficiaries (e.g., a family trust with trustees).',
+    icon: '🛡️',
+  },
+  {
+    value: 'Corporation',
+    title: 'Corporation',
+    description: 'A standard for-profit corporation (Inc.) — distinct from an LLC.',
+    icon: '🏛',
+  },
 ];
 
 interface MemberDraft {

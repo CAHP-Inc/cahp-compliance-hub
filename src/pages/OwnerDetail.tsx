@@ -30,9 +30,11 @@ const TYPE_STYLES: Record<OwnerType, string> = {
   Individual: 'bg-blue-100 text-blue-800',
   LLC: 'bg-purple-100 text-purple-800',
   Nonprofit: 'bg-teal-100 text-teal-800',
+  Trust: 'bg-amber-100 text-amber-800',
+  Corporation: 'bg-indigo-100 text-indigo-800',
 };
 
-const TYPE_OPTIONS: OwnerType[] = ['Individual', 'LLC', 'Nonprofit'];
+const TYPE_OPTIONS: OwnerType[] = ['Individual', 'LLC', 'Nonprofit', 'Trust', 'Corporation'];
 
 export function OwnerDetail() {
   const { id } = useParams<{ id: string }>();
