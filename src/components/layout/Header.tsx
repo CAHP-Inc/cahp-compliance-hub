@@ -3,6 +3,7 @@ import { useSession } from '../../lib/session';
 import { ROLE_PERMISSIONS } from '../../lib/permissions';
 import { UserMenu } from './UserMenu';
 import { GlobalSearch } from './GlobalSearch';
+import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   onOpenNav: () => void;
@@ -39,7 +40,7 @@ export function Header({ onOpenNav }: HeaderProps) {
       {/* Center: global search */}
       <GlobalSearch />
 
-      {/* Right: role badge + user menu (bell icon ships with Phase 3 notifications) */}
+      {/* Right: role badge + bell + user menu */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           className={`hidden sm:inline-flex px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider ${roleConfig.color}`}
@@ -47,6 +48,7 @@ export function Header({ onOpenNav }: HeaderProps) {
           {roleConfig.label}
         </div>
 
+        <NotificationBell />
         <UserMenu />
       </div>
     </header>

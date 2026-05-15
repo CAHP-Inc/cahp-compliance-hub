@@ -314,6 +314,30 @@ export interface OwnerCommunicationFields {
 export type OwnerCommunication = SharePointListItem<OwnerCommunicationFields>;
 
 // =============================================================================
+// LIST: Notifications (PR-15a)
+// =============================================================================
+
+export type NotificationType =
+  | 'TaskAssigned'
+  | 'DeadlineApproaching'
+  | 'SubmittalUpdate'
+  | 'OwnerInvited'
+  | 'SystemAlert'
+  | 'Other';
+
+export interface NotificationFields {
+  Title: string;                              // Notification headline
+  NotifAssignedTo?: string;                   // UPN of recipient
+  NotifType?: NotificationType;
+  NotifTargetType?: string;                   // Entity type (Submittal, OutstandingItem, etc.)
+  NotifTargetId?: string;                     // Entity ID
+  NotifIsRead?: boolean;
+  NotifUrl?: string;                          // Click target — relative path within app
+}
+
+export type Notification = SharePointListItem<NotificationFields>;
+
+// =============================================================================
 // LIST: Outstanding Items Checklist
 // =============================================================================
 
@@ -507,6 +531,8 @@ export const LIST_NAMES = {
   Owners: 'Owners',
   Disbursements: 'Disbursements',
   Communications: 'Owner Communications',
+  Notifications: 'Notifications',
+  DocumentMetadata: 'Document Metadata',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

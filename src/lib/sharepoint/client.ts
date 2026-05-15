@@ -449,6 +449,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   'Owners': 'Owner',
   'Disbursements': 'Disbursement',
   'Owner Communications': 'Communication',
+  'Notifications': 'Notification',
 };
 
 interface AuditLogInput {

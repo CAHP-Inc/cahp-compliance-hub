@@ -22,6 +22,8 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
+import { notifyUser } from '../lib/notifications';
+import { useSession } from '../lib/session';
 import {
   BreadcrumbBar,
   EditableField,
@@ -154,6 +156,7 @@ const TRANSITION_STYLES: Record<Transition['style'], string> = {
 
 export function SubmittalDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useSession();
 
   const { data: submittal, loading, error, refetch } = useSharePointItem<Submittal>(
     LIST_NAMES.Submittals,
@@ -376,6 +379,19 @@ export function SubmittalDetail() {
       }
 
       await updateListItem(LIST_NAMES.Submittals, submittal.id, updates);
+
+      // Notify current user (self-pingable for important transitions)
+      if (user?.email && activeTransition) {
+        await notifyUser({
+          upn: user.email,
+          type: 'SubmittalUpdate',
+          title: `${submittal.fields.Title}: ${currentStatus} → ${activeTransition.to}`,
+          targetType: 'Submittal',
+          targetId: String(submittal.id),
+          url: `/submittals/${submittal.id}`,
+        });
+      }
+
       await refetch();
       cancelTransition();
     } catch (err) {

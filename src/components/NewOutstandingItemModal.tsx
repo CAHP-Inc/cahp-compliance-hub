@@ -8,6 +8,8 @@ import {
   type ItemPriority,
   type ItemCategory,
 } from '../lib/sharepoint';
+import { notifyUser, resolveAssigneeToUpn } from '../lib/notifications';
+import { useSession } from '../lib/session';
 
 const STATUSES: ItemStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Done'];
 const PRIORITIES: ItemPriority[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -45,6 +47,7 @@ export function NewOutstandingItemModal({
   hidePropertyPicker,
 }: NewOutstandingItemModalProps) {
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const { user } = useSession();
 
   const [title, setTitle] = useState('');
   const [propertyId, setPropertyId] = useState(defaultPropertyId ?? '');
@@ -88,7 +91,27 @@ export function NewOutstandingItemModal({
       if (assignedTo) fields.AssignedTo = assignedTo;
       if (notes) fields.ItemNotes = notes;
 
-      await createListItem(LIST_NAMES.Outstanding, fields);
+      const created = await createListItem<{ id: string }>(LIST_NAMES.Outstanding, fields);
+
+      // Notify assignee (if not self)
+      if (assignedTo) {
+        const assigneeUpn = resolveAssigneeToUpn(assignedTo);
+        const currentUpn = user?.email?.toLowerCase();
+        if (assigneeUpn && assigneeUpn !== currentUpn) {
+          const propertyName = propertyId
+            ? sortedProperties.find((p) => String(p.id) === propertyId)?.fields.Title
+            : null;
+          await notifyUser({
+            upn: assigneeUpn,
+            type: 'TaskAssigned',
+            title: `New task: ${title}${propertyName ? ` · ${propertyName}` : ''}`,
+            targetType: 'OutstandingItem',
+            targetId: String(created.id),
+            url: `/outstanding-items/${created.id}`,
+          });
+        }
+      }
+
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

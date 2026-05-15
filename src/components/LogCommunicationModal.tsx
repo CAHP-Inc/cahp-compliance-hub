@@ -9,6 +9,8 @@ import {
   type CommDirection,
   type CommStatus,
 } from '../lib/sharepoint';
+import { notifyUser } from '../lib/notifications';
+import { useSession } from '../lib/session';
 
 const COMM_TYPES: CommType[] = ['Email', 'Phone', 'Meeting', 'SMS', 'Other'];
 const COMM_DIRECTIONS: CommDirection[] = ['Inbound', 'Outbound'];
@@ -28,6 +30,7 @@ export function LogCommunicationModal({
 }: LogCommunicationModalProps) {
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const { user } = useSession();
 
   const [subject, setSubject] = useState('');
   const [commType, setCommType] = useState<CommType>('Email');
@@ -113,6 +116,18 @@ export function LogCommunicationModal({
       }
 
       setCascadeLog((prev) => [...prev, `✓ Audit log entries written`]);
+
+      // Notify Brandy (system owner) when a comm has a follow-up due
+      if (responseDue && user?.email) {
+        await notifyUser({
+          upn: user.email,
+          type: 'TaskAssigned',
+          title: `Follow up due ${new Date(responseDue).toLocaleDateString()}: ${subject}`,
+          targetType: 'Communication',
+          targetId: String(comm.id),
+          url: `/comms/${comm.id}`,
+        });
+      }
 
       setTimeout(() => onSuccess(), 800);
     } catch (err) {

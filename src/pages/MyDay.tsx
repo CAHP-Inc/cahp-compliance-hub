@@ -46,7 +46,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-14a', label: 'Reports foundation — 6 category cards + 3 working reports', status: 'done' as const },
   { id: 'PR-14-hardening', label: 'My Day widgets + reports cleanup + CAHP entity documents', status: 'done' as const },
   { id: 'PR-14b', label: 'Filing Checklist + doc linkage + owner docs + expanded categories', status: 'done' as const },
-  { id: 'PR-15a', label: 'Notifications system', status: 'next' as const },
+  { id: 'PR-15a', label: 'Notifications system — bell + feed + triggers', status: 'done' as const },
+  { id: 'PR-15b', label: 'Compliance AMI Dashboard polish — KPIs + quick filters + coverage gaps', status: 'done' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -178,26 +179,27 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-14b banner */}
-      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
+      {/* Phase 3 wrap banner */}
+      <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            14b
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-success text-white font-bold text-xs flex items-center justify-center font-mono-data">
+            ✓
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">
-              PR-14b deployed. Filing Checklist + document linkage live.
+            <div className="font-semibold text-green-900">
+              Phase 3 complete. PR-15a + 15b deployed.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              Outstanding Items now have a <strong>Link / Upload Document</strong> action everywhere they appear
-              — kanban cards, list view, Property → Outstanding tab, and item detail page. Each row has a
-              Document column showing either a green link to the fulfilling file or a "Link / Upload" button that
-              opens a single modal with Link Existing / Upload New toggle. Auto-marks Received when linked.
-              Submittals in Draft show a <strong>Generate Filing Checklist</strong> button that creates the 12 DOR-required
-              items and auto-matches existing CAHP/owner/property docs (so you only see what's missing).
-              <strong> Owner Detail</strong> now has its own Owner Documents section, and Property → Documents tab
-              surfaces both CAHP Entity AND Property-Owner Entity reference docs at the top. Item categories
-              expanded to 15 DOR-aligned types. <strong>PR-15a</strong> next: Notifications.
+              <strong>Notifications</strong> live — bell icon in the header shows an unread count badge,
+              dropdown with the 5 most recent, full feed at <strong>/notifications</strong> with read/unread filters
+              and Mark All Read. Triggered automatically when an Outstanding Item is assigned to someone else, when a
+              Communication has a follow-up due, and on Submittal status transitions.
+              <strong> Compliance</strong> got an AMI Compliance Focus panel showing AMI property count, certs due in
+              the next 90 days, and properties with no AMI Cert deadline scheduled (coverage gap detection).
+              Quick-filter chips for Overdue / Due This Month / This Year / AMI Only / SC / NC sit above the existing filters.
+              <br/><br/>
+              <strong>Phase 3 is functionally complete.</strong> Next steps are operational — backfill filing checklists
+              for existing properties, clean up untagged docs, onboard the team into active use.
             </p>
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   type DeadlineStatus,
   type DeadlineType,
   type ResponsibleParty,
+  type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
@@ -18,27 +19,54 @@ const STATUS_STYLES: Record<DeadlineStatus, string> = {
   Missed: 'bg-red-200 text-red-900',
 };
 
+type QuickFilter = 'all' | 'overdue' | 'thisMonth' | 'thisYear' | 'ami' | 'sc' | 'nc';
+
 export function Compliance() {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useSharePointList<ComplianceDeadline>(
     LIST_NAMES.ComplianceDeadlines,
     { top: 500 }
   );
+  const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
 
   const [statusFilter, setStatusFilter] = useState<DeadlineStatus | 'All'>('All');
   const [typeFilter, setTypeFilter] = useState<DeadlineType | 'All'>('All');
   const [ownerFilter, setOwnerFilter] = useState<ResponsibleParty | 'All'>('All');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
 
   const filtered = useMemo(() => {
     if (!data) return [];
+    const now = Date.now();
+    const monthEnd = new Date();
+    monthEnd.setDate(monthEnd.getDate() + 30);
+    const yearEnd = new Date();
+    yearEnd.setFullYear(yearEnd.getFullYear() + 1);
+
     const result = data.filter((d) => {
       const f = d.fields;
       if (statusFilter !== 'All' && f.DeadlineStatus !== statusFilter) return false;
       if (typeFilter !== 'All' && f.DeadlineType !== typeFilter) return false;
       if (ownerFilter !== 'All' && f.ResponsibleParty !== ownerFilter) return false;
+      // Quick filters
+      if (quickFilter === 'overdue' && f.DeadlineStatus !== 'Overdue' && f.DeadlineStatus !== 'Missed') return false;
+      if (quickFilter === 'thisMonth') {
+        if (!f.DueDate) return false;
+        if (f.DeadlineStatus === 'Completed') return false;
+        const due = new Date(f.DueDate).getTime();
+        if (due > monthEnd.getTime()) return false;
+      }
+      if (quickFilter === 'thisYear') {
+        if (!f.DueDate) return false;
+        if (f.DeadlineStatus === 'Completed') return false;
+        const due = new Date(f.DueDate).getTime();
+        if (due > yearEnd.getTime()) return false;
+      }
+      if (quickFilter === 'ami' && f.DeadlineType !== 'AMI Cert Renewal') return false;
+      if (quickFilter === 'sc' && f.cahpState !== 'SC') return false;
+      if (quickFilter === 'nc' && f.cahpState !== 'NC') return false;
+      void now;
       return true;
     });
-    // Sort: overdue/missed first, then by due date ascending
     return result.sort((a, b) => {
       const urgencyA = a.fields.DeadlineStatus === 'Overdue' || a.fields.DeadlineStatus === 'Missed' ? 0 : 1;
       const urgencyB = b.fields.DeadlineStatus === 'Overdue' || b.fields.DeadlineStatus === 'Missed' ? 0 : 1;
@@ -47,7 +75,7 @@ export function Compliance() {
       const dateB = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Number.MAX_VALUE;
       return dateA - dateB;
     });
-  }, [data, statusFilter, typeFilter, ownerFilter]);
+  }, [data, statusFilter, typeFilter, ownerFilter, quickFilter]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -59,6 +87,40 @@ export function Compliance() {
       completed: data.filter((d) => d.fields.DeadlineStatus === 'Completed').length,
     };
   }, [data]);
+
+  // PR-15b — AMI compliance stats
+  const amiStats = useMemo(() => {
+    if (!data || !properties.data) return null;
+    const amiProperties = properties.data.filter(
+      (p) => p.fields.AMIProgram && p.fields.AMIProgram !== 'None' && p.fields.PropertyStatus === 'Active'
+    );
+    const propertyIdsWithAmiDeadline = new Set(
+      data
+        .filter((d) => d.fields.DeadlineType === 'AMI Cert Renewal' && d.fields.DeadlineStatus !== 'Completed')
+        .map((d) => d.fields.PropertyLookupId ? String(d.fields.PropertyLookupId) : null)
+        .filter((id): id is string => id !== null)
+    );
+    const missingAmiDeadline = amiProperties.filter(
+      (p) => !propertyIdsWithAmiDeadline.has(String(p.id))
+    );
+
+    const now = Date.now();
+    const ninetyDays = now + 90 * 24 * 60 * 60 * 1000;
+    const amiDueSoon = data.filter((d) => {
+      if (d.fields.DeadlineType !== 'AMI Cert Renewal') return false;
+      if (d.fields.DeadlineStatus === 'Completed') return false;
+      if (!d.fields.DueDate) return false;
+      const due = new Date(d.fields.DueDate).getTime();
+      return due <= ninetyDays;
+    }).length;
+
+    return {
+      amiProperties: amiProperties.length,
+      amiDueSoon,
+      missingAmiDeadline: missingAmiDeadline.length,
+      missingProperties: missingAmiDeadline,
+    };
+  }, [data, properties.data]);
 
   if (loading) {
     return (
@@ -123,6 +185,90 @@ export function Compliance() {
         <KPICard label="Upcoming" value={stats.upcoming} />
         <KPICard label="In Progress" value={stats.inProgress} />
         <KPICard label="Completed" value={stats.completed} accent="success" />
+      </div>
+
+      {/* AMI compliance focus panel */}
+      {amiStats && amiStats.amiProperties > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-4 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gold-50">
+            <h3 className="text-sm font-semibold text-teal-900 flex items-center gap-2">
+              <Icon name="star" size={14} className="text-gold-700" />
+              AMI Compliance Focus
+            </h3>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Income-restricted housing oversight — tracks AMI Cert deadlines and gaps in coverage.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            <div className="px-4 py-3">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AMI Properties</div>
+              <div className="text-2xl font-bold text-teal-700 mt-1">{amiStats.amiProperties}</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">Active income-restricted</div>
+            </div>
+            <div className="px-4 py-3">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AMI Certs Due Soon</div>
+              <div className={`text-2xl font-bold mt-1 ${amiStats.amiDueSoon > 0 ? 'text-warning' : 'text-teal-700'}`}>
+                {amiStats.amiDueSoon}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5">Within 90 days</div>
+            </div>
+            <div className="px-4 py-3">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Coverage Gap</div>
+              <div className={`text-2xl font-bold mt-1 ${amiStats.missingAmiDeadline > 0 ? 'text-error' : 'text-success'}`}>
+                {amiStats.missingAmiDeadline}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5">No AMI deadline set</div>
+            </div>
+          </div>
+          {amiStats.missingProperties.length > 0 && (
+            <div className="px-4 py-3 border-t border-amber-200 bg-amber-50">
+              <p className="text-xs text-amber-900 font-semibold mb-1">
+                ⚠ AMI properties without an AMI Cert deadline scheduled:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {amiStats.missingProperties.slice(0, 8).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => navigate(`/properties/${p.id}`)}
+                    className="text-[11px] bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 px-2 py-0.5 rounded-full"
+                  >
+                    {p.fields.Title}
+                  </button>
+                ))}
+                {amiStats.missingProperties.length > 8 && (
+                  <span className="text-[11px] text-amber-700 self-center">
+                    +{amiStats.missingProperties.length - 8} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick filter chips */}
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {([
+          { id: 'all', label: 'All' },
+          { id: 'overdue', label: 'Overdue' },
+          { id: 'thisMonth', label: 'Due This Month' },
+          { id: 'thisYear', label: 'Due This Year' },
+          { id: 'ami', label: 'AMI Only' },
+          { id: 'sc', label: 'SC' },
+          { id: 'nc', label: 'NC' },
+        ] as { id: QuickFilter; label: string }[]).map((chip) => (
+          <button
+            key={chip.id}
+            onClick={() => setQuickFilter(chip.id)}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              quickFilter === chip.id
+                ? 'bg-teal-700 text-white'
+                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
       </div>
 
       {/* Filters */}

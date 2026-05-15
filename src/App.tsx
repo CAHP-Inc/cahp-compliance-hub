@@ -21,6 +21,7 @@ import { UntaggedDocuments } from './pages/UntaggedDocuments';
 import { OwnerCommunicationsPage } from './pages/OwnerCommunicationsPage';
 import { OwnerCommunicationDetail } from './pages/OwnerCommunicationDetail';
 import { ReportsPage } from './pages/ReportsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -66,6 +67,7 @@ function App() {
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
             <Route path="/untagged" element={<UntaggedDocuments />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/audit" element={<Audit />} />
             <Route path="/settings" element={<PlaceholderPage title="Settings" icon="settings" plannedPR="Phase 3" />} />
             <Route path="*" element={<Navigate to="/" replace />} />
