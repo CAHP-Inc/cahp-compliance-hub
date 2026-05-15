@@ -22,11 +22,11 @@ const EMAIL_ROLE_MAP: Record<string, Role> = {
   // commit, push. Production picks up the change on the next deploy.
   // ============================================================
   'bturner@newshirepm.com': 'Admin',
+  'lheckman@redcedarhomes.com': 'Contributor',
 
   // Future team members (uncomment and update emails when adding):
   // 'bryan@cahphousing.org': 'Admin',
   // 'stan@vanrock.com': 'Admin',
-  // 'lori@newshirepm.com': 'Contributor',
   // 'cara@newshirepm.com': 'Contributor',
   // 'chris@newshirepm.com': 'Accounting',
 };
@@ -72,5 +72,6 @@ export function extractOrgFromEmail(email: string | undefined | null): string {
   if (lower.includes('newshire')) return 'NewShire';
   if (lower.includes('cahp')) return 'CAHP';
   if (lower.includes('vanrock')) return 'VanRock';
+  if (lower.includes('redcedar')) return 'Red Cedar';
   return domain.split('.')[0] || '—';
 }
