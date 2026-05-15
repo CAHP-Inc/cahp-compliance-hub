@@ -4,8 +4,7 @@ import {
   useSharePointList,
   type Owner,
 } from '../lib/sharepoint';
-import { PROPERTY_LINKED_LIBRARIES } from '../components/UploadDocumentModal';
-import type { PropertyLinkedLibrary } from '../components/UploadDocumentModal';
+import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY } from '../components/UploadDocumentModal';
 import { Icon } from '../components/ui/Icon';
 
 interface DocItemRaw {
@@ -21,7 +20,7 @@ interface DocItemRaw {
   lastModifiedDateTime: string;
 }
 
-const LIBRARY_ICONS: Record<PropertyLinkedLibrary, 'file' | 'folder' | 'star' | 'check' | 'home'> = {
+const LIBRARY_ICONS: Record<string, 'file' | 'folder' | 'star' | 'check' | 'home'> = {
   'AMI Certification Letters': 'check',
   'DOR Correspondence': 'file',
   'DOR Submittal Packages': 'file',
@@ -30,9 +29,10 @@ const LIBRARY_ICONS: Record<PropertyLinkedLibrary, 'file' | 'folder' | 'star' | 
   'Org Charts': 'star',
   'Property Deeds': 'home',
   'Supporting Documentation': 'folder',
+  'CAHP Entity Documents': 'star',
 };
 
-const LIBRARY_DESCRIPTIONS: Record<PropertyLinkedLibrary, string> = {
+const LIBRARY_DESCRIPTIONS: Record<string, string> = {
   'AMI Certification Letters': 'Income-restricted housing AMI cert renewals.',
   'DOR Correspondence': 'Letters to/from SC DOR.',
   'DOR Submittal Packages': 'Final filed submittal packages with signatures.',
@@ -41,6 +41,7 @@ const LIBRARY_DESCRIPTIONS: Record<PropertyLinkedLibrary, string> = {
   'Org Charts': 'Visual ownership diagrams per property.',
   'Property Deeds': 'Recorded deeds establishing title.',
   'Supporting Documentation': 'EIN letters, COE, Articles, IRS determinations, rent rolls, anything else.',
+  'CAHP Entity Documents': 'Nonprofit + CAHP SC LLC entity-level docs (OAs, formation, EIN, determination letters). Reused across all property filings.',
 };
 
 export function DocumentsPage() {
@@ -56,18 +57,19 @@ export function DocumentsPage() {
   const lib6 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[6], { top: 500 });
   const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
+  // 9th library — dedicated CAHP Entity Documents
+  const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
 
-  const loading = libraries.some((l) => l.loading) || owners.loading;
+  const loading = libraries.some((l) => l.loading) || owners.loading || cahpLib.loading;
 
-  // Per-library stats
+  // Per-library stats — 8 property-linked libraries + 1 CAHP entity library
   const stats = useMemo(() => {
-    return libraries.map((lib, idx) => {
-      const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
+    const all = libraries.map((lib, idx) => {
+      const libraryName: string = PROPERTY_LINKED_LIBRARIES[idx];
       const docs = lib.data ?? [];
       const taggedProperty = docs.filter((d) => d.fields.PropertyLookupId).length;
       const taggedOwner = docs.filter((d) => d.fields.OwnerLookupId && !d.fields.PropertyLookupId).length;
       const untagged = docs.filter((d) => !d.fields.PropertyLookupId && !d.fields.OwnerLookupId).length;
-      // Recent uploads (last 30 days)
       const thirtyAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const recent = docs.filter((d) => {
         const date = d.fields.Modified ?? d.lastModifiedDateTime;
@@ -75,6 +77,7 @@ export function DocumentsPage() {
       }).length;
       return {
         library: libraryName,
+        isCahpEntity: false,
         total: docs.length,
         taggedProperty,
         taggedOwner,
@@ -82,8 +85,27 @@ export function DocumentsPage() {
         recent,
       };
     });
+
+    // Append the CAHP Entity Documents library — no tagging concept, library IS the tag
+    const cahpDocs = cahpLib.data ?? [];
+    const thirtyAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const cahpRecent = cahpDocs.filter((d) => {
+      const date = d.fields.Modified ?? d.lastModifiedDateTime;
+      return date && new Date(date).getTime() > thirtyAgo;
+    }).length;
+    all.push({
+      library: CAHP_ENTITY_LIBRARY,
+      isCahpEntity: true,
+      total: cahpDocs.length,
+      taggedProperty: 0,
+      taggedOwner: cahpDocs.length, // every file in here is implicitly tagged to the CAHP entity
+      untagged: 0,
+      recent: cahpRecent,
+    });
+
+    return all;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
+  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data]);
 
   const totalDocs = stats.reduce((sum, s) => sum + s.total, 0);
   const totalUntagged = stats.reduce((sum, s) => sum + s.untagged, 0);
@@ -142,10 +164,21 @@ export function DocumentsPage() {
               </div>
             </div>
             <div className="grid grid-cols-4 gap-2 pt-3 border-t border-gray-100">
-              <Stat label="Property" value={s.taggedProperty} />
-              <Stat label="Entity" value={s.taggedOwner} />
-              <Stat label="Untagged" value={s.untagged} warn={s.untagged > 0} />
-              <Stat label="Recent" value={s.recent} />
+              {s.isCahpEntity ? (
+                <>
+                  <div className="col-span-3 text-[10px] text-gray-500 italic self-center">
+                    CAHP entity-only library — library membership is the tag, no per-doc tagging.
+                  </div>
+                  <Stat label="Recent" value={s.recent} />
+                </>
+              ) : (
+                <>
+                  <Stat label="Property" value={s.taggedProperty} />
+                  <Stat label="Entity" value={s.taggedOwner} />
+                  <Stat label="Untagged" value={s.untagged} warn={s.untagged > 0} />
+                  <Stat label="Recent" value={s.recent} />
+                </>
+              )}
             </div>
           </div>
         ))}

@@ -7,7 +7,7 @@ import {
   type OutstandingItem,
   type ItemStatus,
 } from '../lib/sharepoint';
-import { PROPERTY_LINKED_LIBRARIES, UploadDocumentModal } from './UploadDocumentModal';
+import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import type { PropertyLinkedLibrary } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
 
@@ -100,14 +100,35 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
   const lib6 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[6], { top: 500 });
   const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
+  // Also fetch the dedicated CAHP Entity Documents library
+  const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
 
-  const loading = libraries.some((l) => l.loading) || owners.loading;
+  const loading = libraries.some((l) => l.loading) || owners.loading || cahpLib.loading;
 
   // Aggregate documents relevant to this item:
   // - tagged to this property
   // - tagged to any CAHP entity (reference docs)
+  // - in the dedicated CAHP Entity Documents library
   const availableDocs = useMemo(() => {
     const docs: AvailableDoc[] = [];
+
+    // 1. CAHP Entity Documents library — every file is a CAHP reference doc
+    if (cahpLib.data) {
+      cahpLib.data.forEach((doc) => {
+        if (!doc.webUrl) return;
+        docs.push({
+          id: `${CAHP_ENTITY_LIBRARY}:${doc.id}`,
+          library: CAHP_ENTITY_LIBRARY as 'Supporting Documentation', // type narrow — treated like Supporting Documentation for downstream
+          filename: doc.fields.FileLeafRef || doc.fields.Title || '(unnamed)',
+          webUrl: doc.webUrl,
+          uploadDate: doc.fields.Modified || doc.lastModifiedDateTime,
+          scope: 'cahp-entity',
+          scopeLabel: 'CAHP Entity',
+        });
+      });
+    }
+
+    // 2. The 8 property-linked libraries (scoped by property or owner tag)
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
@@ -154,7 +175,7 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
       return db - da;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, propertyId, cahpOwnerIds, owners.data]);
+  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, owners.data]);
 
   const filtered = useMemo(() => {
     let docs = availableDocs;

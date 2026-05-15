@@ -1662,15 +1662,14 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
 
   return (
     <div>
-      {/* CAHP entity reference docs — surfaced for filing reference. Not property-tagged. */}
-      {cahpEntityIds.length > 0 && (
-        <EntityDocumentsSection
-          ownerIds={cahpEntityIds}
-          title="CAHP Entity Reference Documents"
-          subtitle="Entity-level docs (OAs, formation, determination letters) used across all property filings."
-          variant="inline"
-        />
-      )}
+      {/* CAHP entity reference docs — read from the dedicated CAHP Entity Documents library */}
+      <EntityDocumentsSection
+        ownerIds={cahpEntityIds}
+        title="CAHP Entity Reference Documents"
+        subtitle="Entity-level docs (OAs, formation, EIN, determination letters) used across all property filings."
+        variant="inline"
+        useCahpEntityLibrary
+      />
 
       {/* Property-owner reference docs */}
       {propertyOwnerIds.length > 0 && (

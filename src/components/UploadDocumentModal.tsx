@@ -19,6 +19,15 @@ export const PROPERTY_LINKED_LIBRARIES = [
 
 export type PropertyLinkedLibrary = (typeof PROPERTY_LINKED_LIBRARIES)[number];
 
+/**
+ * The dedicated CAHP Entity Documents library. Every file here is a CAHP entity
+ * document — the library IS the filter, no OwnerLookupId tagging required.
+ *
+ * Used by the CAHP Entity page and surfaced as "CAHP Entity Reference Documents"
+ * at the top of every property's Documents tab.
+ */
+export const CAHP_ENTITY_LIBRARY = 'CAHP Entity Documents';
+
 export type UploadScope =
   | { type: 'property'; propertyId: string; propertyTitle?: string }
   | { type: 'owner'; ownerId: string; ownerTitle?: string };

@@ -330,13 +330,14 @@ function CAHPEntityTab({
         )}
       </div>
 
-      {/* Documents — files tagged to this entity */}
+      {/* Documents — read from the dedicated CAHP Entity Documents library */}
       <EntityDocumentsSection
         ownerIds={[String(entity.id)]}
         primaryOwnerTitle={entity.fields.Title}
         title="Entity Documents"
-        subtitle="OAs, formation docs, determination letters, entity-level correspondence. Referenced from property filings."
+        subtitle="OAs, formation docs, EIN, determination letters. Stored in the CAHP Entity Documents library and surfaced as reference material on every property filing."
         uploadOwnerId={String(entity.id)}
+        useCahpEntityLibrary
       />
     </div>
   );

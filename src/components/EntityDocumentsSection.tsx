@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSharePointList } from '../lib/sharepoint';
-import { PROPERTY_LINKED_LIBRARIES, UploadDocumentModal } from './UploadDocumentModal';
+import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
 
 interface DocItemRaw {
@@ -30,7 +30,7 @@ interface AggregatedDoc {
 }
 
 export interface EntityDocumentsSectionProps {
-  /** Owner IDs whose documents should be shown */
+  /** Owner IDs whose documents should be shown (used when reading from tagged libraries) */
   ownerIds: string[];
   /** Optional owner title for the upload modal scope label */
   primaryOwnerTitle?: string;
@@ -42,6 +42,12 @@ export interface EntityDocumentsSectionProps {
   uploadOwnerId?: string;
   /** Visual variant — 'inline' for embedding inside a tab, 'card' for standalone */
   variant?: 'inline' | 'card';
+  /**
+   * When true, reads ALL files from the dedicated CAHP Entity Documents library
+   * regardless of OwnerLookupId. Used for CAHP entity contexts where the library
+   * membership itself is the filter. ownerIds is ignored in this mode.
+   */
+  useCahpEntityLibrary?: boolean;
 }
 
 export function EntityDocumentsSection({
@@ -51,8 +57,9 @@ export function EntityDocumentsSection({
   subtitle,
   uploadOwnerId,
   variant = 'card',
+  useCahpEntityLibrary = false,
 }: EntityDocumentsSectionProps) {
-  // Fetch all 8 libraries
+  // Fetch the 8 property libraries (for OwnerLookupId-tagged docs)
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
   const lib1 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[1], { top: 500 });
   const lib2 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[2], { top: 500 });
@@ -63,12 +70,34 @@ export function EntityDocumentsSection({
   const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
 
+  // Also fetch the dedicated CAHP Entity Documents library
+  const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
+
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map(String)), [ownerIds]);
 
   const docs = useMemo(() => {
     const collected: AggregatedDoc[] = [];
+
+    // 1. Files from the dedicated CAHP Entity Documents library
+    // (only when useCahpEntityLibrary is true — every file here is a CAHP entity doc by virtue of being in this library)
+    if (useCahpEntityLibrary && cahpLib.data) {
+      cahpLib.data.forEach((item) => {
+        collected.push({
+          id: `${CAHP_ENTITY_LIBRARY}:${item.id}`,
+          itemId: item.id,
+          library: CAHP_ENTITY_LIBRARY,
+          filename: item.fields.FileLeafRef || item.fields.Title || '(unnamed)',
+          webUrl: item.webUrl,
+          uploadDate: item.fields.Modified || item.lastModifiedDateTime,
+          uploader: item.fields.Editor?.LookupValue,
+          size: item.fields.File_x0020_Size ? parseInt(item.fields.File_x0020_Size, 10) : undefined,
+        });
+      });
+    }
+
+    // 2. OwnerLookupId-tagged files from the 8 property-linked libraries (for non-CAHP entities like LLCs, trusts)
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
@@ -87,6 +116,7 @@ export function EntityDocumentsSection({
         });
       });
     });
+
     // Sort by library then by upload date desc
     return collected.sort((a, b) => {
       if (a.library !== b.library) return a.library.localeCompare(b.library);
@@ -95,10 +125,16 @@ export function EntityDocumentsSection({
       return db - da;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, ownerIdSet]);
+  }, [
+    lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data,
+    cahpLib.data, ownerIdSet, useCahpEntityLibrary,
+  ]);
 
-  const loading = libraries.some((l) => l.loading);
-  const refetchAll = () => libraries.forEach((l) => l.refetch?.());
+  const loading = libraries.some((l) => l.loading) || (useCahpEntityLibrary && cahpLib.loading);
+  const refetchAll = () => {
+    libraries.forEach((l) => l.refetch?.());
+    cahpLib.refetch?.();
+  };
 
   // Group by library for display
   const byLibrary = useMemo(() => {

@@ -10,7 +10,7 @@ import {
   type ItemStatus,
   type ItemPriority,
 } from '../lib/sharepoint';
-import { PROPERTY_LINKED_LIBRARIES } from './UploadDocumentModal';
+import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY } from './UploadDocumentModal';
 import type { PropertyLinkedLibrary } from './UploadDocumentModal';
 import { DOR_FILING_CHECKLIST } from '../lib/filing-checklist';
 import type { FilingChecklistItem } from '../lib/filing-checklist';
@@ -78,8 +78,9 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const lib6 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[6], { top: 500 });
   const lib7 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[7], { top: 500 });
   const libraries = [lib0, lib1, lib2, lib3, lib4, lib5, lib6, lib7];
+  const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
 
-  const loading = libraries.some((l) => l.loading) || owners.loading || ownership.loading;
+  const loading = libraries.some((l) => l.loading) || owners.loading || ownership.loading || cahpLib.loading;
 
   const [creating, setCreating] = useState(false);
   const [createOnlyUnmatched, setCreateOnlyUnmatched] = useState(true);
@@ -117,11 +118,29 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       let matched = false;
       let matchedDoc: { filename: string; url: string; library: string } | undefined;
 
-      if (targetLibrary) {
+      // CAHP-scoped items: check the dedicated CAHP Entity Documents library first by filename match
+      // Filename matching is loose — look for keywords in the template title
+      if (template.scope === 'cahp' && cahpLib.data && cahpLib.data.length > 0) {
+        const keywords = extractKeywords(template.title);
+        const candidate = cahpLib.data.find((doc) => {
+          const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
+          return keywords.some((kw) => filename.includes(kw));
+        });
+        if (candidate && candidate.webUrl) {
+          matched = true;
+          matchedDoc = {
+            filename: candidate.fields.FileLeafRef || candidate.fields.Title || '(unnamed)',
+            url: candidate.webUrl,
+            library: CAHP_ENTITY_LIBRARY,
+          };
+        }
+      }
+
+      // Fall through to the 8 property-linked libraries (uses OwnerLookupId / PropertyLookupId)
+      if (!matched && targetLibrary) {
         const libIdx = PROPERTY_LINKED_LIBRARIES.indexOf(targetLibrary);
         const lib = libraries[libIdx];
         if (lib?.data) {
-          // Filter scope
           const candidates = lib.data.filter((doc) => {
             const propTag = doc.fields.PropertyLookupId ? String(doc.fields.PropertyLookupId) : null;
             const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
@@ -151,7 +170,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
     });
     return items;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, propertyId, cahpOwnerIds, propertyOwnerIds]);
+  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, propertyOwnerIds]);
 
   const matchedCount = preview.filter((p) => p.matched).length;
   const unmatchedCount = preview.filter((p) => !p.matched).length;
@@ -342,4 +361,32 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       </div>
     </div>
   );
+}
+
+/**
+ * Extract matchable keywords from a checklist item title for loose filename matching
+ * against docs in the CAHP Entity Documents library.
+ *
+ * Example: "CAHP 501(c)(3) Determination Letter" → ["501", "determination", "501c3"]
+ */
+function extractKeywords(title: string): string[] {
+  const lower = title.toLowerCase();
+  const map: { keyword: string; aliases: string[] }[] = [
+    { keyword: 'operating agreement', aliases: ['operating-agreement', 'operating_agreement', 'op agreement', 'oa'] },
+    { keyword: '501(c)(3)', aliases: ['501c3', 'determination letter', 'irs determination'] },
+    { keyword: 'ein', aliases: ['ein confirmation', 'employer identification', 'cp575'] },
+    { keyword: 'articles of incorporation', aliases: ['articles', 'incorporation'] },
+    { keyword: 'articles of organization', aliases: ['articles', 'organization'] },
+    { keyword: 'certificate of existence', aliases: ['coe', 'good standing'] },
+    { keyword: 'certificate of authorization', aliases: ['cert of auth', 'authority'] },
+    { keyword: 'bylaws', aliases: ['by-laws'] },
+  ];
+  const matches: string[] = [];
+  for (const { keyword, aliases } of map) {
+    if (lower.includes(keyword)) {
+      matches.push(keyword);
+      matches.push(...aliases);
+    }
+  }
+  return matches.length > 0 ? matches : lower.split(/\s+/).filter((w) => w.length > 3);
 }
