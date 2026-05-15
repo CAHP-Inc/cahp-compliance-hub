@@ -88,19 +88,20 @@ export function Compliance() {
     };
   }, [data]);
 
-  // PR-15b — AMI compliance stats
+  // PR-15b — AMI compliance stats — always computed, panel always visible so you can spot data gaps
   const amiStats = useMemo(() => {
     if (!data || !properties.data) return null;
     const amiProperties = properties.data.filter(
-      (p) => p.fields.AMIProgram && p.fields.AMIProgram !== 'None' && p.fields.PropertyStatus === 'Active'
+      (p) => p.fields.AMIProgram && p.fields.AMIProgram !== 'None'
     );
+    const activeAmiProperties = amiProperties.filter((p) => p.fields.PropertyStatus === 'Active');
     const propertyIdsWithAmiDeadline = new Set(
       data
         .filter((d) => d.fields.DeadlineType === 'AMI Cert Renewal' && d.fields.DeadlineStatus !== 'Completed')
         .map((d) => d.fields.PropertyLookupId ? String(d.fields.PropertyLookupId) : null)
         .filter((id): id is string => id !== null)
     );
-    const missingAmiDeadline = amiProperties.filter(
+    const missingAmiDeadline = activeAmiProperties.filter(
       (p) => !propertyIdsWithAmiDeadline.has(String(p.id))
     );
 
@@ -114,11 +115,17 @@ export function Compliance() {
       return due <= ninetyDays;
     }).length;
 
+    // Also count AMI deadlines without matching properties — could indicate data inconsistency
+    const totalAmiDeadlines = data.filter((d) => d.fields.DeadlineType === 'AMI Cert Renewal').length;
+
     return {
-      amiProperties: amiProperties.length,
+      amiProperties: activeAmiProperties.length,
+      totalAmiPropertiesIncludingInactive: amiProperties.length,
       amiDueSoon,
       missingAmiDeadline: missingAmiDeadline.length,
       missingProperties: missingAmiDeadline,
+      totalAmiDeadlines,
+      propertiesScanned: properties.data.length,
     };
   }, [data, properties.data]);
 
@@ -187,8 +194,8 @@ export function Compliance() {
         <KPICard label="Completed" value={stats.completed} accent="success" />
       </div>
 
-      {/* AMI compliance focus panel */}
-      {amiStats && amiStats.amiProperties > 0 && (
+      {/* AMI compliance focus panel — always shown so data gaps surface */}
+      {amiStats && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-4 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 bg-gold-50">
             <h3 className="text-sm font-semibold text-teal-900 flex items-center gap-2">
@@ -196,52 +203,67 @@ export function Compliance() {
               AMI Compliance Focus
             </h3>
             <p className="text-xs text-gray-600 mt-0.5">
-              Income-restricted housing oversight — tracks AMI Cert deadlines and gaps in coverage.
+              Income-restricted housing oversight — tracks AMI Cert Renewal deadlines and gaps in coverage.
             </p>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-gray-100">
-            <div className="px-4 py-3">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AMI Properties</div>
-              <div className="text-2xl font-bold text-teal-700 mt-1">{amiStats.amiProperties}</div>
-              <div className="text-[11px] text-gray-500 mt-0.5">Active income-restricted</div>
-            </div>
-            <div className="px-4 py-3">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AMI Certs Due Soon</div>
-              <div className={`text-2xl font-bold mt-1 ${amiStats.amiDueSoon > 0 ? 'text-warning' : 'text-teal-700'}`}>
-                {amiStats.amiDueSoon}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-0.5">Within 90 days</div>
-            </div>
-            <div className="px-4 py-3">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Coverage Gap</div>
-              <div className={`text-2xl font-bold mt-1 ${amiStats.missingAmiDeadline > 0 ? 'text-error' : 'text-success'}`}>
-                {amiStats.missingAmiDeadline}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-0.5">No AMI deadline set</div>
-            </div>
-          </div>
-          {amiStats.missingProperties.length > 0 && (
-            <div className="px-4 py-3 border-t border-amber-200 bg-amber-50">
-              <p className="text-xs text-amber-900 font-semibold mb-1">
-                ⚠ AMI properties without an AMI Cert deadline scheduled:
+          {amiStats.amiProperties === 0 && amiStats.totalAmiPropertiesIncludingInactive === 0 && amiStats.totalAmiDeadlines === 0 ? (
+            <div className="px-4 py-4 bg-amber-50 border-t border-amber-200">
+              <p className="text-xs text-amber-900">
+                <strong>No AMI-restricted properties detected.</strong> Scanned {amiStats.propertiesScanned} properties — none have <code className="bg-white px-1 rounded">AMIProgram</code> set to a value other than "None".
+                If you have income-restricted properties, open them and set the AMI Program field on the Overview tab.
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {amiStats.missingProperties.slice(0, 8).map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => navigate(`/properties/${p.id}`)}
-                    className="text-[11px] bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 px-2 py-0.5 rounded-full"
-                  >
-                    {p.fields.Title}
-                  </button>
-                ))}
-                {amiStats.missingProperties.length > 8 && (
-                  <span className="text-[11px] text-amber-700 self-center">
-                    +{amiStats.missingProperties.length - 8} more
-                  </span>
-                )}
-              </div>
             </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 divide-x divide-gray-100">
+                <div className="px-4 py-3">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Active AMI Properties</div>
+                  <div className="text-2xl font-bold text-teal-700 mt-1">{amiStats.amiProperties}</div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">
+                    Income-restricted
+                    {amiStats.totalAmiPropertiesIncludingInactive > amiStats.amiProperties &&
+                      ` · +${amiStats.totalAmiPropertiesIncludingInactive - amiStats.amiProperties} inactive`}
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AMI Certs Due Soon</div>
+                  <div className={`text-2xl font-bold mt-1 ${amiStats.amiDueSoon > 0 ? 'text-warning' : 'text-teal-700'}`}>
+                    {amiStats.amiDueSoon}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">Within 90 days</div>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Coverage Gap</div>
+                  <div className={`text-2xl font-bold mt-1 ${amiStats.missingAmiDeadline > 0 ? 'text-error' : 'text-success'}`}>
+                    {amiStats.missingAmiDeadline}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">No AMI deadline set</div>
+                </div>
+              </div>
+              {amiStats.missingProperties.length > 0 && (
+                <div className="px-4 py-3 border-t border-amber-200 bg-amber-50">
+                  <p className="text-xs text-amber-900 font-semibold mb-1">
+                    ⚠ AMI properties without an AMI Cert Renewal deadline scheduled:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {amiStats.missingProperties.slice(0, 8).map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => navigate(`/properties/${p.id}`)}
+                        className="text-[11px] bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 px-2 py-0.5 rounded-full"
+                      >
+                        {p.fields.Title}
+                      </button>
+                    ))}
+                    {amiStats.missingProperties.length > 8 && (
+                      <span className="text-[11px] text-amber-700 self-center">
+                        +{amiStats.missingProperties.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
