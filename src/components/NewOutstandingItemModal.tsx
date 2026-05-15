@@ -13,6 +13,13 @@ const STATUSES: ItemStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Done']
 const PRIORITIES: ItemPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 const CATEGORIES: ItemCategory[] = [
   'Operating Agreement',
+  'Articles of Incorporation',
+  'EIN Confirmation',
+  'Certificate of Existence',
+  'Certificate of Authorization',
+  '501(c)(3) Determination',
+  'Deed',
+  'Rent Roll',
   'LURA',
   'AMI Certification',
   'Org Chart',

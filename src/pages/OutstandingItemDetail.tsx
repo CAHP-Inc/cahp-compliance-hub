@@ -14,6 +14,7 @@ import {
   type ItemCategory,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import {
   BreadcrumbBar,
   Section,
@@ -67,6 +68,7 @@ export function OutstandingItemDetail() {
   const [draft, setDraft] = useState<OutstandingItemFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [linkOrUploadOpen, setLinkOrUploadOpen] = useState(false);
 
   useEffect(() => {
     if (item && !editing) setDraft({ ...item.fields });
@@ -243,6 +245,13 @@ export function OutstandingItemDetail() {
                 Delete
               </button>
               <button
+                onClick={() => setLinkOrUploadOpen(true)}
+                className="px-3 py-1.5 bg-gold-500 hover:bg-gold-600 text-teal-900 rounded-md text-sm font-medium flex items-center gap-1.5"
+              >
+                <Icon name="folder" size={14} />
+                {item.fields.RelatedDocUrl ? 'Replace Document' : 'Link / Upload Document'}
+              </button>
+              <button
                 onClick={handleEdit}
                 className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5"
               >
@@ -379,6 +388,55 @@ export function OutstandingItemDetail() {
           />
         </Section>
       </div>
+
+      {/* Related Document panel — shows linked fulfilling doc if set */}
+      {!editing && (item.fields.RelatedDocUrl || item.fields.RelatedDocFilename) && (
+        <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <Icon name="check" size={20} className="text-success flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-green-900 uppercase tracking-wider mb-1">
+                Linked Document
+              </div>
+              {item.fields.RelatedDocUrl ? (
+                <a
+                  href={item.fields.RelatedDocUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-teal-700 hover:text-teal-900 hover:underline break-all inline-flex items-center gap-1.5"
+                >
+                  <Icon name="file" size={12} />
+                  {item.fields.RelatedDocFilename ?? 'Open document'}
+                </a>
+              ) : (
+                <div className="text-sm font-medium text-gray-900">
+                  {item.fields.RelatedDocFilename}
+                </div>
+              )}
+              {item.fields.RelatedDocLibrary && (
+                <div className="text-[11px] text-gray-600 mt-1">Library: {item.fields.RelatedDocLibrary}</div>
+              )}
+            </div>
+            <button
+              onClick={() => setLinkOrUploadOpen(true)}
+              className="px-2 py-1 text-xs text-teal-700 hover:text-teal-900 underline flex-shrink-0"
+            >
+              Replace
+            </button>
+          </div>
+        </div>
+      )}
+
+      {linkOrUploadOpen && (
+        <LinkOrUploadDocumentModal
+          item={item}
+          onClose={() => setLinkOrUploadOpen(false)}
+          onSuccess={() => {
+            setLinkOrUploadOpen(false);
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }

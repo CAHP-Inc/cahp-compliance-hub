@@ -21,6 +21,7 @@ import {
   type Owner,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import {
   BreadcrumbBar,
   EditableField,
@@ -178,6 +179,8 @@ export function SubmittalDetail() {
 
   // PR-12 — Mark Approved modal (lightweight, no billing creation)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checklistResult, setChecklistResult] = useState<{ created: number; matched: number } | null>(null);
   const [approvalLetterRef, setApprovalLetterRef] = useState('');
   const [taxSavingsAmount, setTaxSavingsAmount] = useState('');
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -553,6 +556,51 @@ export function SubmittalDetail() {
         )}
       </div>
 
+      {/* Filing Checklist generator — visible in Draft state */}
+      {!editing && currentStatus === 'Draft' && (
+        <div className="bg-gold-50 border border-gold-200 rounded-lg shadow-card mb-6 p-4">
+          <div className="flex items-start gap-3">
+            <Icon name="file" size={18} className="text-gold-700 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-semibold text-teal-900 text-sm">
+                Filing Checklist
+              </div>
+              <p className="text-xs text-gray-700 mt-1 mb-3">
+                Generate a DOR-aligned 13-item checklist for this submittal.
+                Existing CAHP entity, property-owner, and property docs are auto-matched
+                so you only see items that still need to be obtained.
+              </p>
+              <button
+                onClick={() => setChecklistOpen(true)}
+                className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+              >
+                <Icon name="plus" size={12} />
+                Generate Filing Checklist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checklist result banner */}
+      {checklistResult && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-md p-3 flex items-start gap-2">
+          <Icon name="check" size={14} className="text-success flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-green-900">
+              <strong>{checklistResult.created}</strong> Outstanding Items created,{' '}
+              <strong>{checklistResult.matched}</strong> auto-matched to existing documents.
+            </p>
+            <p className="text-xs text-green-800 mt-0.5">
+              View on the property's Outstanding tab or the Outstanding Items page.
+            </p>
+          </div>
+          <button onClick={() => setChecklistResult(null)} className="text-xs text-green-900 hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Metadata + Action Plan two-column */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg shadow-card p-5">
@@ -803,6 +851,17 @@ export function SubmittalDetail() {
           onConfirm={confirmApproval}
           saving={approvalSaving}
           error={approvalError}
+        />
+      )}
+      {/* Filing Checklist Generator */}
+      {checklistOpen && (
+        <FilingChecklistGenerator
+          submittal={submittal}
+          onClose={() => setChecklistOpen(false)}
+          onSuccess={(created, matched) => {
+            setChecklistOpen(false);
+            setChecklistResult({ created, matched });
+          }}
         />
       )}
     </div>

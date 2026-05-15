@@ -319,13 +319,19 @@ export type OwnerCommunication = SharePointListItem<OwnerCommunicationFields>;
 
 export type ItemCategory =
   | 'Operating Agreement'
+  | 'Articles of Incorporation'      // NEW — nonprofit + LLC formation
+  | 'EIN Confirmation'               // NEW
+  | 'Certificate of Existence'       // NEW — state-issued
+  | 'Certificate of Authorization'   // NEW — state-issued
+  | '501(c)(3) Determination'        // NEW — nonprofit-specific
+  | 'Deed'
+  | 'Rent Roll'                      // NEW
   | 'LURA'
   | 'AMI Certification'
   | 'Org Chart'
-  | 'Deed'
   | 'Income Documentation'
   | 'Signed Submittal'
-  | 'Determination Letter'
+  | 'Determination Letter'           // generic — property determinations
   | 'Other';
 
 export type ItemStatus =
@@ -354,6 +360,12 @@ export interface OutstandingItemFields {
   DueDate?: string;
   Priority?: ItemPriority;
   AssignedTo?: string;
+  // PR-14b additions — link to fulfilling document
+  RelatedDocUrl?: string;
+  RelatedDocFilename?: string;
+  RelatedDocLibrary?: string;
+  // PR-14b — submittal linkage when item is part of a filing checklist
+  RelatedSubmittalLookupId?: string;
 }
 
 export type OutstandingItem = SharePointListItem<OutstandingItemFields>;

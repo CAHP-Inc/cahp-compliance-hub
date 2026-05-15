@@ -11,6 +11,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
+import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 
 // =============================================================================
 // Status / category styles
@@ -76,6 +77,7 @@ export function OutstandingItems() {
   const [showClosed, setShowClosed] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [newItemOpen, setNewItemOpen] = useState(false);
+  const [linkUploadItem, setLinkUploadItem] = useState<OutstandingItem | null>(null);
 
   const loading = items.loading || properties.loading;
   const error = items.error || properties.error;
@@ -327,6 +329,7 @@ export function OutstandingItems() {
               propertiesById={propertiesById}
               onCardClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
               onStatusChange={handleStatusChange}
+              onLinkUpload={(item) => setLinkUploadItem(item)}
               updatingId={updatingId}
             />
           ))}
@@ -336,6 +339,7 @@ export function OutstandingItems() {
           items={filtered}
           propertiesById={propertiesById}
           onRowClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
+          onLinkUpload={(item) => setLinkUploadItem(item)}
         />
       )}
 
@@ -344,6 +348,17 @@ export function OutstandingItems() {
           onClose={() => setNewItemOpen(false)}
           onSuccess={() => {
             setNewItemOpen(false);
+            items.refetch?.();
+          }}
+        />
+      )}
+
+      {linkUploadItem && (
+        <LinkOrUploadDocumentModal
+          item={linkUploadItem}
+          onClose={() => setLinkUploadItem(null)}
+          onSuccess={() => {
+            setLinkUploadItem(null);
             items.refetch?.();
           }}
         />
@@ -362,6 +377,7 @@ function KanbanColumn({
   propertiesById,
   onCardClick,
   onStatusChange,
+  onLinkUpload,
   updatingId,
 }: {
   column: { id: ItemStatus; label: string };
@@ -369,6 +385,7 @@ function KanbanColumn({
   propertiesById: Map<string, Property>;
   onCardClick: (id: string) => void;
   onStatusChange: (id: string, status: ItemStatus) => void;
+  onLinkUpload: (item: OutstandingItem) => void;
   updatingId: string | null;
 }) {
   return (
@@ -390,6 +407,7 @@ function KanbanColumn({
               property={item.fields.PropertyLookupId ? propertiesById.get(String(item.fields.PropertyLookupId)) : undefined}
               onClick={() => onCardClick(item.id)}
               onStatusChange={(status) => onStatusChange(item.id, status)}
+              onLinkUpload={() => onLinkUpload(item)}
               updating={updatingId === item.id}
             />
           ))
@@ -404,16 +422,19 @@ function KanbanCard({
   property,
   onClick,
   onStatusChange,
+  onLinkUpload,
   updating,
 }: {
   item: OutstandingItem;
   property?: Property;
   onClick: () => void;
   onStatusChange: (status: ItemStatus) => void;
+  onLinkUpload: () => void;
   updating: boolean;
 }) {
   const overdue = isOverdue(item);
   const f = item.fields;
+  const hasDoc = Boolean(f.RelatedDocUrl);
 
   return (
     <div
@@ -446,6 +467,33 @@ function KanbanCard({
           {f.AssignedTo && <span className="text-gray-500 truncate">· {f.AssignedTo}</span>}
         </div>
       </div>
+      {/* Document linkage line */}
+      <div className="mt-2 pt-2 border-t border-gray-100">
+        {hasDoc ? (
+          <a
+            href={f.RelatedDocUrl!}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-[10px] text-success hover:underline inline-flex items-center gap-1 truncate max-w-full"
+            title={f.RelatedDocFilename}
+          >
+            <Icon name="check" size={10} />
+            <span className="truncate">{f.RelatedDocFilename ?? 'View doc'}</span>
+          </a>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onLinkUpload();
+            }}
+            className="text-[10px] text-gold-700 hover:text-gold-900 underline inline-flex items-center gap-1"
+          >
+            <Icon name="plus" size={10} />
+            Link / Upload doc
+          </button>
+        )}
+      </div>
       {/* Status quick-move dropdown */}
       <select
         value={f.ItemStatus ?? 'Not Started'}
@@ -471,10 +519,12 @@ function ListView({
   items,
   propertiesById,
   onRowClick,
+  onLinkUpload,
 }: {
   items: OutstandingItem[];
   propertiesById: Map<string, Property>;
   onRowClick: (id: string) => void;
+  onLinkUpload: (item: OutstandingItem) => void;
 }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
@@ -485,9 +535,9 @@ function ListView({
             <th className="px-4 py-3 text-left">Property</th>
             <th className="px-4 py-3 text-left">Status</th>
             <th className="px-4 py-3 text-left">Priority</th>
-            <th className="px-4 py-3 text-left">Assigned To</th>
             <th className="px-4 py-3 text-left">Due Date</th>
             <th className="px-4 py-3 text-left">Category</th>
+            <th className="px-4 py-3 text-left">Document</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -496,36 +546,83 @@ function ListView({
               ? propertiesById.get(String(item.fields.PropertyLookupId))
               : null;
             const overdue = isOverdue(item);
+            const hasDoc = Boolean(item.fields.RelatedDocUrl);
             return (
               <tr
                 key={item.id}
-                onClick={() => onRowClick(item.id)}
-                className={`hover:bg-gray-50 transition-colors cursor-pointer ${overdue ? 'bg-red-50' : ''}`}
+                className={`hover:bg-gray-50 transition-colors ${overdue ? 'bg-red-50' : ''}`}
               >
-                <td className="px-4 py-3 font-medium text-gray-900">
+                <td
+                  className="px-4 py-3 font-medium text-gray-900 cursor-pointer"
+                  onClick={() => onRowClick(item.id)}
+                >
                   {overdue && <span className="text-error mr-1">⚠</span>}
                   {item.fields.Title}
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-700">{property?.fields.Title ?? '—'}</td>
-                <td className="px-4 py-3">
+                <td
+                  className="px-4 py-3 text-xs text-gray-700 cursor-pointer"
+                  onClick={() => onRowClick(item.id)}
+                >
+                  {property?.fields.Title ?? '—'}
+                </td>
+                <td
+                  className="px-4 py-3 cursor-pointer"
+                  onClick={() => onRowClick(item.id)}
+                >
                   {item.fields.ItemStatus ? (
                     <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[item.fields.ItemStatus]}`}>
                       {item.fields.ItemStatus}
                     </span>
                   ) : '—'}
                 </td>
-                <td className="px-4 py-3">
+                <td
+                  className="px-4 py-3 cursor-pointer"
+                  onClick={() => onRowClick(item.id)}
+                >
                   {item.fields.Priority ? (
                     <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold border ${PRIORITY_STYLES[item.fields.Priority]}`}>
                       {item.fields.Priority}
                     </span>
                   ) : '—'}
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-700">{item.fields.AssignedTo || '—'}</td>
-                <td className={`px-4 py-3 font-mono-data text-xs ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}>
+                <td
+                  className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
+                  onClick={() => onRowClick(item.id)}
+                >
                   {item.fields.DueDate ? new Date(item.fields.DueDate).toLocaleDateString() : '—'}
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-600">{item.fields.ItemCategory || '—'}</td>
+                <td
+                  className="px-4 py-3 text-xs text-gray-600 cursor-pointer"
+                  onClick={() => onRowClick(item.id)}
+                >
+                  {item.fields.ItemCategory || '—'}
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {hasDoc ? (
+                    <a
+                      href={item.fields.RelatedDocUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-success hover:underline inline-flex items-center gap-1 max-w-[180px] truncate"
+                      title={item.fields.RelatedDocFilename}
+                    >
+                      <Icon name="check" size={11} />
+                      <span className="truncate">{item.fields.RelatedDocFilename ?? 'View'}</span>
+                    </a>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onLinkUpload(item);
+                      }}
+                      className="text-gold-700 hover:text-gold-900 underline inline-flex items-center gap-1"
+                    >
+                      <Icon name="plus" size={11} />
+                      Link / Upload
+                    </button>
+                  )}
+                </td>
               </tr>
             );
           })}

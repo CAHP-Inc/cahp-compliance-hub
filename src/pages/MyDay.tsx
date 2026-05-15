@@ -45,7 +45,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-13a', label: 'Owner Communications module', status: 'done' as const },
   { id: 'PR-14a', label: 'Reports foundation — 6 category cards + 3 working reports', status: 'done' as const },
   { id: 'PR-14-hardening', label: 'My Day widgets + reports cleanup + CAHP entity documents', status: 'done' as const },
-  { id: 'PR-14b', label: 'Reports implementation — fill out remaining + Audit Pack bundles', status: 'next' as const },
+  { id: 'PR-14b', label: 'Filing Checklist + doc linkage + owner docs + expanded categories', status: 'done' as const },
+  { id: 'PR-15a', label: 'Notifications system', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -177,24 +178,26 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* Hardening banner */}
+      {/* PR-14b banner */}
       <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            14
+            14b
           </div>
           <div className="flex-1">
             <div className="font-semibold text-teal-900">
-              Operational hardening shipped.
+              PR-14b deployed. Filing Checklist + document linkage live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>My Day</strong> now surfaces Outstanding Items (open, urgency-sorted) and Submittal Next Actions
-              widgets — both directly below Upcoming Deadlines. <strong>Reports</strong> dropped the
-              billing-dependent entries to reduce confusion for the team. <strong>CAHP Entity</strong> has its own
-              Documents section so OAs, formation docs, and determination letters live in one place and surface as
-              <strong> CAHP Entity Reference Documents</strong> at the top of every property's Documents tab. The
-              <strong> Untagged Documents</strong> queue now lets you bulk-tag to either a Property or an Owner/Entity.
-              <strong> PR-14b</strong> next: fill out remaining reports + Audit Pack bundles.
+              Outstanding Items now have a <strong>Link / Upload Document</strong> action everywhere they appear
+              — kanban cards, list view, Property → Outstanding tab, and item detail page. Each row has a
+              Document column showing either a green link to the fulfilling file or a "Link / Upload" button that
+              opens a single modal with Link Existing / Upload New toggle. Auto-marks Received when linked.
+              Submittals in Draft show a <strong>Generate Filing Checklist</strong> button that creates the 12 DOR-required
+              items and auto-matches existing CAHP/owner/property docs (so you only see what's missing).
+              <strong> Owner Detail</strong> now has its own Owner Documents section, and Property → Documents tab
+              surfaces both CAHP Entity AND Property-Owner Entity reference docs at the top. Item categories
+              expanded to 15 DOR-aligned types. <strong>PR-15a</strong> next: Notifications.
             </p>
           </div>
         </div>

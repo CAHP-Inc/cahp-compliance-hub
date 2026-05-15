@@ -17,6 +17,7 @@ import {
   type OwnerType,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 import {
   BreadcrumbBar,
   Section,
@@ -438,6 +439,15 @@ export function OwnerDetail() {
           </table>
         )}
       </div>
+
+      {/* Owner-scoped documents — formation docs, EIN, Articles, COE, Cert of Auth, etc. */}
+      <EntityDocumentsSection
+        ownerIds={[String(owner.id)]}
+        primaryOwnerTitle={owner.fields.Title}
+        title="Owner Documents"
+        subtitle="Entity formation docs (EIN, Articles, COE, Cert of Authorization, OA) — uploaded once, surfaced on every property this owner holds."
+        uploadOwnerId={String(owner.id)}
+      />
     </div>
   );
 }

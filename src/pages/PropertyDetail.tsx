@@ -33,6 +33,7 @@ import { DispositionModal } from '../components/DispositionModal';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
+import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -657,6 +658,7 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
   const navigate = useNavigate();
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [linkUploadItem, setLinkUploadItem] = useState<OutstandingItem | null>(null);
   const { data, loading, error, refetch } = useSharePointList<OutstandingItem>(
     LIST_NAMES.Outstanding,
     { top: 500 }
@@ -753,8 +755,8 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Priority</th>
                 <th className="px-4 py-3 text-left">Due Date</th>
-                <th className="px-4 py-3 text-left">Assigned To</th>
                 <th className="px-4 py-3 text-left">Category</th>
+                <th className="px-4 py-3 text-left">Document</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -763,35 +765,77 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
                   o.fields.DueDate &&
                   new Date(o.fields.DueDate).getTime() < Date.now() &&
                   !isClosed(o.fields.ItemStatus);
+                const hasDoc = Boolean(o.fields.RelatedDocUrl);
                 return (
                   <tr
                     key={o.id}
-                    onClick={() => navigate(`/outstanding-items/${o.id}`)}
-                    className={`hover:bg-gray-50 transition-colors cursor-pointer ${overdue ? 'bg-red-50' : ''}`}
+                    className={`hover:bg-gray-50 transition-colors ${overdue ? 'bg-red-50' : ''}`}
                   >
-                    <td className="px-4 py-3 font-medium text-gray-900">
+                    <td
+                      className="px-4 py-3 font-medium text-gray-900 cursor-pointer"
+                      onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    >
                       {overdue && <span className="text-error mr-1">⚠</span>}
                       {o.fields.Title}
                     </td>
-                    <td className="px-4 py-3">
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    >
                       {o.fields.ItemStatus ? (
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${ITEM_STATUS_STYLES[o.fields.ItemStatus]}`}>
                           {o.fields.ItemStatus}
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    >
                       {o.fields.Priority ? (
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${ITEM_PRIORITY_STYLES[o.fields.Priority]}`}>
                           {o.fields.Priority}
                         </span>
                       ) : '—'}
                     </td>
-                    <td className={`px-4 py-3 font-mono-data text-xs ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}>
+                    <td
+                      className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
+                      onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    >
                       {o.fields.DueDate ? new Date(o.fields.DueDate).toLocaleDateString() : '—'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{o.fields.AssignedTo || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600">{o.fields.ItemCategory || '—'}</td>
+                    <td
+                      className="px-4 py-3 text-xs text-gray-600 cursor-pointer"
+                      onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    >
+                      {o.fields.ItemCategory || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {hasDoc ? (
+                        <a
+                          href={o.fields.RelatedDocUrl!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-success hover:underline inline-flex items-center gap-1 max-w-[180px] truncate"
+                          title={o.fields.RelatedDocFilename}
+                        >
+                          <Icon name="check" size={11} />
+                          <span className="truncate">{o.fields.RelatedDocFilename ?? 'View'}</span>
+                        </a>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLinkUploadItem(o);
+                          }}
+                          className="text-gold-700 hover:text-gold-900 underline inline-flex items-center gap-1"
+                        >
+                          <Icon name="plus" size={11} />
+                          Link / Upload
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -809,6 +853,17 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
           }}
           defaultPropertyId={propertyId}
           hidePropertyPicker
+        />
+      )}
+
+      {linkUploadItem && (
+        <LinkOrUploadDocumentModal
+          item={linkUploadItem}
+          onClose={() => setLinkUploadItem(null)}
+          onSuccess={() => {
+            setLinkUploadItem(null);
+            refetch?.();
+          }}
         />
       )}
       {/* propertyTitle ref to avoid TS unused warning if banner removed later */}
@@ -1483,8 +1538,9 @@ interface PropertyDocument {
 function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
   const [uploadOpen, setUploadOpen] = useState(false);
 
-  // Owners fetch — to identify CAHP entities for the reference section
+  // Owners + ownership fetch — to identify CAHP entities + property-owner entities for reference sections
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
 
   // Fetch each library in parallel — each useSharePointList is its own hook call
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -1550,6 +1606,22 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
       })
       .map((o) => String(o.id)) ?? [];
 
+  // Identify property's direct-owner entity IDs (the LLCs that hold this property)
+  const propertyOwnerIds = useMemo(() => {
+    if (!ownership?.data) return [] as string[];
+    const ids = new Set<string>();
+    ownership.data.forEach((rel) => {
+      if (String(rel.fields.LinkedPropertyLookupId) !== String(propertyId)) return;
+      if (rel.fields.OwnerLookupId) {
+        const ownerId = String(rel.fields.OwnerLookupId);
+        // Don't double-count CAHP entities — they get their own section
+        if (!cahpEntityIds.includes(ownerId)) ids.add(ownerId);
+      }
+    });
+    return Array.from(ids);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownership?.data, propertyId, cahpEntityIds.join(',')]);
+
   return (
     <div>
       {/* CAHP entity reference docs — surfaced for filing reference. Not property-tagged. */}
@@ -1558,6 +1630,16 @@ function PropertyDocumentsTab({ propertyId, propertyTitle }: { propertyId: strin
           ownerIds={cahpEntityIds}
           title="CAHP Entity Reference Documents"
           subtitle="Entity-level docs (OAs, formation, determination letters) used across all property filings."
+          variant="inline"
+        />
+      )}
+
+      {/* Property-owner reference docs */}
+      {propertyOwnerIds.length > 0 && (
+        <EntityDocumentsSection
+          ownerIds={propertyOwnerIds}
+          title="Property-Owner Entity Documents"
+          subtitle="Formation docs for the LLC that holds this property — EIN, Articles, COE, Cert of Authorization."
           variant="inline"
         />
       )}
