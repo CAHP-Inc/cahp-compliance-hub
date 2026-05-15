@@ -18,9 +18,6 @@ import { CorrespondenceDetail } from './pages/CorrespondenceDetail';
 import { OutstandingItems } from './pages/OutstandingItems';
 import { OutstandingItemDetail } from './pages/OutstandingItemDetail';
 import { UntaggedDocuments } from './pages/UntaggedDocuments';
-import { BillingPage } from './pages/BillingPage';
-import { BillingDetail } from './pages/BillingDetail';
-import { DisbursementDetail } from './pages/DisbursementDetail';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -59,9 +56,9 @@ function App() {
             <Route path="/comms" element={<PlaceholderPage title="Owner Communications" icon="mail" plannedPR="Phase 3" />} />
             <Route path="/compliance" element={<Compliance />} />
             <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
-            <Route path="/billing" element={<BillingPage />} />
-            <Route path="/billing/invoices/:id" element={<BillingDetail />} />
-            <Route path="/billing/disbursements/:id" element={<DisbursementDetail />} />
+            <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
+            <Route path="/billing/invoices/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
+            <Route path="/billing/disbursements/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
             <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
             <Route path="/untagged" element={<UntaggedDocuments />} />
             <Route path="/reports" element={<PlaceholderPage title="Reports" icon="file" plannedPR="Phase 3" />} />

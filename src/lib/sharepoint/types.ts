@@ -271,6 +271,8 @@ export type Billing = SharePointListItem<BillingFields>;
 
 export type DisbursementStatus = 'Pending' | 'Issued' | 'Cleared' | 'Voided';
 
+export type DisbPaymentMethod = 'ACH' | 'Check' | 'Wire' | 'Other';
+
 export interface DisbursementFields {
   Title: string;                              // Disbursement Reference
   DisbProperty?: string;                       // Lookup → Properties Registry (raw name for now)
@@ -282,6 +284,7 @@ export interface DisbursementFields {
   DisbIssueDate?: string;
   DisbClearDate?: string;
   DisbCheckNum?: string;
+  DisbPaymentMethod?: DisbPaymentMethod;       // PR-12b
   DisbNotes?: string;
 }
 

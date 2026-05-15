@@ -41,8 +41,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
   { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
   { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
-  { id: 'PR-12a', label: 'Billing & Disbursements UI — 3 sub-tabs', status: 'done' as const },
-  { id: 'PR-12b', label: 'Disbursement workflow — Record Payment + status pipeline', status: 'next' as const },
+  { id: 'PR-12-removed', label: 'Billing module removed — deferred to future, status tracking only', status: 'done' as const },
+  { id: 'PR-13a', label: 'Owner Communications module', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -119,25 +119,23 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-12a banner — Phase 3 kickoff */}
-      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
+      {/* PR-12 (removed) — Billing rolled back to status tracking only */}
+      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
-            12a
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-300 text-gray-700 font-bold text-xs flex items-center justify-center font-mono-data">
+            12
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-teal-900">
-              Phase 3 kicked off. PR-12a: Billing & Disbursements UI live.
+            <div className="font-semibold text-gray-900">
+              Billing module pulled. Submittals now track filing status only.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Billing & Disbursements</strong> in the nav now opens the real module with three sub-tabs:
-              <strong> CAHP Fee Invoices</strong> (revenue: tax savings, fee %, computed fee, QB sync status),
-              <strong> Refund Disbursements</strong> (passthrough to owners: amount, status pipeline, check #),
-              and <strong>Reconciliation</strong> (deferred — QB integration parked).
-              Each tab has KPIs (YTD Billed / Outstanding Receivable / Owed to Owners / YTD Paid), filters, and clickable rows
-              navigating to detail pages with inline editing. The Billing + Disbursement records auto-created by PR-10d's
-              Approval Workflow are now visible. <strong>PR-12b</strong> next: Disbursement workflow with the Record Payment modal
-              (Pending → Issued transition with date + method + check # capture).
+              The full Billing & Disbursements UI (PR-12a) and Disbursement workflow (PR-12b) were removed. The
+              <strong> Filed → Approved</strong> transition now opens a simpler <strong>Mark Approved</strong> modal
+              that captures the approval letter ref + tax savings and updates the submittal — no Billing or Disbursement
+              records are created. The SharePoint lists, schema, and data model remain provisioned so the Billing module
+              can be brought back without rework when needed. Sidebar entry removed; <code>/billing/*</code> routes show a
+              "Deferred" placeholder. <strong>PR-13a</strong> next: Owner Communications module.
             </p>
           </div>
         </div>

@@ -4,7 +4,6 @@ import {
   useSharePointItem,
   useSharePointList,
   updateListItem,
-  createListItem,
   LIST_NAMES,
   type Submittal,
   type SubmittalFields,
@@ -17,8 +16,6 @@ import {
   type CahpTaxYear,
   type CahpState,
   type FilingMethod,
-  type BillingStatusValue,
-  type DisbursementStatus,
   getBeneficialOwnershipTree,
   type Ownership,
   type Owner,
@@ -179,11 +176,10 @@ export function SubmittalDetail() {
   const [transitionFields, setTransitionFields] = useState<Record<string, string>>({});
   const [transitionError, setTransitionError] = useState<string | null>(null);
 
-  // PR-10d — Approval Workflow modal (special-cased Approved transition)
+  // PR-12 — Mark Approved modal (lightweight, no billing creation)
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalLetterRef, setApprovalLetterRef] = useState('');
   const [taxSavingsAmount, setTaxSavingsAmount] = useState('');
-  const [cahpFeePercent, setCahpFeePercent] = useState('50');
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSaving, setApprovalSaving] = useState(false);
 
@@ -311,11 +307,10 @@ export function SubmittalDetail() {
   // ────────────────────────────────────────────────────────
 
   const startTransition = (transition: Transition) => {
-    // PR-10d — Approved transition uses the Approval Workflow modal instead of generic flow
+    // PR-12 — Approved transition uses the Mark Approved modal (no billing side effects)
     if (transition.to === 'Approved') {
       setApprovalLetterRef('');
       setTaxSavingsAmount('');
-      setCahpFeePercent('50');
       setApprovalError(null);
       setApprovalModalOpen(true);
       return;
@@ -392,7 +387,9 @@ export function SubmittalDetail() {
   };
 
   // ────────────────────────────────────────────────────────
-  // PR-10d — Approval Workflow: create Billing + Disbursement atomically
+  // PR-12 — Mark Approved: simple submittal status update
+  // (Billing + Disbursement record creation deferred — was PR-10d, removed PR-12.
+  // Reactivate when Billing module ships.)
   // ────────────────────────────────────────────────────────
 
   const cancelApproval = () => {
@@ -415,22 +412,9 @@ export function SubmittalDetail() {
       setApprovalError('Tax savings amount must be a positive number.');
       return;
     }
-    const feePercent = parseFloat(cahpFeePercent);
-    if (isNaN(feePercent) || feePercent < 0 || feePercent > 100) {
-      setApprovalError('CAHP Fee % must be between 0 and 100.');
-      return;
-    }
-    if (!submittal.fields.PropertyLookupId) {
-      setApprovalError("This submittal isn't linked to a property — can't create Billing/Disbursement records.");
-      return;
-    }
-
-    const cahpFeeBilled = (taxSavings * feePercent) / 100;
-    const ownerShare = taxSavings - cahpFeeBilled;
 
     setApprovalSaving(true);
     try {
-      // 1. Update submittal: status → Approved, ApprovedAbatement set, NextAction cleared
       await updateListItem(LIST_NAMES.Submittals, submittal.id, {
         SubmittalStatus: 'Approved',
         ApprovedAbatement: taxSavings,
@@ -440,43 +424,6 @@ export function SubmittalDetail() {
           ? `${f.SubmittalNotes}\n\n[Approval ${new Date().toLocaleDateString()}] Letter ref: ${approvalLetterRef}`
           : `[Approval ${new Date().toLocaleDateString()}] Letter ref: ${approvalLetterRef}`,
       });
-
-      // 2. Create Billing row — CAHP Fee = taxSavings * feePercent / 100
-      const billingTitle = `${property?.fields.Title ?? 'Property'} ${f.cahpTaxYear ?? ''} CAHP Fee`.trim();
-      try {
-        await createListItem(LIST_NAMES.Billing, {
-          Title: billingTitle,
-          PropertyLookupId: submittal.fields.PropertyLookupId,
-          cahpTaxYear: f.cahpTaxYear,
-          AmountBilled: cahpFeeBilled,
-          BillApprovedAbatement: taxSavings,
-          CAHPFeePercent: feePercent,
-          BillingStatus: 'Ready to Invoice' as BillingStatusValue,
-          QBSyncStatus: 'Not Synced',
-          BillingNotes: `Auto-created from Submittal approval. Approval letter: ${approvalLetterRef}`,
-        });
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('Billing row creation failed:', e);
-        throw new Error(`Billing record creation failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-
-      // 3. Create Disbursement row — owner share = taxSavings - cahpFeeBilled
-      const disbTitle = `${property?.fields.Title ?? 'Property'} ${f.cahpTaxYear ?? ''} Owner Disbursement`.trim();
-      try {
-        await createListItem(LIST_NAMES.Disbursements, {
-          Title: disbTitle,
-          DisbPropertyLookupId: submittal.fields.PropertyLookupId,
-          DisbSubmittalLookupId: submittal.id,
-          DisbAmount: ownerShare,
-          DisbStatus: 'Pending' as DisbursementStatus,
-          DisbNotes: `Auto-created from Submittal approval. Owner allocation TBD per ownership %.`,
-        });
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('Disbursement row creation failed:', e);
-        // Don't throw — billing succeeded, disbursement is recoverable manually
-      }
 
       await refetch();
       cancelApproval();
@@ -596,7 +543,7 @@ export function SubmittalDetail() {
           <div className="pt-2 border-t border-gray-100 flex items-start gap-2">
             <Icon name="check" size={12} className="text-success flex-shrink-0 mt-0.5" />
             <p className="text-xs text-success">
-              Approved. Billing + Disbursement records auto-created at approval time
+              Approved
               {f.ApprovedAbatement != null && (
                 <> · ${f.ApprovedAbatement.toLocaleString()} tax savings on file</>
               )}
@@ -843,17 +790,15 @@ export function SubmittalDetail() {
         />
       )}
 
-      {/* PR-10d — Approval Workflow modal */}
+      {/* PR-12 — Mark Approved modal (simplified — no billing creation) */}
       {approvalModalOpen && (
-        <ApprovalWorkflowModal
+        <MarkApprovedModal
           submittalTitle={f.Title ?? ''}
           propertyTitle={property?.fields.Title}
           approvalLetterRef={approvalLetterRef}
           taxSavingsAmount={taxSavingsAmount}
-          cahpFeePercent={cahpFeePercent}
           onLetterRefChange={setApprovalLetterRef}
           onTaxSavingsChange={setTaxSavingsAmount}
-          onFeePercentChange={setCahpFeePercent}
           onCancel={cancelApproval}
           onConfirm={confirmApproval}
           saving={approvalSaving}
@@ -974,20 +919,19 @@ function TransitionModal({
 }
 
 // =============================================================================
-// PR-10d — Approval Workflow Modal
-// Per spec §3.6.5: prompts for approval letter ref + tax savings, computes CAHP fee,
-// shows what records will be created, confirms create-Billing + create-Disbursement on save.
+// PR-12 — Mark Approved Modal
+// Captures approval letter ref + tax savings amount. Updates Submittal only.
+// Billing + Disbursement record creation is deferred until the Billing module ships
+// (was PR-10d, removed PR-12). The data model + SP lists remain provisioned.
 // =============================================================================
 
-function ApprovalWorkflowModal({
+function MarkApprovedModal({
   submittalTitle,
   propertyTitle,
   approvalLetterRef,
   taxSavingsAmount,
-  cahpFeePercent,
   onLetterRefChange,
   onTaxSavingsChange,
-  onFeePercentChange,
   onCancel,
   onConfirm,
   saving,
@@ -997,10 +941,8 @@ function ApprovalWorkflowModal({
   propertyTitle?: string;
   approvalLetterRef: string;
   taxSavingsAmount: string;
-  cahpFeePercent: string;
   onLetterRefChange: (v: string) => void;
   onTaxSavingsChange: (v: string) => void;
-  onFeePercentChange: (v: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1010,22 +952,19 @@ function ApprovalWorkflowModal({
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
 
   const taxSavings = parseFloat(taxSavingsAmount) || 0;
-  const feePercent = parseFloat(cahpFeePercent) || 0;
-  const cahpFee = (taxSavings * feePercent) / 100;
-  const ownerShare = taxSavings - cahpFee;
-  const isValid = taxSavings > 0 && feePercent >= 0 && feePercent <= 100 && approvalLetterRef.trim().length > 0;
+  const isValid = taxSavings > 0 && approvalLetterRef.trim().length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-5 my-8">
         <div className="flex items-center gap-2 mb-1">
           <Icon name="check" size={20} className="text-success" />
-          <h3 className="text-lg font-bold text-teal-700">Approval Workflow</h3>
+          <h3 className="text-lg font-bold text-teal-700">Mark Submittal Approved</h3>
         </div>
         <p className="text-sm text-gray-600 mb-4">
           DOR approved <strong>{submittalTitle}</strong>
           {propertyTitle && <> · {propertyTitle}</>}.
-          Capture the approval details — Billing and Disbursement records will auto-create.
+          Capture the approval reference and tax savings so the submittal record reflects DOR's decision.
         </p>
 
         <div className="space-y-3 mb-4">
@@ -1041,7 +980,9 @@ function ApprovalWorkflowModal({
               className={`${inputClass} font-mono-data`}
               autoFocus
             />
-            <p className="text-xs text-gray-400 mt-1">Reference printed on the DOR approval letter — stored on the submittal for audit trail.</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Reference printed on the DOR approval letter — appended to submittal notes for audit trail.
+            </p>
           </div>
 
           <div>
@@ -1060,50 +1001,9 @@ function ApprovalWorkflowModal({
                 className={`${inputClass} font-mono-data`}
               />
             </div>
-            <p className="text-xs text-gray-400 mt-1">Total tax abatement granted by DOR.</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              CAHP Fee % <span className="text-error">*</span>
-            </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={cahpFeePercent}
-                onChange={(e) => onFeePercentChange(e.target.value)}
-                placeholder="50"
-                min="0" max="100" step="0.1"
-                className={`${inputClass} font-mono-data`}
-              />
-              <span className="text-gray-500 font-mono-data">%</span>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Share of tax savings retained by CAHP. Typical: 30–50%.</p>
+            <p className="text-xs text-gray-400 mt-1">Total tax abatement granted by DOR. Stored on submittal for future billing.</p>
           </div>
         </div>
-
-        {/* Computed preview */}
-        {taxSavings > 0 && (
-          <div className="mb-4 bg-gold-50 border border-gold-200 rounded-md p-3">
-            <div className="text-[10px] font-semibold text-gold-900 uppercase tracking-wider mb-2">
-              Computed
-            </div>
-            <dl className="text-sm space-y-1">
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-700">Tax Savings</dt>
-                <dd className="font-mono-data font-semibold text-gray-900">${taxSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-700">CAHP Fee ({feePercent}%) → Billing</dt>
-                <dd className="font-mono-data font-semibold text-teal-700">${cahpFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
-              </div>
-              <div className="flex items-center justify-between border-t border-gold-200 pt-1 mt-1">
-                <dt className="text-gray-700">Owner Share → Disbursement</dt>
-                <dd className="font-mono-data font-semibold text-gray-900">${ownerShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
-              </div>
-            </dl>
-          </div>
-        )}
 
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3">
           <div className="flex items-start gap-2 text-xs text-blue-900">
@@ -1112,11 +1012,13 @@ function ApprovalWorkflowModal({
               <p className="font-semibold mb-1">On Confirm:</p>
               <ul className="space-y-0.5 list-disc list-inside">
                 <li>Submittal status → <strong>Approved</strong></li>
-                <li>Submittal ApprovedAbatement set to <strong>${taxSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></li>
-                <li><strong>1 Billing row</strong> created (Ready to Invoice status, QB Not Synced)</li>
-                <li><strong>1 Disbursement row</strong> created (Pending status, owner allocation TBD)</li>
-                <li>All actions audit-logged</li>
+                <li>ApprovedAbatement = <strong>${taxSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></li>
+                <li>Approval letter ref appended to submittal notes</li>
+                <li>Audit log entry written</li>
               </ul>
+              <p className="mt-2 text-[11px] text-blue-700 italic">
+                Billing + Disbursement record creation is deferred. When the Billing module ships, approved submittals can be billed against retroactively.
+              </p>
             </div>
           </div>
         </div>
@@ -1141,7 +1043,7 @@ function ApprovalWorkflowModal({
             className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
-            {saving ? 'Creating records…' : 'Confirm Approval'}
+            {saving ? 'Saving…' : 'Confirm Approval'}
           </button>
         </div>
       </div>
