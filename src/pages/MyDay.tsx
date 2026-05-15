@@ -41,6 +41,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-11b', label: 'Outstanding Items module (kanban + list)', status: 'done' as const },
   { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
   { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
+  { id: 'PR-12a', label: 'Billing & Disbursements UI — 3 sub-tabs', status: 'done' as const },
+  { id: 'PR-12b', label: 'Disbursement workflow — Record Payment + status pipeline', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -117,25 +119,25 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-11d / Phase 2 complete banner */}
-      <div className="mb-6 bg-gradient-to-r from-success/10 to-gold-50 border-2 border-success rounded-lg p-4">
+      {/* PR-12a banner — Phase 3 kickoff */}
+      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success text-white font-bold flex items-center justify-center">
-            <Icon name="check" size={20} />
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
+            12a
           </div>
           <div className="flex-1">
-            <div className="font-bold text-teal-900 text-lg">
-              Phase 2 complete. PR-11d shipped — Untagged Documents queue live.
+            <div className="font-semibold text-teal-900">
+              Phase 3 kicked off. PR-12a: Billing & Disbursements UI live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Untagged Docs</strong> in the nav scans all 8 property-linked SharePoint libraries for files without
-              the PropertyID tag, shows them grouped, and provides bulk-tag actions. Multi-select with the header checkbox,
-              pick a property from the bulk dropdown, click Tag — updates fire in parallel (concurrency 5) for speed.
-              Per-row dropdowns for one-off tagging. Useful for cleaning up Zoho imports or direct SharePoint uploads.
-              <br /><br />
-              <strong>Phase 2 epics shipped:</strong> Submittals (10a-10d), DOR Correspondence + cascade (11a),
-              Outstanding Items kanban (11b), chunked document upload (11c), Untagged cleanup (11d).
-              Phase 3 next: Owner Communications, full Billing/Disbursements UI, Reports, Notifications. Or hold and stabilize.
+              <strong>Billing & Disbursements</strong> in the nav now opens the real module with three sub-tabs:
+              <strong> CAHP Fee Invoices</strong> (revenue: tax savings, fee %, computed fee, QB sync status),
+              <strong> Refund Disbursements</strong> (passthrough to owners: amount, status pipeline, check #),
+              and <strong>Reconciliation</strong> (deferred — QB integration parked).
+              Each tab has KPIs (YTD Billed / Outstanding Receivable / Owed to Owners / YTD Paid), filters, and clickable rows
+              navigating to detail pages with inline editing. The Billing + Disbursement records auto-created by PR-10d's
+              Approval Workflow are now visible. <strong>PR-12b</strong> next: Disbursement workflow with the Record Payment modal
+              (Pending → Issued transition with date + method + check # capture).
             </p>
           </div>
         </div>
