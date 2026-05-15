@@ -291,6 +291,29 @@ export interface DisbursementFields {
 export type Disbursement = SharePointListItem<DisbursementFields>;
 
 // =============================================================================
+// LIST: Owner Communications (PR-13a)
+// =============================================================================
+
+export type CommType = 'Email' | 'Phone' | 'Meeting' | 'SMS' | 'Other';
+export type CommDirection = 'Inbound' | 'Outbound';
+export type CommStatus = 'Open' | 'Closed';
+
+export interface OwnerCommunicationFields {
+  Title: string;                              // Subject
+  CommPropertyLookupId?: string;              // → Properties Registry
+  CommOwnerLookupId?: string;                 // → Owners
+  CommType?: CommType;
+  CommDirection?: CommDirection;
+  CommDate?: string;
+  CommResponseDue?: string;
+  CommParticipants?: string;
+  CommStatus?: CommStatus;
+  CommNotes?: string;
+}
+
+export type OwnerCommunication = SharePointListItem<OwnerCommunicationFields>;
+
+// =============================================================================
 // LIST: Outstanding Items Checklist
 // =============================================================================
 
@@ -471,6 +494,7 @@ export const LIST_NAMES = {
   PropertyNotes: 'Property Notes',
   Owners: 'Owners',
   Disbursements: 'Disbursements',
+  Communications: 'Owner Communications',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

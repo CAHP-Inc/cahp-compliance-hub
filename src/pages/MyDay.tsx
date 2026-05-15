@@ -42,7 +42,8 @@ const PHASE_1_PROGRESS = [
   { id: 'PR-11c', label: 'Document upload with SharePoint Document Library routing', status: 'done' as const },
   { id: 'PR-11d', label: 'Untagged Documents queue with bulk-tag actions', status: 'done' as const },
   { id: 'PR-12-removed', label: 'Billing module removed — deferred to future, status tracking only', status: 'done' as const },
-  { id: 'PR-13a', label: 'Owner Communications module', status: 'next' as const },
+  { id: 'PR-13a', label: 'Owner Communications module', status: 'done' as const },
+  { id: 'PR-14a', label: 'Reports foundation — 6 category cards + export pipeline', status: 'next' as const },
 ];
 
 const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
@@ -119,23 +120,23 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* PR-12 (removed) — Billing rolled back to status tracking only */}
-      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+      {/* PR-13a banner */}
+      <div className="mb-6 bg-gold-50 border border-gold-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-300 text-gray-700 font-bold text-xs flex items-center justify-center font-mono-data">
-            12
+          <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gold-500 text-teal-900 font-bold text-xs flex items-center justify-center font-mono-data">
+            13a
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-gray-900">
-              Billing module pulled. Submittals now track filing status only.
+            <div className="font-semibold text-teal-900">
+              PR-13a deployed. Owner Communications module live.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              The full Billing & Disbursements UI (PR-12a) and Disbursement workflow (PR-12b) were removed. The
-              <strong> Filed → Approved</strong> transition now opens a simpler <strong>Mark Approved</strong> modal
-              that captures the approval letter ref + tax savings and updates the submittal — no Billing or Disbursement
-              records are created. The SharePoint lists, schema, and data model remain provisioned so the Billing module
-              can be brought back without rework when needed. Sidebar entry removed; <code>/billing/*</code> routes show a
-              "Deferred" placeholder. <strong>PR-13a</strong> next: Owner Communications module.
+              <strong>Owner Communications</strong> in the nav now opens a full CRUD module — single timeline of every
+              non-DOR conversation (emails, calls, meetings, SMS, vendor calls). KPIs (Total YTD / Needs Follow-up /
+              Emails This Month / Calls This Month), filters by type/status/search, detail page with Quick Close + edit.
+              <strong> Log Communication modal</strong> captures subject + type + direction + property/owner + participants + notes.
+              Setting a Response Due + linking a property auto-creates an Outstanding Item with Medium priority.
+              <strong> PR-14a</strong> next: Reports foundation — 6 category cards.
             </p>
           </div>
         </div>

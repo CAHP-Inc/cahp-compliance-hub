@@ -18,6 +18,8 @@ import { CorrespondenceDetail } from './pages/CorrespondenceDetail';
 import { OutstandingItems } from './pages/OutstandingItems';
 import { OutstandingItemDetail } from './pages/OutstandingItemDetail';
 import { UntaggedDocuments } from './pages/UntaggedDocuments';
+import { OwnerCommunicationsPage } from './pages/OwnerCommunicationsPage';
+import { OwnerCommunicationDetail } from './pages/OwnerCommunicationDetail';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -53,7 +55,8 @@ function App() {
             <Route path="/submittals/:id" element={<SubmittalDetail />} />
             <Route path="/correspondence" element={<CorrespondencePage />} />
             <Route path="/correspondence/:id" element={<CorrespondenceDetail />} />
-            <Route path="/comms" element={<PlaceholderPage title="Owner Communications" icon="mail" plannedPR="Phase 3" />} />
+            <Route path="/comms" element={<OwnerCommunicationsPage />} />
+            <Route path="/comms/:id" element={<OwnerCommunicationDetail />} />
             <Route path="/compliance" element={<Compliance />} />
             <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
             <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
