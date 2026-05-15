@@ -30,7 +30,7 @@ interface DocItemRaw {
 
 interface AvailableDoc {
   id: string;             // library:itemId
-  library: PropertyLinkedLibrary;
+  library: PropertyLinkedLibrary | typeof CAHP_ENTITY_LIBRARY;
   filename: string;
   webUrl: string;
   uploadDate?: string;
@@ -68,7 +68,7 @@ export interface LinkOrUploadDocumentModalProps {
 export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUploadDocumentModalProps) {
   const [mode, setMode] = useState<'link' | 'upload'>('link');
   const [uploadSubmodalOpen, setUploadSubmodalOpen] = useState(false);
-  const [filterLibrary, setFilterLibrary] = useState<PropertyLinkedLibrary | 'All'>('All');
+  const [filterLibrary, setFilterLibrary] = useState<PropertyLinkedLibrary | typeof CAHP_ENTITY_LIBRARY | 'All'>('All');
   const [search, setSearch] = useState('');
   const [linking, setLinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +140,7 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
         }
         docs.push({
           id: `${CAHP_ENTITY_LIBRARY}:${doc.id}`,
-          library: CAHP_ENTITY_LIBRARY as 'Supporting Documentation', // type narrow
+          library: CAHP_ENTITY_LIBRARY,
           filename: doc.fields.FileLeafRef || doc.fields.Title || '(unnamed)',
           webUrl: doc.webUrl,
           uploadDate: doc.fields.Modified || doc.lastModifiedDateTime,
@@ -201,10 +201,15 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
 
   const filtered = useMemo(() => {
     let docs = availableDocs;
-    if (filterLibrary !== 'All') docs = docs.filter((d) => d.library === filterLibrary);
-    else if (suggestedLibrary) {
+    if (filterLibrary !== 'All') {
+      // Always include CAHP Entity Documents (reference material) alongside any selected library
+      docs = docs.filter((d) => d.library === filterLibrary || d.library === CAHP_ENTITY_LIBRARY);
+    } else if (suggestedLibrary) {
       // Soft-filter to suggested library when no explicit filter set
-      const suggested = docs.filter((d) => d.library === suggestedLibrary);
+      // CAHP entity docs always show alongside the suggested library
+      const suggested = docs.filter(
+        (d) => d.library === suggestedLibrary || d.library === CAHP_ENTITY_LIBRARY
+      );
       if (suggested.length > 0) docs = suggested;
     }
     if (search) {
@@ -311,15 +316,16 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
               </div>
               <select
                 value={filterLibrary}
-                onChange={(e) => setFilterLibrary(e.target.value as PropertyLinkedLibrary | 'All')}
+                onChange={(e) => setFilterLibrary(e.target.value as PropertyLinkedLibrary | typeof CAHP_ENTITY_LIBRARY | 'All')}
                 className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
               >
                 <option value="All">
-                  {suggestedLibrary ? `Suggested: ${suggestedLibrary}` : 'All libraries'}
+                  {suggestedLibrary ? `Suggested: ${suggestedLibrary} + CAHP` : 'All libraries'}
                 </option>
                 {PROPERTY_LINKED_LIBRARIES.map((lib) => (
                   <option key={lib} value={lib}>{lib}</option>
                 ))}
+                <option value={CAHP_ENTITY_LIBRARY}>{CAHP_ENTITY_LIBRARY} (entity reference)</option>
               </select>
             </div>
 
