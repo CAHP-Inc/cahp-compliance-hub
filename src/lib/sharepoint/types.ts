@@ -57,7 +57,7 @@ export type CahpTaxYear = '2023' | '2024' | '2025' | '2026' | '2027' | '2028';
 // LIST: Properties Registry
 // =============================================================================
 
-export type AMIProgram = '20/50' | '40/60' | 'Mixed' | 'None';
+export type AMIProgram = '20/50' | '40/60' | '50/80' | '60/80' | 'Mixed' | 'None';
 
 export type CAHPLanguageStatus = 'Yes' | 'No' | 'In Progress' | 'Needs Revision';
 
