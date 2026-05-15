@@ -1,5 +1,14 @@
-import { useState } from 'react';
-import { updateListItem, LIST_NAMES, type Property, type PropertyStatus } from '../lib/sharepoint';
+import { useState, useEffect } from 'react';
+import {
+  updateListItem,
+  getListItems,
+  LIST_NAMES,
+  type Property,
+  type PropertyStatus,
+  type OutstandingItem,
+  type ComplianceDeadline,
+  type Submittal,
+} from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
 
 type DispositionType = Extract<PropertyStatus, 'Sold' | 'Withdrawn' | 'Removed from Program'>;
@@ -28,12 +37,61 @@ interface DispositionModalProps {
   onComplete: () => void;
 }
 
+const isClosedItemStatus = (s: string | undefined) =>
+  s === 'Done' || s === 'Received' || s === 'Not Applicable';
+
 export function DispositionModal({ property, onClose, onComplete }: DispositionModalProps) {
   const [type, setType] = useState<DispositionType | ''>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState('');
+  const [closeOpenItems, setCloseOpenItems] = useState(true);
+  const [closeDeadlines, setCloseDeadlines] = useState(true);
+  const [withdrawDraftSubmittals, setWithdrawDraftSubmittals] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  // Preview counts — fetch open items/deadlines/submittals for this property
+  const [openItemsCount, setOpenItemsCount] = useState<number | null>(null);
+  const [openDeadlinesCount, setOpenDeadlinesCount] = useState<number | null>(null);
+  const [draftSubmittalsCount, setDraftSubmittalsCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [items, deadlines, submittals] = await Promise.all([
+          getListItems<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 }),
+          getListItems<ComplianceDeadline>(LIST_NAMES.ComplianceDeadlines, { top: 500 }),
+          getListItems<Submittal>(LIST_NAMES.Submittals, { top: 500 }),
+        ]);
+        if (cancelled) return;
+        const pid = String(property.id);
+        setOpenItemsCount(
+          items.filter(
+            (i) => String(i.fields.PropertyLookupId) === pid && !isClosedItemStatus(i.fields.ItemStatus)
+          ).length
+        );
+        setOpenDeadlinesCount(
+          deadlines.filter(
+            (d) => String(d.fields.PropertyLookupId) === pid && d.fields.DeadlineStatus !== 'Completed'
+          ).length
+        );
+        setDraftSubmittalsCount(
+          submittals.filter(
+            (s) =>
+              String(s.fields.PropertyLookupId) === pid &&
+              (s.fields.SubmittalStatus === 'Draft' || s.fields.SubmittalStatus === 'Package Mailed (NC)')
+          ).length
+        );
+      } catch {
+        // non-blocking — preview is just informational
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [property.id]);
 
   const canSubmit = type !== '' && date !== '' && reason.trim() !== '';
 
@@ -44,20 +102,99 @@ export function DispositionModal({ property, onClose, onComplete }: DispositionM
     }
     setSaving(true);
     setError(null);
+    setProgress(null);
     try {
-      // Build a structured RemovedReason that's readable in SharePoint and audit log
       const formattedReason = `Disposed ${date} as ${type}.\nReason: ${reason.trim()}`;
+      const dispositionNote = `Auto-closed on property disposition (${type}, ${date}).`;
 
+      // 1. Update the property itself
+      setProgress('Updating property status…');
       await updateListItem(LIST_NAMES.Properties, property.id, {
         PropertyStatus: type,
         RemovedReason: formattedReason,
       });
+
+      const pid = String(property.id);
+
+      // 2. Close open Outstanding Items
+      if (closeOpenItems) {
+        setProgress('Closing open outstanding items…');
+        const items = await getListItems<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
+        const open = items.filter(
+          (i) => String(i.fields.PropertyLookupId) === pid && !isClosedItemStatus(i.fields.ItemStatus)
+        );
+        for (const i of open) {
+          try {
+            const existingNotes = i.fields.ItemNotes ?? '';
+            await updateListItem(LIST_NAMES.Outstanding, i.id, {
+              ItemStatus: 'Not Applicable',
+              ItemNotes: existingNotes
+                ? `${existingNotes}\n\n— ${dispositionNote}`
+                : dispositionNote,
+            });
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`Failed to close outstanding item ${i.id}:`, e);
+          }
+        }
+      }
+
+      // 3. Mark open Compliance Deadlines as Completed with disposition note
+      if (closeDeadlines) {
+        setProgress('Closing open compliance deadlines…');
+        const deadlines = await getListItems<ComplianceDeadline>(LIST_NAMES.ComplianceDeadlines, { top: 500 });
+        const open = deadlines.filter(
+          (d) => String(d.fields.PropertyLookupId) === pid && d.fields.DeadlineStatus !== 'Completed'
+        );
+        for (const d of open) {
+          try {
+            const existingNotes = d.fields.DeadlineNotes ?? '';
+            await updateListItem(LIST_NAMES.ComplianceDeadlines, d.id, {
+              DeadlineStatus: 'Completed',
+              CompletionDate: new Date().toISOString(),
+              DeadlineNotes: existingNotes
+                ? `${existingNotes}\n\n— ${dispositionNote}`
+                : dispositionNote,
+            });
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`Failed to close deadline ${d.id}:`, e);
+          }
+        }
+      }
+
+      // 4. Withdraw any open-state Submittals (Draft / Package Mailed)
+      if (withdrawDraftSubmittals) {
+        setProgress('Withdrawing in-progress submittals…');
+        const submittals = await getListItems<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+        const draftLike = submittals.filter(
+          (s) =>
+            String(s.fields.PropertyLookupId) === pid &&
+            (s.fields.SubmittalStatus === 'Draft' || s.fields.SubmittalStatus === 'Package Mailed (NC)')
+        );
+        for (const s of draftLike) {
+          try {
+            const existingNotes = s.fields.SubmittalNotes ?? '';
+            await updateListItem(LIST_NAMES.Submittals, s.id, {
+              SubmittalStatus: 'Withdrawn',
+              WithdrawnReason: dispositionNote,
+              SubmittalNotes: existingNotes
+                ? `${existingNotes}\n\n— ${dispositionNote}`
+                : dispositionNote,
+            });
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`Failed to withdraw submittal ${s.id}:`, e);
+          }
+        }
+      }
 
       onComplete();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSaving(false);
+      setProgress(null);
     }
   };
 
@@ -160,6 +297,59 @@ export function DispositionModal({ property, onClose, onComplete }: DispositionM
             </p>
           </div>
 
+          {/* Cascade options — close related items */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <h4 className="text-xs font-semibold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Icon name="check" size={12} />
+              Auto-close related records
+            </h4>
+            <p className="text-[11px] text-blue-800 mb-3">
+              Don't leave open work hanging on a disposed property. These cascade actions can be unchecked
+              if you want to handle them manually.
+            </p>
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-blue-900">
+                <input
+                  type="checkbox"
+                  checked={closeOpenItems}
+                  onChange={(e) => setCloseOpenItems(e.target.checked)}
+                  disabled={saving}
+                  className="mt-0.5"
+                />
+                <span>
+                  Close <strong>{openItemsCount ?? '…'}</strong> open outstanding item{openItemsCount === 1 ? '' : 's'}
+                  {' '}as <strong>Not Applicable</strong> with disposition note appended.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-blue-900">
+                <input
+                  type="checkbox"
+                  checked={closeDeadlines}
+                  onChange={(e) => setCloseDeadlines(e.target.checked)}
+                  disabled={saving}
+                  className="mt-0.5"
+                />
+                <span>
+                  Mark <strong>{openDeadlinesCount ?? '…'}</strong> open compliance deadline{openDeadlinesCount === 1 ? '' : 's'}
+                  {' '}as <strong>Completed</strong> with disposition note.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-blue-900">
+                <input
+                  type="checkbox"
+                  checked={withdrawDraftSubmittals}
+                  onChange={(e) => setWithdrawDraftSubmittals(e.target.checked)}
+                  disabled={saving}
+                  className="mt-0.5"
+                />
+                <span>
+                  Withdraw <strong>{draftSubmittalsCount ?? '…'}</strong> in-progress submittal{draftSubmittalsCount === 1 ? '' : 's'}
+                  {' '}(Draft or Package Mailed status). Approved / Denied / Withdrawn submittals are preserved as-is.
+                </span>
+              </label>
+            </div>
+          </div>
+
           {/* Warning */}
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
             <Icon name="alert" size={14} className="text-yellow-700 flex-shrink-0 mt-0.5" />
@@ -168,6 +358,13 @@ export function DispositionModal({ property, onClose, onComplete }: DispositionM
               The action is logged to the Audit Log. Reversible via the regular Edit button if needed.
             </p>
           </div>
+
+          {progress && (
+            <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-start gap-2">
+              <div className="w-3 h-3 rounded-full border-2 border-teal-500 border-r-transparent animate-spin flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-teal-900">{progress}</p>
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
