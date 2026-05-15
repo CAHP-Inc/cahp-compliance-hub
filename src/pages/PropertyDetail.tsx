@@ -57,7 +57,7 @@ const SUBMITTAL_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
 
 // Choice options matching SharePoint config exactly
 const CHOICES = {
-  AMIProgram: ['20/50', '40/60', 'Mixed', 'None'] as const,
+  AMIProgram: ['20/50', '40/60', '50/80', '60/80', 'Mixed', 'None'] as const,
   CAHPLanguageAdded: ['Yes', 'No', 'In Progress', 'Needs Revision'] as const,
   cahpCounty: [
     'Greenville (SC)', 'Spartanburg (SC)', 'Anderson (SC)', 'Pickens (SC)',
