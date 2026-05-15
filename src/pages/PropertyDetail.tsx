@@ -20,6 +20,9 @@ import {
   type Correspondence,
   type Billing,
   type AuditLog,
+  type OutstandingItem,
+  type ItemStatus,
+  type ItemPriority,
   getBeneficialOwnershipTree,
   computeBeneficialOwnership,
   type OwnershipNode,
@@ -29,6 +32,7 @@ import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
+import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -70,7 +74,7 @@ const CHOICES = {
   PropertyStatus: ['Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold'] as const,
 } as const;
 
-type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'orgChart' | 'correspondence' | 'billing' | 'documents' | 'activity' | 'notes';
+type TabId = 'overview' | 'submittals' | 'compliance' | 'ownership' | 'orgChart' | 'correspondence' | 'outstanding' | 'billing' | 'documents' | 'activity' | 'notes';
 
 const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'overview', label: 'Overview', shipped: true },
@@ -79,6 +83,7 @@ const TABS: { id: TabId; label: string; shipped: boolean }[] = [
   { id: 'ownership', label: 'Ownership', shipped: true },
   { id: 'orgChart', label: 'Org Chart', shipped: true },
   { id: 'correspondence', label: 'Correspondence', shipped: true },
+  { id: 'outstanding', label: 'Outstanding', shipped: true },
   { id: 'billing', label: 'Billing', shipped: true },
   { id: 'documents', label: 'Documents', shipped: true },
   { id: 'activity', label: 'Activity', shipped: true },
@@ -317,6 +322,7 @@ export function PropertyDetail() {
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
+      {activeTab === 'outstanding' && id && <PropertyOutstandingTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'activity' && id && <PropertyActivityTab propertyId={id} />}
@@ -620,6 +626,192 @@ function PropertyCorrespondenceTab({ propertyId }: { propertyId: string }) {
           defaultPropertyId={propertyId}
         />
       )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Tab: Outstanding Items — task list scoped to this property
+// =============================================================================
+
+const ITEM_STATUS_STYLES: Record<ItemStatus, string> = {
+  'Not Started': 'bg-gray-100 text-gray-800',
+  'In Progress': 'bg-blue-100 text-blue-800',
+  'Blocked': 'bg-red-100 text-red-800',
+  'Done': 'bg-green-100 text-green-800',
+  'Requested': 'bg-gray-100 text-gray-800',
+  'Overdue': 'bg-amber-100 text-amber-800',
+  'Received': 'bg-green-100 text-green-800',
+  'Not Applicable': 'bg-gray-100 text-gray-500',
+};
+
+const ITEM_PRIORITY_STYLES: Record<ItemPriority, string> = {
+  Critical: 'bg-red-100 text-red-800',
+  High: 'bg-amber-100 text-amber-800',
+  Medium: 'bg-blue-100 text-blue-800',
+  Low: 'bg-gray-100 text-gray-600',
+};
+
+function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+  const navigate = useNavigate();
+  const [newItemOpen, setNewItemOpen] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
+  const { data, loading, error, refetch } = useSharePointList<OutstandingItem>(
+    LIST_NAMES.Outstanding,
+    { top: 500 }
+  );
+
+  const isClosed = (s: string | undefined) =>
+    s === 'Done' || s === 'Received' || s === 'Not Applicable';
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return data
+      .filter((o) => {
+        if (String(o.fields.PropertyLookupId) !== String(propertyId)) return false;
+        if (!showClosed && isClosed(o.fields.ItemStatus)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aOverdue =
+          a.fields.DueDate &&
+          new Date(a.fields.DueDate).getTime() < Date.now() &&
+          !isClosed(a.fields.ItemStatus);
+        const bOverdue =
+          b.fields.DueDate &&
+          new Date(b.fields.DueDate).getTime() < Date.now() &&
+          !isClosed(b.fields.ItemStatus);
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+        const aDue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Infinity;
+        const bDue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Infinity;
+        return aDue - bDue;
+      });
+  }, [data, propertyId, showClosed]);
+
+  const totalForProperty = useMemo(() => {
+    if (!data) return 0;
+    return data.filter((o) => String(o.fields.PropertyLookupId) === String(propertyId)).length;
+  }, [data, propertyId]);
+
+  if (loading) return <TabLoading label="outstanding items" />;
+  if (error) return <TabError error={error} />;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 className="text-sm font-semibold text-gray-700">
+          {filtered.length === 0
+            ? showClosed
+              ? 'No items on file'
+              : 'No open items'
+            : `${filtered.length} ${showClosed ? 'item' : 'open item'}${filtered.length === 1 ? '' : 's'} for this property`}
+        </h3>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+            />
+            Show closed
+          </label>
+          <button
+            onClick={() => setNewItemOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={12} />
+            Add Item
+          </button>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500 mb-3">
+            {totalForProperty === 0
+              ? 'No outstanding items tied to this property yet.'
+              : showClosed
+                ? 'No items match the current filter.'
+                : 'All items for this property are closed.'}
+          </p>
+          <button
+            onClick={() => setNewItemOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={14} />
+            Add First Item
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Title</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Priority</th>
+                <th className="px-4 py-3 text-left">Due Date</th>
+                <th className="px-4 py-3 text-left">Assigned To</th>
+                <th className="px-4 py-3 text-left">Category</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((o) => {
+                const overdue =
+                  o.fields.DueDate &&
+                  new Date(o.fields.DueDate).getTime() < Date.now() &&
+                  !isClosed(o.fields.ItemStatus);
+                return (
+                  <tr
+                    key={o.id}
+                    onClick={() => navigate(`/outstanding-items/${o.id}`)}
+                    className={`hover:bg-gray-50 transition-colors cursor-pointer ${overdue ? 'bg-red-50' : ''}`}
+                  >
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {overdue && <span className="text-error mr-1">⚠</span>}
+                      {o.fields.Title}
+                    </td>
+                    <td className="px-4 py-3">
+                      {o.fields.ItemStatus ? (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${ITEM_STATUS_STYLES[o.fields.ItemStatus]}`}>
+                          {o.fields.ItemStatus}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {o.fields.Priority ? (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${ITEM_PRIORITY_STYLES[o.fields.Priority]}`}>
+                          {o.fields.Priority}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className={`px-4 py-3 font-mono-data text-xs ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}>
+                      {o.fields.DueDate ? new Date(o.fields.DueDate).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-700">{o.fields.AssignedTo || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{o.fields.ItemCategory || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {newItemOpen && (
+        <NewOutstandingItemModal
+          onClose={() => setNewItemOpen(false)}
+          onSuccess={() => {
+            setNewItemOpen(false);
+            refetch?.();
+          }}
+          defaultPropertyId={propertyId}
+          hidePropertyPicker
+        />
+      )}
+      {/* propertyTitle ref to avoid TS unused warning if banner removed later */}
+      <span className="hidden" data-property-title={propertyTitle} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   type ItemPriority,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 
 // =============================================================================
 // Status / category styles
@@ -74,6 +75,7 @@ export function OutstandingItems() {
   const [propertyFilter, setPropertyFilter] = useState<string>('All');
   const [showClosed, setShowClosed] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [newItemOpen, setNewItemOpen] = useState(false);
 
   const loading = items.loading || properties.loading;
   const error = items.error || properties.error;
@@ -226,6 +228,13 @@ export function OutstandingItems() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setNewItemOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={14} />
+            New Item
+          </button>
+          <button
             onClick={() => setView(view === 'kanban' ? 'list' : 'kanban')}
             className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium flex items-center gap-1.5"
           >
@@ -327,6 +336,16 @@ export function OutstandingItems() {
           items={filtered}
           propertiesById={propertiesById}
           onRowClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
+        />
+      )}
+
+      {newItemOpen && (
+        <NewOutstandingItemModal
+          onClose={() => setNewItemOpen(false)}
+          onSuccess={() => {
+            setNewItemOpen(false);
+            items.refetch?.();
+          }}
         />
       )}
     </div>
