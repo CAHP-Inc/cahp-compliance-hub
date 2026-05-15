@@ -108,7 +108,7 @@ export function CAHPEntity() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-teal-700">CAHP Entity</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Specialized view of CAHP-named nonprofit and LLC entities. Document libraries below ship in Phase 2 alongside the Documents module.
+          Specialized view of CAHP-named nonprofit and LLC entities. Formation docs, OAs, EINs, and determination letters live in the <strong>Documents</strong> section below.
         </p>
       </div>
 
@@ -246,18 +246,7 @@ function CAHPEntityTab({
         </div>
       )}
 
-      {/* Document libraries — placeholders for Phase 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <DocumentLibraryPlaceholder
-          title="Entity Formation"
-          categories={['Articles of Organization', 'Bylaws', 'EIN Letter', 'S.O.S. Annual Filings']}
-        />
-        <DocumentLibraryPlaceholder
-          title="Governance"
-          categories={['Board Resolutions', 'Meeting Minutes', '990 Tax Filings']}
-          note="Maintained externally by Bryan DeBruin per Spec §3.5.1."
-        />
-      </div>
+      {/* Document libraries moved to EntityDocumentsSection (PR-14-hardening) — rendered elsewhere on this page */}
 
       {/* Members section */}
       {members.length > 0 && (
@@ -370,32 +359,6 @@ function KPI({
       <div className={`mt-1 ${isText ? 'text-base font-semibold text-gray-900' : 'text-3xl font-bold text-teal-700'} ${mono ? 'font-mono-data' : ''}`}>
         {value}
       </div>
-    </div>
-  );
-}
-
-function DocumentLibraryPlaceholder({
-  title,
-  categories,
-  note,
-}: {
-  title: string;
-  categories: string[];
-  note?: string;
-}) {
-  return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon name="folder" size={14} className="text-gray-500" />
-        <h4 className="text-sm font-semibold text-gray-700">{title}</h4>
-        <span className="text-[10px] uppercase tracking-wider text-gray-400 ml-auto">Phase 2</span>
-      </div>
-      <ul className="text-xs text-gray-600 space-y-0.5 ml-5">
-        {categories.map((c) => (
-          <li key={c} className="list-disc list-outside">{c}</li>
-        ))}
-      </ul>
-      {note && <p className="text-[11px] text-gray-500 italic mt-2">{note}</p>}
     </div>
   );
 }

@@ -34,6 +34,7 @@ import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
+import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -102,6 +103,8 @@ export function PropertyDetail() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dispositionOpen, setDispositionOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checklistResult, setChecklistResult] = useState<{ created: number; matched: number } | null>(null);
 
   const { data: property, loading, error, refetch } = useSharePointItem<Property>(
     LIST_NAMES.Properties, id
@@ -242,6 +245,14 @@ export function PropertyDetail() {
         <div className="flex items-center gap-2">
           {!editing && (
             <>
+              <button
+                onClick={() => setChecklistOpen(true)}
+                className="px-3 py-1.5 border border-gold-300 bg-gold-50 hover:bg-gold-100 text-teal-900 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors"
+                title="Generate the DOR-aligned 12-item filing checklist for this property"
+              >
+                <Icon name="file" size={14} />
+                Filing Checklist
+              </button>
               {(property.fields.PropertyStatus === 'Active' || property.fields.PropertyStatus === 'Pending') && (
                 <button
                   onClick={() => setDispositionOpen(true)}
@@ -336,6 +347,32 @@ export function PropertyDetail() {
           onClose={() => setDispositionOpen(false)}
           onComplete={refetch}
         />
+      )}
+
+      {checklistOpen && id && (
+        <FilingChecklistGenerator
+          propertyId={id}
+          propertyTitle={property.fields.Title}
+          onClose={() => setChecklistOpen(false)}
+          onSuccess={(created, matched) => {
+            setChecklistOpen(false);
+            setChecklistResult({ created, matched });
+          }}
+        />
+      )}
+
+      {checklistResult && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-green-50 border border-green-200 rounded-md p-3 shadow-lg flex items-start gap-2">
+          <Icon name="check" size={14} className="text-success flex-shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <p className="font-semibold text-green-900">Filing Checklist generated</p>
+            <p className="text-green-800 mt-0.5">
+              <strong>{checklistResult.created}</strong> items created · <strong>{checklistResult.matched}</strong> auto-matched.
+              See the Outstanding tab.
+            </p>
+          </div>
+          <button onClick={() => setChecklistResult(null)} className="text-xs text-green-900 hover:underline">×</button>
+        </div>
       )}
     </div>
   );
@@ -909,7 +946,8 @@ function PropertyBillingTab({ propertyId }: { propertyId: string }) {
       <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
         <p className="text-sm text-gray-500">No billing records for this property yet.</p>
         <p className="text-xs text-gray-400 mt-2">
-          Billing records are auto-created when a submittal is approved (Phase 2 — full Submittal workflow).
+          The Billing module is intentionally deferred. Status tracking on submittals (Approved, ApprovedAbatement)
+          continues to work, but no automated billing records are created.
         </p>
       </div>
     );

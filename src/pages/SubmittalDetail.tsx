@@ -870,9 +870,11 @@ export function SubmittalDetail() {
         />
       )}
       {/* Filing Checklist Generator */}
-      {checklistOpen && (
+      {checklistOpen && submittal.fields.PropertyLookupId && (
         <FilingChecklistGenerator
           submittal={submittal}
+          propertyId={String(submittal.fields.PropertyLookupId)}
+          propertyTitle={property?.fields.Title}
           onClose={() => setChecklistOpen(false)}
           onSuccess={(created, matched) => {
             setChecklistOpen(false);

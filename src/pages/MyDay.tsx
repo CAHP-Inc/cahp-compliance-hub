@@ -59,22 +59,13 @@ const DEADLINE_URGENCY_STYLES: Record<DeadlineStatus, string> = {
 };
 
 /**
- * Items originally scoped in earlier PRs that have not yet shipped.
- * Each item shows what it is and where it originally lived in the plan so nothing
- * silently falls off the roadmap. Move items into PHASE_1_PROGRESS as concrete PRs
- * when you decide to schedule them.
+ * Backlog — items intentionally deferred, not in scope for current phases.
+ * Things that have shipped are removed from this list.
  */
 const BACKLOG: { feature: string; origin: string; note?: string }[] = [
-  { feature: 'Submittals top-level module', origin: 'Phase 2' },
-  { feature: 'Submittals editing on detail page', origin: 'Phase 2' },
-  { feature: 'Outstanding Items module', origin: 'Phase 2' },
-  { feature: 'DOR Correspondence Log module', origin: 'Phase 2' },
-  { feature: 'Known Issues Log module', origin: 'Phase 2' },
-  { feature: 'Owner Communications module', origin: 'Phase 3' },
-  { feature: 'Document library file uploads + browser', origin: 'Phase 2', note: 'PR-08a added READ-ONLY listing per property' },
-  { feature: 'Billing Tracker module', origin: 'Phase 3' },
-  { feature: 'Reports module', origin: 'Phase 3' },
-  { feature: 'Watch / follow button', origin: 'Phase 3', note: 'tied to notifications' },
+  { feature: 'Billing Tracker module (full)', origin: 'Phase 3', note: 'SP schema provisioned; UI deferred. Status tracking on submittals still works.' },
+  { feature: 'Tenant-facing portal', origin: 'Phase 4+', note: 'Currently no tenant-facing surface' },
+  { feature: 'Recurring report scheduling (auto-email)', origin: 'Phase 4+', note: 'On-demand reports work today' },
 ];
 
 export function MyDay() {
@@ -179,7 +170,7 @@ export function MyDay() {
         </p>
       </div>
 
-      {/* Phase 3 wrap banner */}
+      {/* PR-16 complete banner */}
       <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-8 h-8 rounded-md bg-success text-white font-bold text-xs flex items-center justify-center font-mono-data">
@@ -187,19 +178,18 @@ export function MyDay() {
           </div>
           <div className="flex-1">
             <div className="font-semibold text-green-900">
-              Phase 3 complete. PR-15a + 15b deployed.
+              PR-16 deployed. Everything wired up minus Billing.
             </div>
             <p className="text-sm text-gray-700 mt-1">
-              <strong>Notifications</strong> live — bell icon in the header shows an unread count badge,
-              dropdown with the 5 most recent, full feed at <strong>/notifications</strong> with read/unread filters
-              and Mark All Read. Triggered automatically when an Outstanding Item is assigned to someone else, when a
-              Communication has a follow-up due, and on Submittal status transitions.
-              <strong> Compliance</strong> got an AMI Compliance Focus panel showing AMI property count, certs due in
-              the next 90 days, and properties with no AMI Cert deadline scheduled (coverage gap detection).
-              Quick-filter chips for Overdue / Due This Month / This Year / AMI Only / SC / NC sit above the existing filters.
-              <br/><br/>
-              <strong>Phase 3 is functionally complete.</strong> Next steps are operational — backfill filing checklists
-              for existing properties, clean up untagged docs, onboard the team into active use.
+              <strong>Documents hub</strong> at <code className="bg-white px-1 rounded">/documents</code> — portfolio-wide
+              view of all 8 SP libraries with stats. <strong>Property → Filing Checklist</strong> button on every
+              property (no need to create a submittal first). <strong>Compliance → New Deadline</strong> works.
+              <strong> Reports</strong> — all 8 previously-pending reports now run, including Per-Property Audit Pack
+              (multi-sheet Excel bundle), Portfolio Audit Pack, Document Expiration Calendar, Untagged Documents,
+              Property Holdings Statement, Org Chart History (JSON), Full Database Export (xlsx), and SharePoint Library
+              Snapshot (JSON). <strong>Settings</strong> at <code className="bg-white px-1 rounded">/settings</code> —
+              profile, access list, role/permissions matrix, and system info. Stale Phase 2 messages cleaned up,
+              wizard categories aligned with DOR taxonomy. <strong>The system is operationally complete.</strong>
             </p>
           </div>
         </div>

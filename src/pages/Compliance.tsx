@@ -10,6 +10,7 @@ import {
   type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { NewDeadlineModal } from '../components/NewDeadlineModal';
 
 const STATUS_STYLES: Record<DeadlineStatus, string> = {
   Upcoming: 'bg-blue-100 text-blue-800',
@@ -33,6 +34,7 @@ export function Compliance() {
   const [typeFilter, setTypeFilter] = useState<DeadlineType | 'All'>('All');
   const [ownerFilter, setOwnerFilter] = useState<ResponsibleParty | 'All'>('All');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [newDeadlineOpen, setNewDeadlineOpen] = useState(false);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -176,9 +178,8 @@ export function Compliance() {
           </p>
         </div>
         <button
-          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-          title="Create deadline ships in Phase 2"
+          onClick={() => setNewDeadlineOpen(true)}
+          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
         >
           <Icon name="plus" size={16} />
           New Deadline
@@ -385,6 +386,16 @@ export function Compliance() {
           </tbody>
         </table>
       </div>
+
+      {newDeadlineOpen && (
+        <NewDeadlineModal
+          onClose={() => setNewDeadlineOpen(false)}
+          onSuccess={() => {
+            setNewDeadlineOpen(false);
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }

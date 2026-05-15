@@ -58,9 +58,9 @@ const INITIAL_DOCS = [
   { title: 'LURA executed', category: 'LURA' as const },
   { title: 'Current AMI Certification', category: 'AMI Certification' as const },
   { title: 'Organizational Chart', category: 'Org Chart' as const },
-  { title: 'Current Rent Roll', category: 'Income Documentation' as const },
+  { title: 'Current Rent Roll', category: 'Rent Roll' as const },
+  { title: 'Property Deed', category: 'Deed' as const },
   { title: 'Insurance Certificate', category: 'Other' as const },
-  { title: 'County Tax Certificate', category: 'Other' as const },
 ];
 
 interface OwnerEntryDraft {

@@ -53,13 +53,17 @@ interface PreviewItem {
 }
 
 export interface FilingChecklistGeneratorProps {
-  submittal: Submittal;
+  /** Submittal context — when provided, items link back via RelatedSubmittalLookupId */
+  submittal?: Submittal;
+  /** Property ID — required. Derived from submittal if a submittal is provided. */
+  propertyId: string;
+  /** Display title for the property — for context in the modal */
+  propertyTitle?: string;
   onClose: () => void;
   onSuccess: (createdCount: number, matchedCount: number) => void;
 }
 
-export function FilingChecklistGenerator({ submittal, onClose, onSuccess }: FilingChecklistGeneratorProps) {
-  const propertyId = submittal.fields.PropertyLookupId ? String(submittal.fields.PropertyLookupId) : null;
+export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle, onClose, onSuccess }: FilingChecklistGeneratorProps) {
 
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
@@ -154,7 +158,7 @@ export function FilingChecklistGenerator({ submittal, onClose, onSuccess }: Fili
 
   const handleGenerate = async () => {
     if (!propertyId) {
-      setError("Submittal isn't linked to a property — can't create checklist items.");
+      setError("No property context — can't create checklist items.");
       return;
     }
     setCreating(true);
@@ -169,13 +173,15 @@ export function FilingChecklistGenerator({ submittal, onClose, onSuccess }: Fili
         const fields: Record<string, unknown> = {
           Title: p.template.title,
           PropertyLookupId: propertyId,
-          RelatedSubmittalLookupId: submittal.id,
           ItemCategory: p.template.category,
           ItemStatus: (p.matched ? 'Received' : 'Not Started') as ItemStatus,
           Priority: 'High' as ItemPriority,
           DateRequested: new Date().toISOString(),
           ItemNotes: p.template.notes ?? '',
         };
+        if (submittal) {
+          fields.RelatedSubmittalLookupId = submittal.id;
+        }
         if (p.matched) {
           fields.RelatedDocUrl = p.matchedDocUrl;
           fields.RelatedDocFilename = p.matchedDocFilename;
@@ -204,8 +210,10 @@ export function FilingChecklistGenerator({ submittal, onClose, onSuccess }: Fili
       <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full p-5 my-8">
         <h3 className="text-lg font-bold text-teal-700 mb-1">Generate Filing Checklist</h3>
         <p className="text-sm text-gray-600 mb-4">
-          Creates Outstanding Items for the 13 documents DOR requires. Already-uploaded docs at the CAHP entity,
-          property-owner entity, and this property are auto-matched and pre-linked.
+          {submittal
+            ? <>Creates Outstanding Items for the 12 documents DOR requires for this submittal{propertyTitle && <> on <strong>{propertyTitle}</strong></>}.</>
+            : <>Backfills the 12 DOR-required documents as Outstanding Items{propertyTitle && <> for <strong>{propertyTitle}</strong></>}. Use this to clean up properties that don't have an active submittal yet.</>
+          } Already-uploaded docs at the CAHP entity, property-owner entity, and this property are auto-matched and pre-linked.
         </p>
 
         {loading ? (

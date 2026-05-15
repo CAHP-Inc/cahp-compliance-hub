@@ -43,7 +43,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Property Holdings Statement',
     description: 'Each owner with their direct and beneficial property holdings.',
     category: 'Owner Reports',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'property-holdings',
   },
 
@@ -53,7 +53,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Per-Property Full Record Bundle',
     description: 'Full filing history, correspondence, submittals, org chart snapshots for a single property.',
     category: 'DOR Audit Pack',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'property-audit-pack',
   },
   {
@@ -61,7 +61,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Portfolio Audit Pack',
     description: 'All properties bundled — defensive audit prep for DOR portfolio inquiries.',
     category: 'DOR Audit Pack',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'portfolio-audit-pack',
   },
   {
@@ -69,7 +69,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Org Chart History per Property',
     description: 'All frozen org chart snapshots over time for one property — proves ownership chain at each filing.',
     category: 'DOR Audit Pack',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'org-chart-history',
   },
 
@@ -105,7 +105,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Document Expiration Calendar',
     description: 'Documents expiring in the next 90/180/365 days.',
     category: 'Operational',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'document-expiration-calendar',
   },
   {
@@ -113,7 +113,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Untagged Documents Report',
     description: 'Files in SharePoint libraries that lack PropertyID metadata.',
     category: 'Operational',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'untagged-documents-report',
   },
 
@@ -123,7 +123,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'Full Database Export (Excel)',
     description: 'All SharePoint lists exported as a multi-sheet workbook.',
     category: 'Backup and Export',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'full-database-export',
   },
   {
@@ -131,7 +131,7 @@ export const REPORTS: ReportDescriptor[] = [
     name: 'SharePoint Library Snapshot (JSON)',
     description: 'Document library metadata snapshot — filenames, paths, PropertyIDs.',
     category: 'Backup and Export',
-    status: 'pending-pr14b',
+    status: 'available',
     filenameBase: 'sharepoint-library-snapshot',
   },
 ];
@@ -176,6 +176,27 @@ export function downloadCSV(rows: Record<string, unknown>[], filename: string): 
 /** Trigger a JSON download. */
 export function downloadJSON(data: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  triggerDownload(blob, filename);
+}
+
+/**
+ * Trigger an Excel (xlsx) download with one or more sheets.
+ * Each sheet name maps to an array of row objects.
+ */
+export async function downloadXLSX(sheets: Record<string, Record<string, unknown>[]>, filename: string): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  Object.entries(sheets).forEach(([sheetName, rows]) => {
+    const safeName = sheetName.slice(0, 31); // Excel sheet name limit
+    const ws = rows.length > 0
+      ? XLSX.utils.json_to_sheet(rows)
+      : XLSX.utils.aoa_to_sheet([['(no data)']]);
+    XLSX.utils.book_append_sheet(wb, ws, safeName);
+  });
+  const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  const blob = new Blob([arrayBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   triggerDownload(blob, filename);
 }
 

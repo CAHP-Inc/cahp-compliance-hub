@@ -22,6 +22,8 @@ import { OwnerCommunicationsPage } from './pages/OwnerCommunicationsPage';
 import { OwnerCommunicationDetail } from './pages/OwnerCommunicationDetail';
 import { ReportsPage } from './pages/ReportsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { DocumentsPage } from './pages/DocumentsPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { Compliance } from './pages/Compliance';
 import { ComplianceDeadlineDetail } from './pages/ComplianceDeadlineDetail';
 import { Ownership } from './pages/Ownership';
@@ -52,7 +54,6 @@ function App() {
             <Route path="/ownership" element={<Ownership />} />
             <Route path="/ownership/new" element={<OwnershipNew />} />
             <Route path="/ownership/:id" element={<OwnershipDetail />} />
-            <Route path="/cahp-entity" element={<PlaceholderPage title="CAHP Entity" icon="star" plannedPR="PR-06" />} />
             <Route path="/submittals" element={<Submittals />} />
             <Route path="/submittals/:id" element={<SubmittalDetail />} />
             <Route path="/correspondence" element={<CorrespondencePage />} />
@@ -64,12 +65,12 @@ function App() {
             <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
             <Route path="/billing/invoices/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
             <Route path="/billing/disbursements/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
-            <Route path="/documents" element={<PlaceholderPage title="Documents" icon="folder" plannedPR="Phase 2" />} />
+            <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/untagged" element={<UntaggedDocuments />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/audit" element={<Audit />} />
-            <Route path="/settings" element={<PlaceholderPage title="Settings" icon="settings" plannedPR="Phase 3" />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AppShell>
