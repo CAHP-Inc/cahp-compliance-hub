@@ -1407,23 +1407,12 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
       )}
 
       <div ref={chartRef} className="flex flex-col items-center min-w-fit bg-white p-3">
-        {/* Top section: one column per direct owner of the property */}
-        <div className="flex flex-row items-end justify-center gap-6 mb-2">
+        {/* Top section: one column per direct owner of the property. Each top-level
+            column draws its own downward arrow to the property — no orphan lines. */}
+        <div className="flex flex-row items-end justify-center gap-6 mb-1">
           {tree.map((directOwner) => (
-            <DORColumn key={directOwner.relationship.id} node={directOwner} />
+            <DORColumn key={directOwner.relationship.id} node={directOwner} isTopLevel={true} />
           ))}
-        </div>
-
-        {/* Convergence arrows pointing to property */}
-        <div className="flex justify-center w-full">
-          <div className="text-gray-400">
-            <svg width="200" height="32" viewBox="0 0 200 32" xmlns="http://www.w3.org/2000/svg">
-              <line x1="20" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
-              <line x1="100" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
-              <line x1="180" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
-              <polygon points="100,32 96,24 104,24" fill="currentColor" />
-            </svg>
-          </div>
         </div>
 
         {/* Property — full DOR-style card */}
@@ -1457,7 +1446,7 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
  * Tree shape reminder: `node.children` are the upstream OWNERS of this node
  * (the relationships where someone owns a piece of this node), NOT subordinates.
  */
-function DORColumn({ node }: { node: OwnershipNode }) {
+function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLevel?: boolean }) {
   // "Single-member LLC" inference: exactly one upstream parent owning 100%
   const isSingleMember =
     node.children.length === 1 &&
@@ -1496,6 +1485,16 @@ function DORColumn({ node }: { node: OwnershipNode }) {
         entityDescription={node.owner?.fields.EntityDescription}
         isSingleMember={isSingleMember}
       />
+
+      {/* Top-level columns get a downward arrow to the property below */}
+      {isTopLevel && (
+        <div className="text-gray-400 my-1">
+          <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
+            <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
+            <polygon points="6,20 2,14 10,14" fill="currentColor" />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }
