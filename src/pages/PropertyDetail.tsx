@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   useSharePointItem,
@@ -1317,12 +1317,91 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
   // Suppress unused for the lint; owners is reserved for future enhancements
   void owners;
 
+  // PDF export state
+  const chartRef = useRef<HTMLDivElement>(null);
+  const orgChartsLibrary = useSharePointList<{ id: string; fields: { FileLeafRef?: string } }>('Org Charts', { top: 500 });
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<string>('');
+  const [exportResult, setExportResult] = useState<{ filename: string; webUrl: string } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    if (!chartRef.current) return;
+    setExporting(true);
+    setExportError(null);
+    setExportResult(null);
+    try {
+      const { exportOrgChartPDF } = await import('../components/exportOrgChartPDF');
+      const existing = (orgChartsLibrary.data ?? [])
+        .map((d) => d.fields.FileLeafRef ?? '')
+        .filter(Boolean);
+      const result = await exportOrgChartPDF({
+        element: chartRef.current,
+        propertyId: String(property.id),
+        propertyTitle: property.fields.Title ?? 'Property',
+        existingFilenames: existing,
+        onProgress: (_pct, label) => setExportProgress(label),
+      });
+      setExportResult(result);
+      orgChartsLibrary.refetch?.();
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+      setExportProgress('');
+    }
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5 overflow-x-auto">
-      <p className="text-xs text-gray-500 mb-4 italic">
-        Beneficial owners at the top, property at the bottom — the orientation DOR prefers for org chart submissions.
-      </p>
-      <div className="flex flex-col items-center min-w-fit">
+      <div className="flex items-start justify-between mb-4 gap-3">
+        <p className="text-xs text-gray-500 italic flex-1">
+          Beneficial owners at the top, property at the bottom — the orientation DOR prefers for org chart submissions.
+        </p>
+        <button
+          onClick={handleExport}
+          disabled={exporting || tree.length === 0}
+          className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 flex-shrink-0"
+        >
+          {exporting ? (
+            <>
+              <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />
+              {exportProgress || 'Exporting…'}
+            </>
+          ) : (
+            <>
+              <Icon name="file" size={12} />
+              Save to Documents
+            </>
+          )}
+        </button>
+      </div>
+
+      {exportResult && (
+        <div className="mb-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-900 flex items-center justify-between gap-2">
+          <span>
+            <Icon name="check" size={12} className="inline mr-1" />
+            Saved <strong>{exportResult.filename}</strong> to the Org Charts library, tagged to {property.fields.Title}.
+          </span>
+          <a
+            href={exportResult.webUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-teal-700 hover:text-teal-900 font-medium underline"
+          >
+            Open
+          </a>
+        </div>
+      )}
+
+      {exportError && (
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-900">
+          <Icon name="alert" size={12} className="inline mr-1" />
+          Export failed: {exportError}
+        </div>
+      )}
+
+      <div ref={chartRef} className="flex flex-col items-center min-w-fit bg-white p-3">
         {/* Top section: one column per direct owner of the property */}
         <div className="flex flex-row items-end justify-center gap-6 mb-2">
           {tree.map((directOwner) => (
