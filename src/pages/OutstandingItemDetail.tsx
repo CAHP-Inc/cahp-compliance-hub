@@ -15,6 +15,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
+import { AssigneePicker } from '../components/AssigneePicker';
 import {
   BreadcrumbBar,
   Section,
@@ -327,12 +328,27 @@ export function OutstandingItemDetail() {
             choices={CATEGORIES}
             onChange={(v) => handleFieldChange('ItemCategory', v as ItemCategory)}
           />
-          <EditableField
-            label="Assigned To"
-            value={display.AssignedTo}
-            editing={editing}
-            onChange={(v) => handleFieldChange('AssignedTo', v as string)}
-          />
+          {editing ? (
+            <div className="flex items-start gap-3">
+              <label className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">Assigned To</label>
+              <div className="flex-1">
+                <AssigneePicker
+                  value={display.AssignedTo}
+                  onChange={(v) => handleFieldChange('AssignedTo', v)}
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Pick a team member from the dropdown, or type a free-form name (vendor, owner, DOR, etc.)
+                </p>
+              </div>
+            </div>
+          ) : (
+            <EditableField
+              label="Assigned To"
+              value={display.AssignedTo}
+              editing={false}
+              onChange={(v) => handleFieldChange('AssignedTo', v as string)}
+            />
+          )}
         </Section>
 
         <Section title="Dates & Tracking">

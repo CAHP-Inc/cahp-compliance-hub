@@ -10,6 +10,7 @@ import {
 } from '../lib/sharepoint';
 import { notifyUser, resolveAssigneeToUpn } from '../lib/notifications';
 import { useSession } from '../lib/session';
+import { AssigneePicker } from './AssigneePicker';
 
 const STATUSES: ItemStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Done'];
 const PRIORITIES: ItemPriority[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -206,13 +207,11 @@ export function NewOutstandingItemModal({
           </div>
 
           <Field label="Assigned To">
-            <input
-              type="text"
+            <AssigneePicker
               value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-              placeholder="Name or email"
-              className={inputClass}
+              onChange={setAssignedTo}
               disabled={saving}
+              className={inputClass}
             />
           </Field>
 

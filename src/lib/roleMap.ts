@@ -75,3 +75,19 @@ export function extractOrgFromEmail(email: string | undefined | null): string {
   if (lower.includes('redcedar')) return 'Red Cedar';
   return domain.split('.')[0] || '—';
 }
+
+/**
+ * Team member directory for assignee pickers, notifications, etc.
+ * Keep in sync with EMAIL_ROLE_MAP above.
+ *
+ * Used by Outstanding Items, Compliance Deadlines, and any other module that
+ * needs to assign work to a known team member. Free-text "AssignedTo" values
+ * are also accepted (vendors, external counsel, owners) — this list just
+ * powers autocomplete suggestions, not validation.
+ */
+export const TEAM_MEMBERS: { email: string; name: string; role: Role }[] = [
+  { email: 'bturner@newshirepm.com',    name: 'Brandy Turner',  role: 'Admin' },
+  { email: 'stan@vanrockre.com',        name: 'Stan',           role: 'Admin' },
+  { email: 'bdebruin@redcedarhomes.com', name: 'Bryan DeBruin',  role: 'Admin' },
+  { email: 'lheckman@redcedarhomes.com', name: 'Lori Heckman',   role: 'Contributor' },
+];

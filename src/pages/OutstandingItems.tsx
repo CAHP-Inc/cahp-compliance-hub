@@ -464,7 +464,17 @@ function KanbanCard({
           ) : (
             <span className="text-gray-400">no due date</span>
           )}
-          {f.AssignedTo && <span className="text-gray-500 truncate">· {f.AssignedTo}</span>}
+          {f.AssignedTo ? (
+            <span className="inline-flex items-center gap-1 bg-teal-50 text-teal-800 px-1.5 py-0.5 rounded-full text-[10px] font-medium truncate">
+              <Icon name="check" size={10} />
+              {f.AssignedTo}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
+              <Icon name="alert" size={10} />
+              Unassigned
+            </span>
+          )}
         </div>
       </div>
       {/* Document linkage line */}

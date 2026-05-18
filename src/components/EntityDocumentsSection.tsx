@@ -176,16 +176,63 @@ export function EntityDocumentsSection({
   const handleTagChange = async (doc: AggregatedDoc, newOwnerId: string) => {
     setSavingTagId(doc.id);
     try {
-      // Graph lookup writes require a NUMBER, not a string — string is silently ignored
       const numericId = newOwnerId ? Number(newOwnerId) : null;
       if (newOwnerId && (numericId === null || Number.isNaN(numericId))) {
         throw new Error(`Invalid owner ID: ${newOwnerId}`);
       }
+
+      // Try the standard write, then verify it persisted by re-reading.
+      // If it didn't persist, try alternate field names. This handles cases where
+      // SharePoint named the lookup ID column differently than expected.
+      const candidates = ['OwnerLookupId', 'Owner', 'OwnerId'];
+      let succeededWith: string | null = null;
+      let lastError: unknown = null;
+
+      for (const fieldName of candidates) {
+        try {
+          // eslint-disable-next-line no-console
+          console.log(`[CAHP tag] PATCH attempt with field="${fieldName}" value=${numericId}`);
+          await updateListItem(CAHP_ENTITY_LIBRARY, doc.itemId, {
+            [fieldName]: numericId,
+          });
+
+          // Re-read to verify
+          const verify = await import('../lib/sharepoint/client').then((m) =>
+            m.getListItem<{ fields: Record<string, unknown> }>(CAHP_ENTITY_LIBRARY, doc.itemId)
+          );
+          const readBack =
+            verify.fields.OwnerLookupId ?? verify.fields.OwnerId ?? verify.fields.Owner;
+          // eslint-disable-next-line no-console
+          console.log(`[CAHP tag] After PATCH read-back:`, { OwnerLookupId: verify.fields.OwnerLookupId, OwnerId: verify.fields.OwnerId, Owner: verify.fields.Owner });
+
+          const persisted =
+            numericId === null
+              ? !readBack
+              : String(readBack ?? '') === String(numericId);
+          if (persisted) {
+            succeededWith = fieldName;
+            break;
+          }
+          // eslint-disable-next-line no-console
+          console.warn(`[CAHP tag] PATCH with "${fieldName}" returned OK but value did NOT persist`);
+        } catch (e) {
+          lastError = e;
+          // eslint-disable-next-line no-console
+          console.warn(`[CAHP tag] PATCH with "${fieldName}" threw:`, e);
+        }
+      }
+
+      if (!succeededWith) {
+        const detail = lastError instanceof Error ? lastError.message : 'No field name accepted the write';
+        throw new Error(
+          `Tag did not persist. Tried: ${candidates.join(', ')}. ${detail}. ` +
+          `Open browser DevTools → Console to see what SharePoint returned, ` +
+          `then send the log lines to Brandy's developer.`
+        );
+      }
+
       // eslint-disable-next-line no-console
-      console.log('[CAHP tag]', { itemId: doc.itemId, filename: doc.filename, newOwnerId: numericId });
-      await updateListItem(CAHP_ENTITY_LIBRARY, doc.itemId, {
-        OwnerLookupId: numericId,
-      });
+      console.log(`[CAHP tag] Persisted via field="${succeededWith}"`);
       await cahpLib.refetch?.();
     } catch (e) {
       // eslint-disable-next-line no-console
