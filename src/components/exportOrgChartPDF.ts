@@ -75,12 +75,45 @@ export async function exportOrgChartPDF(
 
   onProgress?.(10, 'Capturing chart…');
 
+  // Wait for any in-flight fonts to load — html2canvas captures synchronously
+  // and otherwise can paint text before custom fonts are ready, leading to
+  // missing or fallback-rendered text in the canvas.
+  if (typeof document !== 'undefined' && (document as { fonts?: FontFaceSet }).fonts?.ready) {
+    try {
+      await (document as { fonts: FontFaceSet }).fonts.ready;
+    } catch {
+      // Non-fatal — proceed with capture
+    }
+  }
+
   // Rasterize the chart at 2x for crisper PDF output
   const canvas = await html2canvas(element, {
     scale: 2,
     backgroundColor: '#ffffff',
     logging: false,
     useCORS: true,
+    allowTaint: true,
+    // Manually inject inline styles on every descendant before render. Fixes a
+    // html2canvas quirk where text on dark backgrounds with inherited color
+    // sometimes renders invisible. We force-set color/background/font on each
+    // node from its computed style so html2canvas has direct values to work with.
+    onclone: (clonedDoc: Document, clonedEl: HTMLElement) => {
+      const all = clonedEl.querySelectorAll<HTMLElement>('*');
+      all.forEach((node) => {
+        const computed = clonedDoc.defaultView?.getComputedStyle(node);
+        if (!computed) return;
+        // Force inline the most important text/visual properties so they
+        // survive html2canvas's painting pass.
+        node.style.color = computed.color;
+        node.style.backgroundColor = computed.backgroundColor;
+        node.style.fontFamily = computed.fontFamily;
+        node.style.fontSize = computed.fontSize;
+        node.style.fontWeight = computed.fontWeight;
+        node.style.lineHeight = computed.lineHeight;
+        node.style.letterSpacing = computed.letterSpacing;
+        node.style.textTransform = computed.textTransform;
+      });
+    },
   });
 
   onProgress?.(50, 'Building PDF…');
