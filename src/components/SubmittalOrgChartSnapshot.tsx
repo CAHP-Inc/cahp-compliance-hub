@@ -71,6 +71,10 @@ const OWNER_TYPE_BADGE_STYLES: Record<string, string> = {
   Individual: 'bg-blue-100 text-blue-800',
   LLC: 'bg-purple-100 text-purple-800',
   Nonprofit: 'bg-teal-100 text-teal-800',
+  Trust: 'bg-amber-100 text-amber-800',
+  Corporation: 'bg-indigo-100 text-indigo-800',
+  'Limited Partnership': 'bg-rose-100 text-rose-800',
+  'General Partnership': 'bg-fuchsia-100 text-fuchsia-800',
 };
 
 export function SubmittalOrgChartSnapshot({

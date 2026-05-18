@@ -17,6 +17,8 @@ const TYPE_STYLES: Record<OwnerType, string> = {
   Nonprofit: 'bg-teal-100 text-teal-800',
   Trust: 'bg-amber-100 text-amber-800',
   Corporation: 'bg-indigo-100 text-indigo-800',
+  'Limited Partnership': 'bg-rose-100 text-rose-800',
+  'General Partnership': 'bg-fuchsia-100 text-fuchsia-800',
 };
 
 export function Owners() {

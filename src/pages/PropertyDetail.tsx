@@ -1122,6 +1122,10 @@ const OWNER_TYPE_BADGE_STYLES: Record<string, string> = {
   Individual: 'bg-blue-100 text-blue-800',
   LLC: 'bg-purple-100 text-purple-800',
   Nonprofit: 'bg-teal-100 text-teal-800',
+  Trust: 'bg-amber-100 text-amber-800',
+  Corporation: 'bg-indigo-100 text-indigo-800',
+  'Limited Partnership': 'bg-rose-100 text-rose-800',
+  'General Partnership': 'bg-fuchsia-100 text-fuchsia-800',
 };
 
 function PropertyOrgChartTab({ propertyId, property }: { propertyId: string; property: Property }) {
@@ -1595,6 +1599,10 @@ function EntityCard({
       typeLine = 'Trust';
     } else if (ownerType === 'Corporation') {
       typeLine = `${stateName ? stateName + ' ' : ''}Corporation`;
+    } else if (ownerType === 'Limited Partnership') {
+      typeLine = `${stateName ? stateName + ' ' : ''}Limited Partnership`;
+    } else if (ownerType === 'General Partnership') {
+      typeLine = `${stateName ? stateName + ' ' : ''}General Partnership`;
     } else if (ownerType) {
       typeLine = ownerType;
     }

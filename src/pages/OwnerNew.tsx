@@ -51,6 +51,18 @@ const TYPE_CARDS: { value: OwnerType; title: string; description: string; icon: 
     description: 'A standard for-profit corporation (Inc.) — distinct from an LLC.',
     icon: '🏛',
   },
+  {
+    value: 'Limited Partnership',
+    title: 'Limited Partnership',
+    description: 'A registered LP — typically a capital fund with passive limited partners and one or more general partners managing. Common for real estate syndications.',
+    icon: '🤝',
+  },
+  {
+    value: 'General Partnership',
+    title: 'General Partnership',
+    description: 'A registered general partnership where all partners share management and liability. Less common for new real estate deals; mostly seen in legacy structures.',
+    icon: '🤝',
+  },
 ];
 
 interface MemberDraft {

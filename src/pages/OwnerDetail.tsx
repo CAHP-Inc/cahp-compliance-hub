@@ -32,9 +32,11 @@ const TYPE_STYLES: Record<OwnerType, string> = {
   Nonprofit: 'bg-teal-100 text-teal-800',
   Trust: 'bg-amber-100 text-amber-800',
   Corporation: 'bg-indigo-100 text-indigo-800',
+  'Limited Partnership': 'bg-rose-100 text-rose-800',
+  'General Partnership': 'bg-fuchsia-100 text-fuchsia-800',
 };
 
-const TYPE_OPTIONS: OwnerType[] = ['Individual', 'LLC', 'Nonprofit', 'Trust', 'Corporation'];
+const TYPE_OPTIONS: OwnerType[] = ['Individual', 'LLC', 'Nonprofit', 'Trust', 'Corporation', 'Limited Partnership', 'General Partnership'];
 
 export function OwnerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -317,8 +319,8 @@ export function OwnerDetail() {
         />
       </Section>
 
-      {/* Members section — for LLCs and Nonprofits (entities can have members) */}
-      {(owner.fields.OwnerType === 'LLC' || owner.fields.OwnerType === 'Nonprofit') && (
+      {/* Members section — for entities that can have upstream owners (LLC, Nonprofit, Trust, Corp, Partnership) */}
+      {(owner.fields.OwnerType && owner.fields.OwnerType !== 'Individual') && (
         <div className="bg-white border-l-4 border-gold-500 border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 bg-gold-50 flex items-center justify-between">
             <div>
@@ -384,8 +386,8 @@ export function OwnerDetail() {
         </div>
       )}
 
-      {/* Cascade Preview — list of properties affected by member changes (LLC/Nonprofit only) */}
-      {(owner.fields.OwnerType === 'LLC' || owner.fields.OwnerType === 'Nonprofit') && (
+      {/* Cascade Preview — list of properties affected by member changes (any entity with potential members) */}
+      {(owner.fields.OwnerType && owner.fields.OwnerType !== 'Individual') && (
         <CascadePreviewSection ownerId={owner.id} ownership={ownership.data ?? []} owners={owners.data ?? []} />
       )}
 

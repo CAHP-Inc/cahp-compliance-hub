@@ -107,7 +107,7 @@ export function getBeneficialOwnershipTree(
       if (ownerId && !visited.has(ownerId)) {
         // Only LLCs and Nonprofits can have upstream members; Individuals are leaves
         const ownerType = d.owner?.fields.OwnerType;
-        if (ownerType === 'LLC' || ownerType === 'Nonprofit') {
+        if (ownerType === 'LLC' || ownerType === 'Nonprofit' || ownerType === 'Limited Partnership' || ownerType === 'General Partnership' || ownerType === 'Corporation' || ownerType === 'Trust') {
           visited.add(ownerId);
           children = walk('owner', ownerId, depth + 1);
           visited.delete(ownerId);
