@@ -1725,6 +1725,7 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
               <th className="px-4 py-3 text-left">Entity</th>
               <th className="px-4 py-3 text-left">Type</th>
               <th className="px-4 py-3 text-left">Role</th>
+              <th className="px-4 py-3 text-left">Class</th>
               <th className="px-4 py-3 text-right">%</th>
               <th className="px-4 py-3 text-left">Effective</th>
               <th className="px-4 py-3 text-right w-20"></th>
@@ -1773,12 +1774,60 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    {o.fields.RelationshipType ? (
-                      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${RELATIONSHIP_STYLES[o.fields.RelationshipType] || 'bg-gray-100'}`}>
-                        {o.fields.RelationshipType}
-                      </span>
-                    ) : '—'}
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={o.fields.RelationshipType ?? ''}
+                      onChange={async (e) => {
+                        const newValue = e.target.value || null;
+                        try {
+                          await updateListItem(LIST_NAMES.Ownership, o.id, {
+                            RelationshipType: newValue,
+                          });
+                          await ownership.refetch?.();
+                        } catch (err) {
+                          alert('Failed to save role: ' + (err instanceof Error ? err.message : String(err)));
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 text-[11px] border rounded cursor-pointer focus:outline-none focus:border-teal-500 hover:border-gray-400 font-semibold ${
+                        o.fields.RelationshipType
+                          ? RELATIONSHIP_STYLES[o.fields.RelationshipType] || 'bg-white border-gray-200'
+                          : 'bg-white border-gray-200'
+                      }`}
+                      title="Click to change role"
+                    >
+                      <option value="">—</option>
+                      <option value="Managing Member">Managing Member</option>
+                      <option value="Sole Member">Sole Member</option>
+                      <option value="Member">Member</option>
+                      <option value="Owner">Owner</option>
+                      <option value="Subsidiary">Subsidiary</option>
+                      <option value="Beneficial Owner">Beneficial Owner</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={o.fields.MemberClass ?? ''}
+                      onChange={async (e) => {
+                        const newValue = e.target.value || null;
+                        try {
+                          await updateListItem(LIST_NAMES.Ownership, o.id, {
+                            MemberClass: newValue,
+                          });
+                          await ownership.refetch?.();
+                        } catch (err) {
+                          alert('Failed to save class: ' + (err instanceof Error ? err.message : String(err)));
+                        }
+                      }}
+                      className="px-1.5 py-0.5 text-[11px] border border-gray-200 rounded bg-white hover:border-gray-400 focus:outline-none focus:border-teal-500 cursor-pointer"
+                      title="Click to set the Member Class for this ownership relationship"
+                    >
+                      <option value="">—</option>
+                      <option value="Class A">Class A</option>
+                      <option value="Class B">Class B</option>
+                      <option value="Class C">Class C</option>
+                      <option value="Class D">Class D</option>
+                      <option value="N/A">N/A</option>
+                    </select>
                   </td>
                   <td className="px-4 py-3 text-right font-mono-data">
                     {o.fields.OwnershipPercent != null ? `${o.fields.OwnershipPercent}%` : '—'}
