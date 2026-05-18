@@ -1572,20 +1572,45 @@ function PropertyRootNode({
   address?: string;
   managerName?: string;
 }) {
-  // Detailed-mode rendering: large green card matching DOR convention
+  // Detailed-mode rendering: large green card matching DOR convention.
+  // Uses inline styles (not Tailwind classes) for color — html2canvas reliably
+  // captures inline styles but can fail on inherited color from class-applied parents.
   if (legalEntity) {
     const stateName = ownerState ? spellState(ownerState) : '';
     return (
-      <div className="inline-block bg-teal-700 text-white rounded-lg px-6 py-4 shadow-md min-w-[320px] text-center">
-        <div className="font-bold text-base uppercase tracking-wide">{legalEntity}</div>
+      <div
+        className="inline-block rounded-lg shadow-md min-w-[320px] text-center"
+        style={{
+          backgroundColor: '#0f766e', // teal-700
+          color: '#ffffff',
+          padding: '16px 24px',
+        }}
+      >
+        <div
+          style={{
+            color: '#ffffff',
+            fontWeight: 700,
+            fontSize: '16px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          {legalEntity}
+        </div>
         {stateName && (
-          <div className="text-xs text-teal-100 mt-1">{stateName} LLC</div>
+          <div style={{ color: '#ccfbf1', fontSize: '12px', marginTop: '4px' }}>
+            {stateName} LLC
+          </div>
         )}
         {managerName && (
-          <div className="text-xs text-teal-100">Manager-Managed by {managerName}</div>
+          <div style={{ color: '#ccfbf1', fontSize: '12px' }}>
+            Manager-Managed by {managerName}
+          </div>
         )}
         {address && (
-          <div className="text-xs text-teal-100 mt-0.5">{address}</div>
+          <div style={{ color: '#ccfbf1', fontSize: '12px', marginTop: '2px' }}>
+            {address}
+          </div>
         )}
       </div>
     );
@@ -1982,6 +2007,7 @@ const PROPERTY_LINKED_LIBRARIES = [
 
 interface PropertyDocument {
   id: string;
+  itemId: string;
   library: string;
   filename: string;
   webUrl?: string;
@@ -2031,6 +2057,7 @@ function PropertyDocumentsTab({
         if (String(item.fields.PropertyLookupId) !== String(propertyId)) return;
         docs.push({
           id: `${libraryName}:${item.id}`,
+          itemId: item.id,
           library: libraryName,
           filename: item.fields.FileLeafRef || item.fields.Title || '(unnamed)',
           webUrl: item.webUrl,
@@ -2159,10 +2186,28 @@ function PropertyDocumentsTab({
                 <th className="px-4 py-3 text-left">Library</th>
                 <th className="px-4 py-3 text-left">Type</th>
                 <th className="px-4 py-3 text-left">Modified</th>
+                <th className="px-4 py-3 text-right w-16"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {documents.map((doc) => (
+              {documents.map((doc) => {
+                const handleDelete = async (e: React.MouseEvent) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const ok = window.confirm(
+                    `Permanently delete "${doc.filename}"?\n\nThis removes the file from SharePoint and cannot be undone. Action is logged.`
+                  );
+                  if (!ok) return;
+                  try {
+                    await deleteListItem(doc.library as typeof PROPERTY_LINKED_LIBRARIES[number], doc.itemId);
+                    // Refetch libraries — find the matching one
+                    const idx = PROPERTY_LINKED_LIBRARIES.indexOf(doc.library as typeof PROPERTY_LINKED_LIBRARIES[number]);
+                    if (idx >= 0) await libraries[idx]?.refetch?.();
+                  } catch (err) {
+                    alert('Failed to delete: ' + (err instanceof Error ? err.message : String(err)));
+                  }
+                };
+                return (
                 <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {doc.webUrl ? (
@@ -2183,8 +2228,18 @@ function PropertyDocumentsTab({
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
                     {formatDate(doc.uploadDate)}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={handleDelete}
+                      className="text-[11px] text-gray-500 hover:text-error font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                      title="Delete this document permanently"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

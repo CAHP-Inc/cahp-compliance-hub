@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSharePointList, updateListItem, LIST_NAMES, type Owner } from '../lib/sharepoint';
+import { useSharePointList, updateListItem, deleteListItem, LIST_NAMES, type Owner } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
 
@@ -345,6 +345,26 @@ export function EntityDocumentsSection({
                 {libraryDocs.map((d) => {
                   const isCahpLibDoc = d.library === CAHP_ENTITY_LIBRARY;
                   const showTagger = manageMode && isCahpLibDoc;
+                  const handleDelete = async (e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const ok = window.confirm(
+                      `Permanently delete "${d.filename}"?\n\nThis removes the file from SharePoint and cannot be undone. Action is logged.`
+                    );
+                    if (!ok) return;
+                    try {
+                      await deleteListItem(d.library as typeof PROPERTY_LINKED_LIBRARIES[number] | typeof CAHP_ENTITY_LIBRARY, d.itemId);
+                      // Refetch the appropriate library
+                      if (d.library === CAHP_ENTITY_LIBRARY) {
+                        await cahpLib.refetch?.();
+                      } else {
+                        const idx = PROPERTY_LINKED_LIBRARIES.indexOf(d.library as typeof PROPERTY_LINKED_LIBRARIES[number]);
+                        if (idx >= 0) await libraries[idx]?.refetch?.();
+                      }
+                    } catch (err) {
+                      alert('Failed to delete: ' + (err instanceof Error ? err.message : String(err)));
+                    }
+                  };
                   return (
                   <li key={d.id} className="text-xs flex items-center justify-between gap-2 py-1">
                     <a
@@ -380,6 +400,13 @@ export function EntityDocumentsSection({
                       {d.uploadDate ? new Date(d.uploadDate).toLocaleDateString() : ''}
                     </span>
                     )}
+                    <button
+                      onClick={handleDelete}
+                      className="text-gray-400 hover:text-error flex-shrink-0 p-1 rounded hover:bg-red-50"
+                      title="Delete this document permanently"
+                    >
+                      <Icon name="alert" size={11} />
+                    </button>
                   </li>
                   );
                 })}

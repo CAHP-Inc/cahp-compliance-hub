@@ -126,6 +126,7 @@ export async function exportOrgChartPDF(
     file: pdfBlob,
     metadata: {
       PropertyLookupId: propertyId,
+      ChartDate: new Date().toISOString().slice(0, 10),
     },
   });
 
