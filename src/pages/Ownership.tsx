@@ -11,6 +11,7 @@ import { Icon } from '../components/ui/Icon';
 
 const RELATIONSHIP_STYLES: Record<RelationshipType, string> = {
   'Managing Member': 'bg-teal-100 text-teal-800',
+  'Sole Member': 'bg-emerald-100 text-emerald-800',
   Member: 'bg-blue-100 text-blue-800',
   Owner: 'bg-purple-100 text-purple-800',
   Subsidiary: 'bg-amber-100 text-amber-800',

@@ -176,14 +176,21 @@ export function EntityDocumentsSection({
   const handleTagChange = async (doc: AggregatedDoc, newOwnerId: string) => {
     setSavingTagId(doc.id);
     try {
+      // Graph lookup writes require a NUMBER, not a string — string is silently ignored
+      const numericId = newOwnerId ? Number(newOwnerId) : null;
+      if (newOwnerId && (numericId === null || Number.isNaN(numericId))) {
+        throw new Error(`Invalid owner ID: ${newOwnerId}`);
+      }
+      // eslint-disable-next-line no-console
+      console.log('[CAHP tag]', { itemId: doc.itemId, filename: doc.filename, newOwnerId: numericId });
       await updateListItem(CAHP_ENTITY_LIBRARY, doc.itemId, {
-        OwnerLookupId: newOwnerId || null,
+        OwnerLookupId: numericId,
       });
       await cahpLib.refetch?.();
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('Failed to update tag:', e);
-      alert('Failed to save tag. Check console for details.');
+      alert('Failed to save tag: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSavingTagId(null);
     }

@@ -460,6 +460,7 @@ export type Owner = SharePointListItem<OwnerFields>;
 
 export type RelationshipType =
   | 'Managing Member'
+  | 'Sole Member'      // wholly-owned single-member LLC (e.g., CAHP SC LLC owned 100% by CAHP Inc)
   | 'Member'
   | 'Owner'           // legacy — still rendered for old rows
   | 'Subsidiary'      // legacy
@@ -470,7 +471,7 @@ export type RelationshipType =
  * Legacy types (Owner, Subsidiary, Beneficial Owner) remain in the full union so existing rows
  * with those values display correctly, but new entries only get these two clean options.
  */
-export const PRIMARY_RELATIONSHIP_TYPES: RelationshipType[] = ['Managing Member', 'Member'];
+export const PRIMARY_RELATIONSHIP_TYPES: RelationshipType[] = ['Managing Member', 'Sole Member', 'Member'];
 
 export interface OwnershipFields {
   Title?: string;                              // Auto-derived from Owner lookup; legacy rows have free-text
