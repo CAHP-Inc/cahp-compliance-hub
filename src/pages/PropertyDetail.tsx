@@ -31,6 +31,8 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
+import { DeletePropertyModal } from '../components/DeletePropertyModal';
+import { useSession } from '../lib/session';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
@@ -105,8 +107,12 @@ export function PropertyDetail() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dispositionOpen, setDispositionOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistResult, setChecklistResult] = useState<{ created: number; matched: number } | null>(null);
+
+  const session = useSession();
+  const isAdmin = session.role === 'Admin';
 
   const { data: property, loading, error, refetch } = useSharePointItem<Property>(
     LIST_NAMES.Properties, id
@@ -265,6 +271,16 @@ export function PropertyDetail() {
                   Dispose
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={() => setDeleteOpen(true)}
+                  className="px-3 py-1.5 border-2 border-red-400 bg-red-50 text-error hover:bg-red-100 hover:border-red-500 rounded-md text-sm font-bold flex items-center gap-1.5 transition-colors"
+                  title="Permanently delete this property and all related records (Admin only)"
+                >
+                  <Icon name="alert" size={14} />
+                  Delete
+                </button>
+              )}
               <button
                 onClick={handleEdit}
                 className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors"
@@ -348,6 +364,14 @@ export function PropertyDetail() {
           property={property}
           onClose={() => setDispositionOpen(false)}
           onComplete={refetch}
+        />
+      )}
+
+      {deleteOpen && id && (
+        <DeletePropertyModal
+          propertyId={id}
+          propertyTitle={property.fields.Title}
+          onClose={() => setDeleteOpen(false)}
         />
       )}
 
