@@ -1407,13 +1407,48 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
       )}
 
       <div ref={chartRef} className="flex flex-col items-center min-w-fit bg-white p-3">
-        {/* Top section: one column per direct owner of the property. Each top-level
-            column draws its own downward arrow to the property — no orphan lines. */}
-        <div className="flex flex-row items-end justify-center gap-6 mb-1">
-          {tree.map((directOwner) => (
-            <DORColumn key={directOwner.relationship.id} node={directOwner} isTopLevel={true} />
-          ))}
+        {/* Top section: one column per direct owner of the property.
+            Uses the same T-junction pattern as nested levels — half-bars
+            converge at center, single arrow goes down to the property. */}
+        <div className="flex flex-row items-end justify-center" style={{ gap: '1rem' }}>
+          {tree.map((directOwner, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === tree.length - 1;
+            const isOnly = tree.length === 1;
+            return (
+              <div
+                key={directOwner.relationship.id}
+                className="relative flex flex-col items-center"
+              >
+                <DORColumn node={directOwner} />
+                {isOnly ? (
+                  <div className="w-px h-4 bg-gray-400 mt-1" />
+                ) : (
+                  <div className="relative w-full h-4 mt-1">
+                    <div className="absolute top-0 left-1/2 -ml-px w-px h-2 bg-gray-400" />
+                    <div
+                      className="absolute h-px bg-gray-400"
+                      style={{
+                        top: '0.5rem',
+                        left: isFirst ? '50%' : '-0.5rem',
+                        right: isLast ? '50%' : '-0.5rem',
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
+        {/* Center arrow down to property */}
+        {tree.length > 0 && (
+          <div className="text-gray-400">
+            <svg width="12" height="14" viewBox="0 0 12 14" xmlns="http://www.w3.org/2000/svg">
+              <line x1="6" y1="0" x2="6" y2="8" stroke="currentColor" strokeWidth="1" />
+              <polygon points="6,14 2,8 10,8" fill="currentColor" />
+            </svg>
+          </div>
+        )}
 
         {/* Property — full DOR-style card */}
         <div>
@@ -1452,20 +1487,55 @@ function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLev
     node.children.length === 1 &&
     node.children[0].relationship.fields.OwnershipPercent === 100;
 
-  // Suppress unused warning — isTopLevel is kept in the signature in case future
-  // logic wants to differentiate, but every column now renders the same way.
   void isTopLevel;
 
   return (
     <div className="flex flex-col items-center gap-0">
-      {/* Render all upstream owners ABOVE this node, side by side.
-          Each one will draw its own downward arrow → they visually converge on this node. */}
+      {/* Render all upstream owners ABOVE this node, then a T-junction connector */}
       {node.children.length > 0 && (
-        <div className="flex flex-row items-end justify-center gap-4">
-          {node.children.map((parent) => (
-            <DORColumn key={parent.relationship.id} node={parent} />
-          ))}
-        </div>
+        <>
+          <div className="flex flex-row items-end justify-center" style={{ gap: '1rem' }}>
+            {node.children.map((parent, idx) => {
+              const isFirst = idx === 0;
+              const isLast = idx === node.children.length - 1;
+              const isOnly = node.children.length === 1;
+              return (
+                <div
+                  key={parent.relationship.id}
+                  className="relative flex flex-col items-center"
+                >
+                  <DORColumn node={parent} />
+                  {/* Below each parent card: stub + half horizontal bar */}
+                  {isOnly ? (
+                    <div className="w-px h-4 bg-gray-400 mt-1" />
+                  ) : (
+                    <div className="relative w-full h-4 mt-1">
+                      {/* Vertical stub from card down */}
+                      <div className="absolute top-0 left-1/2 -ml-px w-px h-2 bg-gray-400" />
+                      {/* Horizontal half-bar at bottom of stub.
+                          Extends 0.5rem into the gap on each side so adjacent half-bars meet. */}
+                      <div
+                        className="absolute h-px bg-gray-400"
+                        style={{
+                          top: '0.5rem',
+                          left: isFirst ? '50%' : '-0.5rem',
+                          right: isLast ? '50%' : '-0.5rem',
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Single center arrow from the horizontal bar down to this node */}
+          <div className="text-gray-400">
+            <svg width="12" height="14" viewBox="0 0 12 14" xmlns="http://www.w3.org/2000/svg">
+              <line x1="6" y1="0" x2="6" y2="8" stroke="currentColor" strokeWidth="1" />
+              <polygon points="6,14 2,8 10,8" fill="currentColor" />
+            </svg>
+          </div>
+        </>
       )}
 
       {/* This node */}
@@ -1481,17 +1551,6 @@ function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLev
         entityDescription={node.owner?.fields.EntityDescription}
         isSingleMember={isSingleMember}
       />
-
-      {/* Every node always renders a downward arrow — points to whatever is below
-          (a descendant entity, or the property at the bottom). This ensures each
-          sibling column has its own visible connector and DOR doesn't mistake
-          unconnected boxes for orphan entities. */}
-      <div className="text-gray-400 my-1">
-        <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
-          <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
-          <polygon points="6,20 2,14 10,14" fill="currentColor" />
-        </svg>
-      </div>
     </div>
   );
 }
