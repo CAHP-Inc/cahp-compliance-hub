@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -11,15 +11,58 @@ const STATUS_STYLES: Record<PropertyStatus, string> = {
   Sold: 'bg-blue-100 text-blue-800',
 };
 
+const FILING_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
+  'Draft': 'bg-gray-100 text-gray-800',
+  'Package Mailed (NC)': 'bg-indigo-100 text-indigo-800',
+  'Filed': 'bg-blue-100 text-blue-800',
+  'Letter Received - Action Needed': 'bg-amber-100 text-amber-800',
+  'Responded - Awaiting DOR': 'bg-purple-100 text-purple-800',
+  'Approved': 'bg-green-100 text-green-800',
+  'Denied': 'bg-red-100 text-red-800',
+  'Withdrawn': 'bg-gray-100 text-gray-500',
+};
+
 export function Properties() {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useSharePointList<Property>(LIST_NAMES.Properties, {
     top: 200,
   });
+  const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
 
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<CahpState | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
+
+  /**
+   * Build a map of propertyId → most recent submittal for the property.
+   * "Most recent" = highest tax year, then latest DateFiled as a tiebreaker.
+   * This lets us surface each property's current filing posture on the table.
+   */
+  const latestSubmittalByProperty = useMemo(() => {
+    if (!submittals.data) return new Map<string, Submittal>();
+    const map = new Map<string, Submittal>();
+    submittals.data.forEach((s) => {
+      const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
+      if (!pid) return;
+      const existing = map.get(pid);
+      if (!existing) {
+        map.set(pid, s);
+        return;
+      }
+      const existingYear = Number(existing.fields.cahpTaxYear ?? 0);
+      const newYear = Number(s.fields.cahpTaxYear ?? 0);
+      if (newYear > existingYear) {
+        map.set(pid, s);
+      } else if (newYear === existingYear) {
+        const existingDate = existing.fields.DateFiled ?? '';
+        const newDate = s.fields.DateFiled ?? '';
+        if (newDate > existingDate) {
+          map.set(pid, s);
+        }
+      }
+    });
+    return map;
+  }, [submittals.data]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -118,6 +161,7 @@ export function Properties() {
                 <th className="px-4 py-3 text-left">AMI</th>
                 <th className="px-4 py-3 text-left">Owner Group</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Filing Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -170,11 +214,40 @@ export function Properties() {
                       '—'
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const sub = latestSubmittalByProperty.get(p.id);
+                      if (!sub) {
+                        return <span className="text-gray-400 text-xs italic">Not Filed</span>;
+                      }
+                      const status = sub.fields.SubmittalStatus;
+                      const taxYear = sub.fields.cahpTaxYear;
+                      const filingType = sub.fields.FilingType;
+                      return (
+                        <div className="flex flex-col gap-0.5 items-start">
+                          {status && (
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                FILING_STATUS_STYLES[status] || 'bg-gray-100 text-gray-700'
+                              }`}
+                            >
+                              {status}
+                            </span>
+                          )}
+                          {(taxYear || filingType) && (
+                            <span className="text-[10px] text-gray-500 font-mono-data">
+                              {taxYear ?? ''}{taxYear && filingType ? ' · ' : ''}{filingType ?? ''}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500 text-sm">
                     No properties match the current filters.
                   </td>
                 </tr>
