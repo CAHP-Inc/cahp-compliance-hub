@@ -449,6 +449,7 @@ export interface OwnerFields {
   SponsorName?: string;            // The human owner/principal behind the entity (e.g., "Deepak Maheshwari" for Marwar Ventures)
   OwnerAddress?: string;           // Address of the entity (shown on detailed org charts)
   IsTaxExempt?: boolean;           // For nonprofits — adds "IRC § 501(c)(3) Tax-Exempt" line to org chart
+  EntityDescription?: string;      // Optional override for auto-derived "South Carolina LLC" label on org charts
 }
 
 export type Owner = SharePointListItem<OwnerFields>;

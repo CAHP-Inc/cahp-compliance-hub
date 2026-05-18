@@ -285,6 +285,12 @@ export function OwnerDetail() {
           onChange={(v) => handleFieldChange('SponsorName', v as string)}
         />
         <EditableField
+          label="Entity Description (override)"
+          value={display.EntityDescription}
+          editing={editing}
+          onChange={(v) => handleFieldChange('EntityDescription', v as string)}
+        />
+        <EditableField
           label="Address"
           value={display.OwnerAddress}
           editing={editing}

@@ -1368,7 +1368,12 @@ function DORColumn({ node }: { node: OwnershipNode }) {
 
   return (
     <div className="flex flex-col items-center gap-1">
-      {chain.map((n, idx) => (
+      {chain.map((n, idx) => {
+        // "Single-member LLC" inference: this entity has exactly one upstream parent at 100%
+        const isSingleMember =
+          n.children.length === 1 &&
+          n.children[0].relationship.fields.OwnershipPercent === 100;
+        return (
         <div key={n.relationship.id} className="flex flex-col items-center">
           <EntityCard
             name={n.owner?.fields.Title ?? '(unresolved)'}
@@ -1378,6 +1383,9 @@ function DORColumn({ node }: { node: OwnershipNode }) {
             memberClass={n.relationship.fields.MemberClass}
             sponsorName={n.owner?.fields.SponsorName}
             stateOfFormation={n.owner?.fields.OwnerState}
+            isTaxExempt={n.owner?.fields.IsTaxExempt}
+            entityDescription={n.owner?.fields.EntityDescription}
+            isSingleMember={isSingleMember}
           />
           {idx < chain.length - 1 && (
             <div className="text-gray-400">
@@ -1388,7 +1396,8 @@ function DORColumn({ node }: { node: OwnershipNode }) {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1440,6 +1449,9 @@ function EntityCard({
   memberClass,
   sponsorName,
   stateOfFormation,
+  isTaxExempt,
+  entityDescription,
+  isSingleMember,
 }: {
   name: string;
   ownerType?: string;
@@ -1448,18 +1460,29 @@ function EntityCard({
   memberClass?: string;
   sponsorName?: string;
   stateOfFormation?: string;
+  isTaxExempt?: boolean;
+  entityDescription?: string;
+  isSingleMember?: boolean;
 }) {
-  // Build the "type" line — e.g., "South Carolina LLC" or "South Carolina Nonprofit Corp."
-  const typeLine =
-    ownerType === 'Nonprofit'
-      ? `${stateOfFormation ? stateOfFormation + ' ' : ''}Nonprofit Corp.`
-      : ownerType === 'LLC'
-        ? `${stateOfFormation ? stateOfFormation + ' ' : ''}LLC`
-        : ownerType === 'Trust'
-          ? 'Trust'
-          : ownerType === 'Corporation'
-            ? `${stateOfFormation ? stateOfFormation + ' ' : ''}Corporation`
-            : ownerType ?? '';
+  // Build the formation description line. Priority:
+  //   1. Manual override (EntityDescription) — use as-is
+  //   2. Auto-derive from OwnerType + state + single-member status
+  const stateName = stateOfFormation ? spellState(stateOfFormation) : '';
+  let typeLine = entityDescription ?? '';
+  if (!typeLine) {
+    if (ownerType === 'Nonprofit') {
+      typeLine = `${stateName ? stateName + ' ' : ''}Nonprofit Corp.`;
+    } else if (ownerType === 'LLC') {
+      const singleMember = isSingleMember ? 'Single-Member ' : '';
+      typeLine = `${stateName ? stateName + ' ' : ''}${singleMember}LLC`;
+    } else if (ownerType === 'Trust') {
+      typeLine = 'Trust';
+    } else if (ownerType === 'Corporation') {
+      typeLine = `${stateName ? stateName + ' ' : ''}Corporation`;
+    } else if (ownerType) {
+      typeLine = ownerType;
+    }
+  }
 
   return (
     <div className="inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center">
@@ -1474,6 +1497,9 @@ function EntityCard({
       {typeLine && (
         <div className="text-[11px] text-gray-600 mt-0.5">{typeLine}</div>
       )}
+      {isTaxExempt && ownerType === 'Nonprofit' && (
+        <div className="text-[11px] text-gray-600 italic">IRC § 501(c)(3) Tax-Exempt</div>
+      )}
       {sponsorName && (
         <div className="text-[11px] text-gray-600 italic">
           Sponsor: {sponsorName}
@@ -1485,6 +1511,25 @@ function EntityCard({
       </div>
     </div>
   );
+}
+
+// US state code → full name (for org chart entity descriptions)
+const STATE_NAMES: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri',
+  MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio',
+  OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont',
+  VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  DC: 'District of Columbia',
+};
+function spellState(code: string): string {
+  const upper = code.trim().toUpperCase();
+  return STATE_NAMES[upper] ?? code;
 }
 
 // =============================================================================
