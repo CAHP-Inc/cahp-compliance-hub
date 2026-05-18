@@ -1452,24 +1452,20 @@ function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLev
     node.children.length === 1 &&
     node.children[0].relationship.fields.OwnershipPercent === 100;
 
+  // Suppress unused warning — isTopLevel is kept in the signature in case future
+  // logic wants to differentiate, but every column now renders the same way.
+  void isTopLevel;
+
   return (
     <div className="flex flex-col items-center gap-0">
-      {/* Render all parents (if any) ABOVE this node, side by side */}
+      {/* Render all upstream owners ABOVE this node, side by side.
+          Each one will draw its own downward arrow → they visually converge on this node. */}
       {node.children.length > 0 && (
-        <>
-          <div className="flex flex-row items-end justify-center gap-4">
-            {node.children.map((parent) => (
-              <DORColumn key={parent.relationship.id} node={parent} />
-            ))}
-          </div>
-          {/* Connector arrow from parents down to this node */}
-          <div className="text-gray-400 my-1">
-            <svg width="12" height="16" viewBox="0 0 12 16" xmlns="http://www.w3.org/2000/svg">
-              <line x1="6" y1="0" x2="6" y2="10" stroke="currentColor" strokeWidth="1" />
-              <polygon points="6,16 2,10 10,10" fill="currentColor" />
-            </svg>
-          </div>
-        </>
+        <div className="flex flex-row items-end justify-center gap-4">
+          {node.children.map((parent) => (
+            <DORColumn key={parent.relationship.id} node={parent} />
+          ))}
+        </div>
       )}
 
       {/* This node */}
@@ -1486,15 +1482,16 @@ function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLev
         isSingleMember={isSingleMember}
       />
 
-      {/* Top-level columns get a downward arrow to the property below */}
-      {isTopLevel && (
-        <div className="text-gray-400 my-1">
-          <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
-            <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
-            <polygon points="6,20 2,14 10,14" fill="currentColor" />
-          </svg>
-        </div>
-      )}
+      {/* Every node always renders a downward arrow — points to whatever is below
+          (a descendant entity, or the property at the bottom). This ensures each
+          sibling column has its own visible connector and DOR doesn't mistake
+          unconnected boxes for orphan entities. */}
+      <div className="text-gray-400 my-1">
+        <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
+          <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
+          <polygon points="6,20 2,14 10,14" fill="currentColor" />
+        </svg>
+      </div>
     </div>
   );
 }
