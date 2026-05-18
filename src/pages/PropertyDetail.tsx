@@ -37,6 +37,7 @@ import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { EditOwnershipModal } from '../components/EditOwnershipModal';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -1664,6 +1665,7 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
   const navigate = useNavigate();
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const [editingOwnershipId, setEditingOwnershipId] = useState<string | null>(null);
 
   const loading = ownership.loading || owners.loading;
   const error = ownership.error || owners.error;
@@ -1728,7 +1730,7 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
               <th className="px-4 py-3 text-left">Class</th>
               <th className="px-4 py-3 text-right">%</th>
               <th className="px-4 py-3 text-left">Effective</th>
-              <th className="px-4 py-3 text-right w-20"></th>
+              <th className="px-4 py-3 text-right w-32"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1859,13 +1861,25 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
                     {formatDate(o.fields.EffectiveDate)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={handleUnlink}
-                      className="text-[11px] text-gray-500 hover:text-error font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                      title="Remove this owner from the property"
-                    >
-                      Unlink
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingOwnershipId(o.id);
+                        }}
+                        className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 transition-colors"
+                        title="Edit all fields on this ownership record"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={handleUnlink}
+                        className="text-[11px] text-gray-500 hover:text-error font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                        title="Remove this owner from the property"
+                      >
+                        Unlink
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1882,6 +1896,14 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
             or this property uses a multi-class structure where percentages are within a class (then class totals are what matter).
           </p>
         </div>
+      )}
+
+      {editingOwnershipId && (
+        <EditOwnershipModal
+          ownershipId={editingOwnershipId}
+          onClose={() => setEditingOwnershipId(null)}
+          onSaved={() => ownership.refetch?.()}
+        />
       )}
     </div>
   );
