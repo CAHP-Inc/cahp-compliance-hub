@@ -6,7 +6,6 @@ import {
   type ComplianceDeadline,
   type DeadlineStatus,
   type DeadlineType,
-  type ResponsibleParty,
   type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
@@ -32,9 +31,21 @@ export function Compliance() {
 
   const [statusFilter, setStatusFilter] = useState<DeadlineStatus | 'All'>('All');
   const [typeFilter, setTypeFilter] = useState<DeadlineType | 'All'>('All');
-  const [ownerFilter, setOwnerFilter] = useState<ResponsibleParty | 'All'>('All');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('All');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [newDeadlineOpen, setNewDeadlineOpen] = useState(false);
+
+  // Build the assignee filter options dynamically from existing data
+  // (covers free-text values like "Cogency Global" or "Owner – Deepak")
+  const assigneeOptions = useMemo(() => {
+    if (!data) return ['All'];
+    const set = new Set<string>();
+    data.forEach((d) => {
+      const v = d.fields.AssignedTo || d.fields.ResponsibleParty;
+      if (v) set.add(v);
+    });
+    return ['All', ...Array.from(set).sort()];
+  }, [data]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -48,7 +59,10 @@ export function Compliance() {
       const f = d.fields;
       if (statusFilter !== 'All' && f.DeadlineStatus !== statusFilter) return false;
       if (typeFilter !== 'All' && f.DeadlineType !== typeFilter) return false;
-      if (ownerFilter !== 'All' && f.ResponsibleParty !== ownerFilter) return false;
+      if (assigneeFilter !== 'All') {
+        const v = f.AssignedTo || f.ResponsibleParty;
+        if (v !== assigneeFilter) return false;
+      }
       // Quick filters
       if (quickFilter === 'overdue' && f.DeadlineStatus !== 'Overdue' && f.DeadlineStatus !== 'Missed') return false;
       if (quickFilter === 'thisMonth') {
@@ -77,7 +91,7 @@ export function Compliance() {
       const dateB = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Number.MAX_VALUE;
       return dateA - dateB;
     });
-  }, [data, statusFilter, typeFilter, ownerFilter, quickFilter]);
+  }, [data, statusFilter, typeFilter, assigneeFilter, quickFilter]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -317,9 +331,9 @@ export function Compliance() {
           ]}
         />
         <Select
-          value={ownerFilter}
-          onChange={(v) => setOwnerFilter(v as ResponsibleParty | 'All')}
-          options={['All', 'Brandy', 'Chris', 'Brian', 'John', 'Aljon', 'Other']}
+          value={assigneeFilter}
+          onChange={(v) => setAssigneeFilter(v)}
+          options={assigneeOptions}
         />
         {filtered.length !== data.length && (
           <span className="text-xs text-gray-500 px-1">
@@ -370,7 +384,7 @@ export function Compliance() {
                 </td>
                 <td className="px-4 py-3 text-gray-700 text-xs">{d.fields.Recurrence || '—'}</td>
                 <td className="px-4 py-3 text-gray-700 text-xs">{d.fields.AppliesTo || '—'}</td>
-                <td className="px-4 py-3 text-gray-700">{d.fields.ResponsibleParty || '—'}</td>
+                <td className="px-4 py-3 text-gray-700">{d.fields.AssignedTo || d.fields.ResponsibleParty || '—'}</td>
                 <td className="px-4 py-3 font-mono-data text-xs text-teal-700">
                   {d.fields.cahpState || '—'}
                 </td>

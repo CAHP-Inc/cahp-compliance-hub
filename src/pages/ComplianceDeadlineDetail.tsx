@@ -11,6 +11,7 @@ import {
   type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { AssigneePicker } from '../components/AssigneePicker';
 import {
   BreadcrumbBar,
   Section,
@@ -322,14 +323,27 @@ export function ComplianceDeadlineDetail() {
         </Section>
 
         <Section title="Assignment">
-          <EditableField
-            label="Responsible Party"
-            value={display.ResponsibleParty}
-            editing={editing}
-            type="choice"
-            choices={CHOICES.ResponsibleParty}
-            onChange={(v) => handleFieldChange('ResponsibleParty', v as ComplianceDeadlineFields['ResponsibleParty'])}
-          />
+          {editing ? (
+            <div className="flex items-start gap-3">
+              <label className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">Assigned To</label>
+              <div className="flex-1">
+                <AssigneePicker
+                  value={display.AssignedTo}
+                  onChange={(v) => handleFieldChange('AssignedTo', v)}
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Pick a team member or type any name (vendor, owner, outside counsel, DOR, etc.)
+                </p>
+              </div>
+            </div>
+          ) : (
+            <EditableField
+              label="Assigned To"
+              value={display.AssignedTo || display.ResponsibleParty /* fall back to legacy field for old data */}
+              editing={false}
+              onChange={(v) => handleFieldChange('AssignedTo', v as string)}
+            />
+          )}
           <EditableField
             label="State"
             value={display.cahpState}

@@ -195,7 +195,8 @@ export interface ComplianceDeadlineFields {
   CompletionDate?: string;
   Recurrence?: DeadlineRecurrence;
   AppliesTo?: DeadlineAppliesTo;
-  ResponsibleParty?: ResponsibleParty;
+  ResponsibleParty?: ResponsibleParty;        // Legacy hardcoded enum — superseded by AssignedTo
+  AssignedTo?: string;                        // Free text — supports team members or outside parties (vendors, counsel, owners)
   PropertyLookupId?: string;                  // → Properties Registry
   cahpState?: CahpState;
   DeadlineNotes?: string;

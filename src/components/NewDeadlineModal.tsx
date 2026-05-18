@@ -6,9 +6,9 @@ import {
   type Property,
   type DeadlineType,
   type DeadlineStatus,
-  type ResponsibleParty,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
+import { AssigneePicker } from './AssigneePicker';
 
 const DEADLINE_TYPES: DeadlineType[] = [
   'IRS 990 Filing',
@@ -18,15 +18,6 @@ const DEADLINE_TYPES: DeadlineType[] = [
   'State Compliance Report',
   'Property Tax Filing',
   'Operating Agreement Review',
-  'Other',
-];
-
-const RESPONSIBLE_PARTIES: ResponsibleParty[] = [
-  'Brandy',
-  'Chris',
-  'Brian',
-  'John',
-  'Aljon',
   'Other',
 ];
 
@@ -43,7 +34,7 @@ export function NewDeadlineModal({ onClose, onSuccess, defaultPropertyId }: NewD
   const [propertyId, setPropertyId] = useState<string>(defaultPropertyId ?? '');
   const [deadlineType, setDeadlineType] = useState<DeadlineType | ''>('');
   const [dueDate, setDueDate] = useState<string>('');
-  const [responsibleParty, setResponsibleParty] = useState<ResponsibleParty | ''>('');
+  const [assignedTo, setAssignedTo] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +65,7 @@ export function NewDeadlineModal({ onClose, onSuccess, defaultPropertyId }: NewD
       };
       if (propertyId) fields.PropertyLookupId = propertyId;
       if (deadlineType) fields.DeadlineType = deadlineType;
-      if (responsibleParty) fields.ResponsibleParty = responsibleParty;
+      if (assignedTo) fields.AssignedTo = assignedTo;
       if (notes.trim()) fields.DeadlineNotes = notes.trim();
       if (property?.fields.cahpState) fields.cahpState = property.fields.cahpState;
       await createListItem(LIST_NAMES.ComplianceDeadlines, fields);
@@ -139,17 +130,13 @@ export function NewDeadlineModal({ onClose, onSuccess, defaultPropertyId }: NewD
               ))}
             </select>
           </Field>
-          <Field label="Responsible Party">
-            <select
-              value={responsibleParty}
-              onChange={(e) => setResponsibleParty(e.target.value as ResponsibleParty | '')}
-              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
-            >
-              <option value="">— select —</option>
-              {RESPONSIBLE_PARTIES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
+          <Field label="Assigned To">
+            <AssigneePicker
+              value={assignedTo}
+              onChange={setAssignedTo}
+              disabled={saving}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500"
+            />
           </Field>
           <Field label="Notes">
             <textarea
