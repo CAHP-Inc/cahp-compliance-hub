@@ -30,13 +30,13 @@ const TYPE_CARDS: { value: OwnerType; title: string; description: string; icon: 
   {
     value: 'LLC',
     title: 'LLC',
-    description: 'A limited liability company. Can have members (other LLCs or Individuals).',
+    description: 'A limited liability company — including single-member LLCs wholly owned by a nonprofit (e.g., CAHP SC, LLC). Use LLC even if the LLC is tax-exempt by virtue of its nonprofit owner.',
     icon: '🏢',
   },
   {
     value: 'Nonprofit',
-    title: 'Nonprofit',
-    description: 'A 501(c)(3) or similar nonprofit entity (e.g., Carolina Affordable Housing Project).',
+    title: 'Nonprofit Corporation',
+    description: 'A 501(c)(3) or similar nonprofit CORPORATION itself (e.g., Carolina Affordable Housing Project, Inc.). Subsidiary LLCs owned by the nonprofit are still LLCs — pick LLC for those.',
     icon: '🏛️',
   },
   {
