@@ -334,7 +334,7 @@ export function PropertyDetail() {
       {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} />}
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
-      {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} propertyTitle={property.fields.Title} />}
+      {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} property={property} />}
       {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
       {activeTab === 'outstanding' && id && <PropertyOutstandingTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
@@ -1123,8 +1123,9 @@ const OWNER_TYPE_BADGE_STYLES: Record<string, string> = {
   Nonprofit: 'bg-teal-100 text-teal-800',
 };
 
-function PropertyOrgChartTab({ propertyId, propertyTitle }: { propertyId: string; propertyTitle: string }) {
+function PropertyOrgChartTab({ propertyId, property }: { propertyId: string; property: Property }) {
   const [layout, setLayout] = useState<ChartLayout>('detailed');
+  const propertyTitle = property.fields.Title ?? '(unnamed)';
 
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
@@ -1183,7 +1184,7 @@ function PropertyOrgChartTab({ propertyId, propertyTitle }: { propertyId: string
         <>
           {layout === 'detailed' && <DetailedChart tree={tree} propertyTitle={propertyTitle} />}
           {layout === 'beneficial' && <BeneficialChart beneficialOwners={beneficial} propertyTitle={propertyTitle} />}
-          {layout === 'dor' && <DORChart tree={tree} propertyTitle={propertyTitle} />}
+          {layout === 'dor' && <DORChart tree={tree} property={property} owners={owners.data ?? []} />}
         </>
       )}
     </div>
@@ -1300,22 +1301,21 @@ function BeneficialChart({
 // Layout 3: DOR-Friendly (bottom-up, property at the bottom)
 // ─────────────────────────────────────────────────────────────
 
-function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitle: string }) {
-  // Render the actual tree structure (not flat levels). Each top-level node + its
-  // upstream chain becomes a column above the property. The property sits at the bottom
-  // and all top-level (direct) owners feed into it.
-  //
-  // For 700 Brook St this produces:
-  //   Marwar Ventures           Carolina Affordable Housing Project, Inc.
-  //                                          |
-  //                                     CAHP SC, LLC
-  //         \                              /
-  //          \____________________________/
-  //                        |
-  //                   700 Brook St
-  //
-  // Each column is rooted at a TOP-level (beneficial / terminal) owner. Direct owners
-  // of the property sit just above the property line. Their upstream parents stack ABOVE them.
+function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property: Property; owners: Owner[] }) {
+  // Identify the "Manager-Managed by X" line — pick the direct owner whose role is Managing Member
+  const managerName = useMemo(() => {
+    const managerNode = tree.find(
+      (n) => n.relationship.fields.RelationshipType === 'Managing Member'
+    );
+    if (!managerNode?.owner) return undefined;
+    return managerNode.owner.fields.Title;
+  }, [tree]);
+
+  // Resolve the legal entity name. Use Property.LegalEntity if set, otherwise fall back to Title.
+  const legalEntity = property.fields.LegalEntity || property.fields.Title || '(unnamed)';
+
+  // Suppress unused for the lint; owners is reserved for future enhancements
+  void owners;
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5 overflow-x-auto">
@@ -1334,7 +1334,6 @@ function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitl
         <div className="flex justify-center w-full">
           <div className="text-gray-400">
             <svg width="200" height="32" viewBox="0 0 200 32" xmlns="http://www.w3.org/2000/svg">
-              {/* Lines converging into a single point above the property */}
               <line x1="20" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
               <line x1="100" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
               <line x1="180" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
@@ -1343,9 +1342,14 @@ function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitl
           </div>
         </div>
 
-        {/* Property */}
-        <div className="min-w-[200px]">
-          <PropertyRootNode title={propertyTitle} />
+        {/* Property — full DOR-style card */}
+        <div>
+          <PropertyRootNode
+            legalEntity={legalEntity}
+            ownerState={property.fields.cahpState}
+            address={property.fields.PropertyAddress}
+            managerName={managerName}
+          />
         </div>
       </div>
     </div>
@@ -1427,12 +1431,44 @@ function flattenColumn(directNode: OwnershipNode): OwnershipNode[] {
 // Shared node components
 // ─────────────────────────────────────────────────────────────
 
-function PropertyRootNode({ title }: { title: string }) {
+function PropertyRootNode({
+  title,
+  legalEntity,
+  ownerState,
+  address,
+  managerName,
+}: {
+  title?: string;          // For Detailed / Beneficial views — just a small label
+  legalEntity?: string;    // For DOR view — large card with full entity details
+  ownerState?: string;
+  address?: string;
+  managerName?: string;
+}) {
+  // Detailed-mode rendering: large green card matching DOR convention
+  if (legalEntity) {
+    const stateName = ownerState ? spellState(ownerState) : '';
+    return (
+      <div className="inline-block bg-teal-700 text-white rounded-lg px-6 py-4 shadow-md min-w-[320px] text-center">
+        <div className="font-bold text-base uppercase tracking-wide">{legalEntity}</div>
+        {stateName && (
+          <div className="text-xs text-teal-100 mt-1">{stateName} LLC</div>
+        )}
+        {managerName && (
+          <div className="text-xs text-teal-100">Manager-Managed by {managerName}</div>
+        )}
+        {address && (
+          <div className="text-xs text-teal-100 mt-0.5">{address}</div>
+        )}
+      </div>
+    );
+  }
+
+  // Compact mode (Detailed / Beneficial views)
   return (
     <div className="inline-block bg-gold-50 border-2 border-gold-500 rounded-lg px-4 py-2 shadow-sm">
       <div className="flex items-center gap-2">
         <Icon name="folder" size={14} className="text-gold-700" />
-        <span className="font-bold text-teal-900 text-sm">{title}</span>
+        <span className="font-bold text-teal-900 text-sm">{title ?? '(unnamed)'}</span>
         <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gold-200 text-gold-900">
           PROPERTY
         </span>
