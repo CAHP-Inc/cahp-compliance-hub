@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSharePointList } from '../lib/sharepoint';
+import { useSharePointList, updateListItem, LIST_NAMES, type Owner } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
 
@@ -27,6 +27,7 @@ interface AggregatedDoc {
   uploadDate?: string;
   uploader?: string;
   size?: number;
+  currentOwnerTag?: string;  // For in-app tagging — the OwnerLookupId on this doc, if any
 }
 
 export interface EntityDocumentsSectionProps {
@@ -81,6 +82,19 @@ export function EntityDocumentsSection({
   const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [manageMode, setManageMode] = useState(false);
+  const [savingTagId, setSavingTagId] = useState<string | null>(null);
+
+  // Fetch all owners (regardless of in-scope) to populate the tagging dropdown in manage mode
+  const allOwners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const cahpOwnerOptions = useMemo(() => {
+    return (allOwners.data ?? [])
+      .filter((o) => {
+        const t = (o.fields.Title ?? '').toLowerCase();
+        return t.includes('cahp') || t.includes('carolina affordable housing project');
+      })
+      .sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
+  }, [allOwners.data]);
 
   const ownerIdSet = useMemo(() => new Set(ownerIds.map(String)), [ownerIds]);
 
@@ -93,10 +107,12 @@ export function EntityDocumentsSection({
     if (useCahpEntityLibrary && cahpLib.data) {
       cahpLib.data.forEach((item) => {
         const ownerTag = item.fields.OwnerLookupId ? String(item.fields.OwnerLookupId) : null;
-        const include =
-          ownerIds.length === 0 ||                            // no scope restriction → show all
-          (ownerTag && ownerIdSet.has(ownerTag)) ||           // tagged to one of the in-scope entities
-          (!ownerTag && !strictEntityFilter);                 // untagged: include unless strict mode
+        // In manage mode, surface ALL docs (including untagged + out-of-scope) so they can be tagged
+        const include = manageMode
+          ? true
+          : ownerIds.length === 0 ||                            // no scope restriction → show all
+            (ownerTag && ownerIdSet.has(ownerTag)) ||           // tagged to one of the in-scope entities
+            (!ownerTag && !strictEntityFilter);                 // untagged: include unless strict mode
         if (!include) return;
         collected.push({
           id: `${CAHP_ENTITY_LIBRARY}:${item.id}`,
@@ -107,6 +123,7 @@ export function EntityDocumentsSection({
           uploadDate: item.fields.Modified || item.lastModifiedDateTime,
           uploader: item.fields.Editor?.LookupValue,
           size: item.fields.File_x0020_Size ? parseInt(item.fields.File_x0020_Size, 10) : undefined,
+          currentOwnerTag: ownerTag ?? undefined,
         });
       });
     }
@@ -141,7 +158,7 @@ export function EntityDocumentsSection({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data,
-    cahpLib.data, ownerIdSet, useCahpEntityLibrary, strictEntityFilter,
+    cahpLib.data, ownerIdSet, useCahpEntityLibrary, strictEntityFilter, manageMode,
   ]);
 
   // Count of untagged docs in the CAHP library — surface as a hint on entity pages in strict mode
@@ -154,6 +171,22 @@ export function EntityDocumentsSection({
   const refetchAll = () => {
     libraries.forEach((l) => l.refetch?.());
     cahpLib.refetch?.();
+  };
+
+  const handleTagChange = async (doc: AggregatedDoc, newOwnerId: string) => {
+    setSavingTagId(doc.id);
+    try {
+      await updateListItem(CAHP_ENTITY_LIBRARY, doc.itemId, {
+        OwnerLookupId: newOwnerId || null,
+      });
+      await cahpLib.refetch?.();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to update tag:', e);
+      alert('Failed to save tag. Check console for details.');
+    } finally {
+      setSavingTagId(null);
+    }
   };
 
   // Group by library for display
@@ -185,21 +218,43 @@ export function EntityDocumentsSection({
           </h3>
           {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
         </div>
-        {uploadOwnerId && (
-          <button
-            onClick={() => setUploadOpen(true)}
-            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
-          >
-            <Icon name="plus" size={12} />
-            Upload
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {useCahpEntityLibrary && (
+            <button
+              onClick={() => setManageMode((v) => !v)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border ${
+                manageMode
+                  ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Icon name={manageMode ? 'check' : 'file'} size={12} />
+              {manageMode ? 'Done tagging' : 'Manage tags'}
+            </button>
+          )}
+          {uploadOwnerId && (
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+            >
+              <Icon name="plus" size={12} />
+              Upload
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
         <div className="px-4 py-6 text-center text-xs text-gray-500">Loading documents…</div>
       ) : (
         <>
+          {manageMode && (
+            <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 text-xs text-amber-900">
+              <strong>Manage tags mode.</strong> All docs in the CAHP Entity Documents library are listed below
+              (including untagged + out-of-scope). Pick an entity from the dropdown on each row to tag it.
+              Saves auto-commit to SharePoint.
+            </div>
+          )}
           {strictEntityFilter && untaggedCahpCount > 0 && (
             <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 text-xs text-amber-900 flex items-start gap-2">
               <Icon name="alert" size={12} className="text-amber-700 flex-shrink-0 mt-0.5" />
@@ -233,7 +288,10 @@ export function EntityDocumentsSection({
                 {library} ({libraryDocs.length})
               </div>
               <ul className="space-y-1">
-                {libraryDocs.map((d) => (
+                {libraryDocs.map((d) => {
+                  const isCahpLibDoc = d.library === CAHP_ENTITY_LIBRARY;
+                  const showTagger = manageMode && isCahpLibDoc;
+                  return (
                   <li key={d.id} className="text-xs flex items-center justify-between gap-2 py-1">
                     <a
                       href={d.webUrl}
@@ -244,11 +302,33 @@ export function EntityDocumentsSection({
                       <Icon name="file" size={11} />
                       <span className="truncate">{d.filename}</span>
                     </a>
+                    {showTagger ? (
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <select
+                          value={d.currentOwnerTag ?? ''}
+                          onChange={(e) => handleTagChange(d, e.target.value)}
+                          disabled={savingTagId === d.id}
+                          className="px-2 py-1 border border-gray-300 rounded text-[11px] bg-white focus:outline-none focus:border-teal-500 disabled:opacity-50 max-w-[200px]"
+                        >
+                          <option value="">— Untagged —</option>
+                          {cahpOwnerOptions.map((o) => (
+                            <option key={o.id} value={String(o.id)}>
+                              {o.fields.Title}
+                            </option>
+                          ))}
+                        </select>
+                        {savingTagId === d.id && (
+                          <div className="w-3 h-3 rounded-full border-2 border-teal-500 border-r-transparent animate-spin" />
+                        )}
+                      </div>
+                    ) : (
                     <span className="text-gray-400 font-mono-data text-[10px] flex-shrink-0">
                       {d.uploadDate ? new Date(d.uploadDate).toLocaleDateString() : ''}
                     </span>
+                    )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           ))}

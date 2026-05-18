@@ -279,6 +279,30 @@ export function OwnerDetail() {
           onChange={(v) => handleFieldChange('ContactEmail', v as string)}
         />
         <EditableField
+          label="Sponsor / Principal"
+          value={display.SponsorName}
+          editing={editing}
+          onChange={(v) => handleFieldChange('SponsorName', v as string)}
+        />
+        <EditableField
+          label="Address"
+          value={display.OwnerAddress}
+          editing={editing}
+          type="textarea"
+          rows={2}
+          onChange={(v) => handleFieldChange('OwnerAddress', v as string)}
+        />
+        {(owner.fields.OwnerType === 'Nonprofit' || display.OwnerType === 'Nonprofit') && (
+          <EditableField
+            label="Tax Exempt (501(c)(3))"
+            value={display.IsTaxExempt ? 'Yes' : 'No'}
+            editing={editing}
+            type="choice"
+            choices={['Yes', 'No'] as const}
+            onChange={(v) => handleFieldChange('IsTaxExempt', v === 'Yes' as never)}
+          />
+        )}
+        <EditableField
           label="Notes"
           value={display.OwnerNotes}
           editing={editing}

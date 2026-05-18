@@ -445,6 +445,10 @@ export interface OwnerFields {
   TaxID?: string;                  // EIN or SSN — masked in UI
   ContactEmail?: string;
   OwnerNotes?: string;
+  // PR-17 — org chart display fields
+  SponsorName?: string;            // The human owner/principal behind the entity (e.g., "Deepak Maheshwari" for Marwar Ventures)
+  OwnerAddress?: string;           // Address of the entity (shown on detailed org charts)
+  IsTaxExempt?: boolean;           // For nonprofits — adds "IRC § 501(c)(3) Tax-Exempt" line to org chart
 }
 
 export type Owner = SharePointListItem<OwnerFields>;
@@ -478,6 +482,8 @@ export interface OwnershipFields {
   EffectiveDate?: string;
   SourceDocument?: string;
   EntityNotes?: string;
+  // PR-17 — per-relationship metadata for org chart display
+  MemberClass?: string;                        // Class A / Class B / Class C / N/A — appears on org chart card
 }
 
 export type Ownership = SharePointListItem<OwnershipFields>;

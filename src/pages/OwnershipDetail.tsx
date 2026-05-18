@@ -294,6 +294,14 @@ export function OwnershipDetail() {
             mono
             onChange={(v) => handleFieldChange('OwnershipPercent', v as number)}
           />
+          <EditableField
+            label="Member Class"
+            value={display.MemberClass}
+            editing={editing}
+            type="choice"
+            choices={['', 'Class A', 'Class B', 'Class C', 'Class D', 'N/A'] as const}
+            onChange={(v) => handleFieldChange('MemberClass', (v as string) || undefined)}
+          />
         </Section>
 
         <Section title="Hierarchy">

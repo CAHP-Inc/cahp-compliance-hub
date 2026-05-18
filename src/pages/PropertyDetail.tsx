@@ -5,6 +5,7 @@ import {
   useSharePointList,
   createListItem,
   updateListItem,
+  deleteListItem,
   LIST_NAMES,
   type Property,
   type PropertyFields,
@@ -1300,41 +1301,50 @@ function BeneficialChart({
 // ─────────────────────────────────────────────────────────────
 
 function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitle: string }) {
-  // Group nodes by depth and render bottom-up: deepest nodes at the top, property at the bottom
-  const levelGroups = useMemo(() => groupByDepth(tree), [tree]);
-  const maxDepth = levelGroups.length;
+  // Render the actual tree structure (not flat levels). Each top-level node + its
+  // upstream chain becomes a column above the property. The property sits at the bottom
+  // and all top-level (direct) owners feed into it.
+  //
+  // For 700 Brook St this produces:
+  //   Marwar Ventures           Carolina Affordable Housing Project, Inc.
+  //                                          |
+  //                                     CAHP SC, LLC
+  //         \                              /
+  //          \____________________________/
+  //                        |
+  //                   700 Brook St
+  //
+  // Each column is rooted at a TOP-level (beneficial / terminal) owner. Direct owners
+  // of the property sit just above the property line. Their upstream parents stack ABOVE them.
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card p-5 overflow-x-auto">
       <p className="text-xs text-gray-500 mb-4 italic">
         Beneficial owners at the top, property at the bottom — the orientation DOR prefers for org chart submissions.
       </p>
-      <div className="flex flex-col items-center space-y-3 min-w-fit">
-        {[...levelGroups].reverse().map((nodes, idx) => (
-          <div key={idx} className="flex flex-col items-center">
-            <div className="flex flex-wrap justify-center gap-3 max-w-4xl">
-              {nodes.map((node) => (
-                <div key={node.relationship.id} className="min-w-[200px]">
-                  <EntityCard
-                    name={node.owner?.fields.Title ?? '(unresolved)'}
-                    ownerType={node.owner?.fields.OwnerType}
-                    relationshipType={node.relationship.fields.RelationshipType}
-                    percent={node.relationship.fields.OwnershipPercent}
-                  />
-                </div>
-              ))}
-            </div>
-            {/* Connector arrow */}
-            {idx < maxDepth && (
-              <div className="my-1 text-gray-400 text-xs flex flex-col items-center">
-                <div className="w-0.5 h-3 bg-gray-300" />
-                <Icon name="alert" size={10} className="rotate-180" />
-              </div>
-            )}
+      <div className="flex flex-col items-center min-w-fit">
+        {/* Top section: one column per direct owner of the property */}
+        <div className="flex flex-row items-end justify-center gap-6 mb-2">
+          {tree.map((directOwner) => (
+            <DORColumn key={directOwner.relationship.id} node={directOwner} />
+          ))}
+        </div>
+
+        {/* Convergence arrows pointing to property */}
+        <div className="flex justify-center w-full">
+          <div className="text-gray-400">
+            <svg width="200" height="32" viewBox="0 0 200 32" xmlns="http://www.w3.org/2000/svg">
+              {/* Lines converging into a single point above the property */}
+              <line x1="20" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
+              <line x1="100" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
+              <line x1="180" y1="0" x2="100" y2="24" stroke="currentColor" strokeWidth="1" />
+              <polygon points="100,32 96,24 104,24" fill="currentColor" />
+            </svg>
           </div>
-        ))}
-        {/* Property at the bottom */}
-        <div className="min-w-[200px] pt-1">
+        </div>
+
+        {/* Property */}
+        <div className="min-w-[200px]">
           <PropertyRootNode title={propertyTitle} />
         </div>
       </div>
@@ -1342,17 +1352,66 @@ function DORChart({ tree, propertyTitle }: { tree: OwnershipNode[]; propertyTitl
   );
 }
 
-function groupByDepth(tree: OwnershipNode[]): OwnershipNode[][] {
-  const groups: OwnershipNode[][] = [];
-  function walk(nodes: OwnershipNode[], depth: number) {
-    if (!groups[depth]) groups[depth] = [];
-    nodes.forEach((n) => {
-      groups[depth].push(n);
-      if (n.children.length > 0) walk(n.children, depth + 1);
-    });
+/**
+ * Renders one direct-owner-of-the-property as a vertical column:
+ *   - Topmost ancestor at the top
+ *   - Each descendant beneath it
+ *   - The direct-owner-of-property at the bottom (just above the property row)
+ *
+ * Walks UP from the direct owner to its terminals via the children array.
+ * (Tree shape: direct.children = ancestors of direct, recursively.)
+ */
+function DORColumn({ node }: { node: OwnershipNode }) {
+  // Flatten the column: collect direct owner + its ancestor chain (children in tree = ancestors)
+  // Order returned: deepest ancestor first → direct owner last
+  const chain = useMemo(() => flattenColumn(node), [node]);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {chain.map((n, idx) => (
+        <div key={n.relationship.id} className="flex flex-col items-center">
+          <EntityCard
+            name={n.owner?.fields.Title ?? '(unresolved)'}
+            ownerType={n.owner?.fields.OwnerType}
+            relationshipType={n.relationship.fields.RelationshipType}
+            percent={n.relationship.fields.OwnershipPercent}
+            memberClass={n.relationship.fields.MemberClass}
+            sponsorName={n.owner?.fields.SponsorName}
+            stateOfFormation={n.owner?.fields.OwnerState}
+          />
+          {idx < chain.length - 1 && (
+            <div className="text-gray-400">
+              <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
+                <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
+                <polygon points="6,20 2,14 10,14" fill="currentColor" />
+              </svg>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Returns the chain from TOP-most ancestor to direct-owner-of-property.
+ * The tree shape is inverted: a node's children are its PARENTS (member-of relationships).
+ * For DOR rendering, we want top-most ancestor first → direct owner last.
+ *
+ * Example: direct owner = CAHP SC, LLC (children = [CAHP Inc])
+ *   → returns [CAHP Inc, CAHP SC LLC]
+ */
+function flattenColumn(directNode: OwnershipNode): OwnershipNode[] {
+  // BFS upward, collecting ancestors. If multiple parents at a level, take the first
+  // (DOR org charts can't easily render branching above a direct owner).
+  const ancestors: OwnershipNode[] = [];
+  let cursor: OwnershipNode | null = directNode;
+  while (cursor && cursor.children.length > 0) {
+    ancestors.push(cursor.children[0]);
+    cursor = cursor.children[0];
   }
-  walk(tree, 0);
-  return groups;
+  // Reverse: top-most first
+  return [...ancestors.reverse(), directNode];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1378,15 +1437,33 @@ function EntityCard({
   ownerType,
   relationshipType,
   percent,
+  memberClass,
+  sponsorName,
+  stateOfFormation,
 }: {
   name: string;
   ownerType?: string;
   relationshipType?: string;
   percent?: number;
+  memberClass?: string;
+  sponsorName?: string;
+  stateOfFormation?: string;
 }) {
+  // Build the "type" line — e.g., "South Carolina LLC" or "South Carolina Nonprofit Corp."
+  const typeLine =
+    ownerType === 'Nonprofit'
+      ? `${stateOfFormation ? stateOfFormation + ' ' : ''}Nonprofit Corp.`
+      : ownerType === 'LLC'
+        ? `${stateOfFormation ? stateOfFormation + ' ' : ''}LLC`
+        : ownerType === 'Trust'
+          ? 'Trust'
+          : ownerType === 'Corporation'
+            ? `${stateOfFormation ? stateOfFormation + ' ' : ''}Corporation`
+            : ownerType ?? '';
+
   return (
-    <div className="inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm">
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className="inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center">
+      <div className="flex items-center justify-center gap-2 flex-wrap">
         <span className="font-semibold text-gray-900 text-sm">{name}</span>
         {ownerType && (
           <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${OWNER_TYPE_BADGE_STYLES[ownerType] ?? 'bg-gray-100 text-gray-700'}`}>
@@ -1394,7 +1471,16 @@ function EntityCard({
           </span>
         )}
       </div>
-      <div className="text-xs text-gray-600 mt-0.5 font-mono-data">
+      {typeLine && (
+        <div className="text-[11px] text-gray-600 mt-0.5">{typeLine}</div>
+      )}
+      {sponsorName && (
+        <div className="text-[11px] text-gray-600 italic">
+          Sponsor: {sponsorName}
+        </div>
+      )}
+      <div className="text-xs text-gray-700 mt-1 font-mono-data">
+        {memberClass && <span className="mr-1 font-semibold">{memberClass}</span>}
         {relationshipType ?? 'Member'} · {percent != null ? `${percent}%` : '—'}
       </div>
     </div>
@@ -1480,13 +1566,28 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
               <th className="px-4 py-3 text-left">Role</th>
               <th className="px-4 py-3 text-right">%</th>
               <th className="px-4 py-3 text-left">Effective</th>
+              <th className="px-4 py-3 text-right w-20"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {directOwnership.map((o) => {
               const owner = o.fields.OwnerLookupId ? ownersById.get(String(o.fields.OwnerLookupId)) : null;
               const entityName = owner?.fields.Title ?? o.fields.Title ?? '(unnamed)';
-              const isLegacy = !owner; // Row predates the Owner lookup migration
+              const isLegacy = !owner;
+              const handleUnlink = async (e: React.MouseEvent) => {
+                e.stopPropagation();
+                const confirmed = window.confirm(
+                  `Remove ${entityName} from this property's ownership?\n\nThis deletes the Ownership record only — the Owner entity itself is preserved. ` +
+                  `Use this when ownership changes. Action is logged.`
+                );
+                if (!confirmed) return;
+                try {
+                  await deleteListItem(LIST_NAMES.Ownership, o.id);
+                  await ownership.refetch?.();
+                } catch (err) {
+                  alert('Failed to unlink: ' + (err instanceof Error ? err.message : String(err)));
+                }
+              };
               return (
                 <tr
                   key={o.id}
@@ -1523,6 +1624,15 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
                   </td>
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
                     {formatDate(o.fields.EffectiveDate)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={handleUnlink}
+                      className="text-[11px] text-gray-500 hover:text-error font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                      title="Remove this owner from the property"
+                    >
+                      Unlink
+                    </button>
                   </td>
                 </tr>
               );
