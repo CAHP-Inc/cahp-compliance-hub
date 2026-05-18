@@ -1583,6 +1583,7 @@ function PropertyDocumentsTab({
   propertyState?: 'SC' | 'NC';
 }) {
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [referenceDocsOpen, setReferenceDocsOpen] = useState(false);
 
   // Owners + ownership fetch — to identify CAHP entities + property-owner entities for reference sections
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
@@ -1635,25 +1636,42 @@ function PropertyDocumentsTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId, lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
 
-  // Identify CAHP entity owners — must be computed BEFORE any early return to keep hook order stable
-  // State-aware: for an SC property, exclude CAHP NC LLC's docs (and vice versa).
-  // The nonprofit (no state) is always included since it's the umbrella parent.
+  // Property's actual ownership chain — every owner + parent-owner reachable from this property's Ownership records
+  const propertyOwnerChain = useMemo(() => {
+    if (!ownership?.data) return new Set<string>();
+    const ids = new Set<string>();
+    ownership.data.forEach((rel) => {
+      if (String(rel.fields.LinkedPropertyLookupId) !== String(propertyId)) return;
+      if (rel.fields.OwnerLookupId) ids.add(String(rel.fields.OwnerLookupId));
+      if (rel.fields.ParentOwnerLookupId) ids.add(String(rel.fields.ParentOwnerLookupId));
+    });
+    return ids;
+  }, [ownership?.data, propertyId]);
+
+  // CAHP entities to surface on this property — strict chain-based:
+  // only CAHP entities that are actually in the property's ownership chain.
+  // State filter still applies as a secondary guard (excludes opposite-state entities).
   const cahpEntityIds = useMemo(() => {
     return owners.data
       ?.filter((o) => {
         const title = (o.fields.Title ?? '').toLowerCase();
         const isCahp = title.includes('cahp') || title.includes('carolina affordable housing project');
         if (!isCahp) return false;
-        // State-scope filter — only applies if propertyState is set and the owner has a state
+
+        // Chain-based filter — must be in this property's ownership chain
+        if (propertyOwnerChain.size > 0 && !propertyOwnerChain.has(String(o.id))) {
+          return false;
+        }
+
+        // State-scope filter — secondary guard
         if (propertyState && o.fields.OwnerState) {
-          // Exclude entities whose state is the OPPOSITE of this property's state
           if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
           if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
         }
         return true;
       })
       .map((o) => String(o.id)) ?? [];
-  }, [owners.data, propertyState]);
+  }, [owners.data, propertyState, propertyOwnerChain]);
 
   // Identify property's direct-owner entity IDs (the LLCs that hold this property)
   const propertyOwnerIds = useMemo(() => {
@@ -1680,25 +1698,7 @@ function PropertyDocumentsTab({
 
   return (
     <div>
-      {/* CAHP entity reference docs — read from the dedicated CAHP Entity Documents library */}
-      <EntityDocumentsSection
-        ownerIds={cahpEntityIds}
-        title="CAHP Entity Reference Documents"
-        subtitle="Entity-level docs (OAs, formation, EIN, determination letters) used across all property filings."
-        variant="inline"
-        useCahpEntityLibrary
-      />
-
-      {/* Property-owner reference docs */}
-      {propertyOwnerIds.length > 0 && (
-        <EntityDocumentsSection
-          ownerIds={propertyOwnerIds}
-          title="Property-Owner Entity Documents"
-          subtitle="Formation docs for the LLC that holds this property — EIN, Articles, COE, Cert of Authorization."
-          variant="inline"
-        />
-      )}
-
+      {/* Property documents — primary content */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">
           {documents.length === 0
@@ -1770,6 +1770,63 @@ function PropertyDocumentsTab({
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Reference documents — collapsible, shown below property docs */}
+      {(cahpEntityIds.length > 0 || propertyOwnerIds.length > 0) && (
+        <div className="mt-6 bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <button
+            onClick={() => setReferenceDocsOpen((v) => !v)}
+            className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Icon
+                name={referenceDocsOpen ? 'check' : 'plus'}
+                size={12}
+                className="text-gray-400 flex-shrink-0"
+              />
+              <h3 className="text-sm font-semibold text-teal-900">Reference Documents</h3>
+              <span className="text-[11px] text-gray-500">
+                Entity-level docs from this property's ownership chain (CAHP entities + owner LLC formation docs).
+              </span>
+            </div>
+            <span className="text-[11px] text-teal-700 font-medium">
+              {referenceDocsOpen ? 'Hide' : 'Show'}
+            </span>
+          </button>
+
+          {referenceDocsOpen && (
+            <div className="border-t border-gray-100">
+              {/* CAHP entity reference docs — only entities in this property's ownership chain */}
+              {cahpEntityIds.length > 0 && (
+                <EntityDocumentsSection
+                  ownerIds={cahpEntityIds}
+                  title="CAHP Entity Documents"
+                  subtitle="Filtered to entities in this property's ownership chain only."
+                  variant="inline"
+                  useCahpEntityLibrary
+                />
+              )}
+
+              {/* Property-owner reference docs */}
+              {propertyOwnerIds.length > 0 && (
+                <EntityDocumentsSection
+                  ownerIds={propertyOwnerIds}
+                  title="Property-Owner Entity Documents"
+                  subtitle="Formation docs for the LLC that holds this property — EIN, Articles, COE, Cert of Authorization."
+                  variant="inline"
+                />
+              )}
+
+              {cahpEntityIds.length === 0 && propertyOwnerIds.length === 0 && (
+                <div className="px-4 py-6 text-center text-xs text-gray-500">
+                  No reference documents found. Make sure this property has Ownership records linking
+                  it to its owner entities.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

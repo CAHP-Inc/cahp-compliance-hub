@@ -48,6 +48,12 @@ export interface EntityDocumentsSectionProps {
    * membership itself is the filter. ownerIds is ignored in this mode.
    */
   useCahpEntityLibrary?: boolean;
+  /**
+   * When true, only docs tagged to one of the ownerIds are shown. Untagged docs
+   * are excluded. Use this on entity detail pages where users expect a strict
+   * per-entity view. Default false (untagged docs treated as shared).
+   */
+  strictEntityFilter?: boolean;
 }
 
 export function EntityDocumentsSection({
@@ -58,6 +64,7 @@ export function EntityDocumentsSection({
   uploadOwnerId,
   variant = 'card',
   useCahpEntityLibrary = false,
+  strictEntityFilter = false,
 }: EntityDocumentsSectionProps) {
   // Fetch the 8 property libraries (for OwnerLookupId-tagged docs)
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -81,15 +88,15 @@ export function EntityDocumentsSection({
     const collected: AggregatedDoc[] = [];
 
     // 1. Files from the dedicated CAHP Entity Documents library
-    // Filter by OwnerLookupId match (with untagged files treated as "shared" — visible everywhere)
+    // Filter by OwnerLookupId match. Untagged docs are treated as "shared" (visible everywhere)
+    // UNLESS strictEntityFilter is true, in which case untagged docs are hidden.
     if (useCahpEntityLibrary && cahpLib.data) {
       cahpLib.data.forEach((item) => {
         const ownerTag = item.fields.OwnerLookupId ? String(item.fields.OwnerLookupId) : null;
-        // If no ownerIds restriction OR doc is untagged OR doc's tag matches one of ownerIds — include
         const include =
-          ownerIds.length === 0 ||      // no scope restriction → show all
-          !ownerTag ||                  // untagged → shared, show everywhere
-          ownerIdSet.has(ownerTag);     // tagged to one of the in-scope entities
+          ownerIds.length === 0 ||                            // no scope restriction → show all
+          (ownerTag && ownerIdSet.has(ownerTag)) ||           // tagged to one of the in-scope entities
+          (!ownerTag && !strictEntityFilter);                 // untagged: include unless strict mode
         if (!include) return;
         collected.push({
           id: `${CAHP_ENTITY_LIBRARY}:${item.id}`,
@@ -134,8 +141,14 @@ export function EntityDocumentsSection({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data,
-    cahpLib.data, ownerIdSet, useCahpEntityLibrary,
+    cahpLib.data, ownerIdSet, useCahpEntityLibrary, strictEntityFilter,
   ]);
+
+  // Count of untagged docs in the CAHP library — surface as a hint on entity pages in strict mode
+  const untaggedCahpCount = useMemo(() => {
+    if (!useCahpEntityLibrary || !cahpLib.data) return 0;
+    return cahpLib.data.filter((d) => !d.fields.OwnerLookupId).length;
+  }, [useCahpEntityLibrary, cahpLib.data]);
 
   const loading = libraries.some((l) => l.loading) || (useCahpEntityLibrary && cahpLib.loading);
   const refetchAll = () => {
@@ -185,7 +198,19 @@ export function EntityDocumentsSection({
 
       {loading ? (
         <div className="px-4 py-6 text-center text-xs text-gray-500">Loading documents…</div>
-      ) : docs.length === 0 ? (
+      ) : (
+        <>
+          {strictEntityFilter && untaggedCahpCount > 0 && (
+            <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+              <Icon name="alert" size={12} className="text-amber-700 flex-shrink-0 mt-0.5" />
+              <span>
+                <strong>{untaggedCahpCount}</strong> doc{untaggedCahpCount === 1 ? '' : 's'} in the CAHP Entity Documents library
+                {' '}{untaggedCahpCount === 1 ? "isn't" : "aren't"} tagged to a specific entity yet.
+                Open the library in SharePoint and set the <strong>Owner</strong> column on each file so it surfaces here.
+              </span>
+            </div>
+          )}
+          {docs.length === 0 ? (
         <div className="px-4 py-6 text-center">
           <p className="text-xs text-gray-500 mb-2">
             No documents tagged to {primaryOwnerTitle ?? 'this entity'} yet.
@@ -228,6 +253,8 @@ export function EntityDocumentsSection({
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
 
       {uploadOpen && uploadOwnerId && (

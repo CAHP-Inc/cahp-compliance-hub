@@ -338,6 +338,7 @@ function CAHPEntityTab({
         subtitle="OAs, formation docs, EIN, determination letters. Stored in the CAHP Entity Documents library and surfaced as reference material on every property filing."
         uploadOwnerId={String(entity.id)}
         useCahpEntityLibrary
+        strictEntityFilter
       />
     </div>
   );
