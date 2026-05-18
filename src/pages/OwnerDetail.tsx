@@ -18,6 +18,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import {
   BreadcrumbBar,
   Section,
@@ -48,6 +49,7 @@ export function OwnerDetail() {
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
 
   const [editing, setEditing] = useState(false);
+  const [editingOwnershipId, setEditingOwnershipId] = useState<string | null>(null);
   const [draft, setDraft] = useState<OwnerFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -352,6 +354,7 @@ export function OwnerDetail() {
                   <th className="px-4 py-3 text-left">Role</th>
                   <th className="px-4 py-3 text-right">%</th>
                   <th className="px-4 py-3 text-left">Effective</th>
+                  <th className="px-4 py-3 text-right w-16"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -377,6 +380,18 @@ export function OwnerDetail() {
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
                       {rel.fields.EffectiveDate ? new Date(rel.fields.EffectiveDate).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingOwnershipId(rel.id);
+                        }}
+                        className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 transition-colors"
+                        title="Edit all fields on this membership record"
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -482,6 +497,14 @@ export function OwnerDetail() {
         subtitle="Entity formation docs (EIN, Articles, COE, Cert of Authorization, OA) — uploaded once, surfaced on every property this owner holds."
         uploadOwnerId={String(owner.id)}
       />
+
+      {editingOwnershipId && (
+        <EditOwnershipModal
+          ownershipId={editingOwnershipId}
+          onClose={() => setEditingOwnershipId(null)}
+          onSaved={() => ownership.refetch?.()}
+        />
+      )}
     </div>
   );
 }

@@ -1449,66 +1449,55 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
  * Walks UP from the direct owner to its terminals via the children array.
  * (Tree shape: direct.children = ancestors of direct, recursively.)
  */
+/**
+ * Recursive tree renderer for the DOR org chart.
+ * Each node renders its parents (children in the tree) ABOVE it, side by side,
+ * with arrows converging down. Recurses up the chain until terminal owners.
+ *
+ * Tree shape reminder: `node.children` are the upstream OWNERS of this node
+ * (the relationships where someone owns a piece of this node), NOT subordinates.
+ */
 function DORColumn({ node }: { node: OwnershipNode }) {
-  // Flatten the column: collect direct owner + its ancestor chain (children in tree = ancestors)
-  // Order returned: deepest ancestor first → direct owner last
-  const chain = useMemo(() => flattenColumn(node), [node]);
+  // "Single-member LLC" inference: exactly one upstream parent owning 100%
+  const isSingleMember =
+    node.children.length === 1 &&
+    node.children[0].relationship.fields.OwnershipPercent === 100;
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      {chain.map((n, idx) => {
-        // "Single-member LLC" inference: this entity has exactly one upstream parent at 100%
-        const isSingleMember =
-          n.children.length === 1 &&
-          n.children[0].relationship.fields.OwnershipPercent === 100;
-        return (
-        <div key={n.relationship.id} className="flex flex-col items-center">
-          <EntityCard
-            name={n.owner?.fields.Title ?? '(unresolved)'}
-            ownerType={n.owner?.fields.OwnerType}
-            relationshipType={n.relationship.fields.RelationshipType}
-            percent={n.relationship.fields.OwnershipPercent}
-            memberClass={n.relationship.fields.MemberClass}
-            sponsorName={n.owner?.fields.SponsorName}
-            stateOfFormation={n.owner?.fields.OwnerState}
-            isTaxExempt={n.owner?.fields.IsTaxExempt}
-            entityDescription={n.owner?.fields.EntityDescription}
-            isSingleMember={isSingleMember}
-          />
-          {idx < chain.length - 1 && (
-            <div className="text-gray-400">
-              <svg width="12" height="20" viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
-                <line x1="6" y1="0" x2="6" y2="14" stroke="currentColor" strokeWidth="1" />
-                <polygon points="6,20 2,14 10,14" fill="currentColor" />
-              </svg>
-            </div>
-          )}
-        </div>
-        );
-      })}
+    <div className="flex flex-col items-center gap-0">
+      {/* Render all parents (if any) ABOVE this node, side by side */}
+      {node.children.length > 0 && (
+        <>
+          <div className="flex flex-row items-end justify-center gap-4">
+            {node.children.map((parent) => (
+              <DORColumn key={parent.relationship.id} node={parent} />
+            ))}
+          </div>
+          {/* Connector arrow from parents down to this node */}
+          <div className="text-gray-400 my-1">
+            <svg width="12" height="16" viewBox="0 0 12 16" xmlns="http://www.w3.org/2000/svg">
+              <line x1="6" y1="0" x2="6" y2="10" stroke="currentColor" strokeWidth="1" />
+              <polygon points="6,16 2,10 10,10" fill="currentColor" />
+            </svg>
+          </div>
+        </>
+      )}
+
+      {/* This node */}
+      <EntityCard
+        name={node.owner?.fields.Title ?? '(unresolved)'}
+        ownerType={node.owner?.fields.OwnerType}
+        relationshipType={node.relationship.fields.RelationshipType}
+        percent={node.relationship.fields.OwnershipPercent}
+        memberClass={node.relationship.fields.MemberClass}
+        sponsorName={node.owner?.fields.SponsorName}
+        stateOfFormation={node.owner?.fields.OwnerState}
+        isTaxExempt={node.owner?.fields.IsTaxExempt}
+        entityDescription={node.owner?.fields.EntityDescription}
+        isSingleMember={isSingleMember}
+      />
     </div>
   );
-}
-
-/**
- * Returns the chain from TOP-most ancestor to direct-owner-of-property.
- * The tree shape is inverted: a node's children are its PARENTS (member-of relationships).
- * For DOR rendering, we want top-most ancestor first → direct owner last.
- *
- * Example: direct owner = CAHP SC, LLC (children = [CAHP Inc])
- *   → returns [CAHP Inc, CAHP SC LLC]
- */
-function flattenColumn(directNode: OwnershipNode): OwnershipNode[] {
-  // BFS upward, collecting ancestors. If multiple parents at a level, take the first
-  // (DOR org charts can't easily render branching above a direct owner).
-  const ancestors: OwnershipNode[] = [];
-  let cursor: OwnershipNode | null = directNode;
-  while (cursor && cursor.children.length > 0) {
-    ancestors.push(cursor.children[0]);
-    cursor = cursor.children[0];
-  }
-  // Reverse: top-most first
-  return [...ancestors.reverse(), directNode];
 }
 
 // ─────────────────────────────────────────────────────────────
