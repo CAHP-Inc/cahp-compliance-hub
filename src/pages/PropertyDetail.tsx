@@ -1829,8 +1829,31 @@ function PropertyOwnershipTab({ propertyId, propertyTitle }: { propertyId: strin
                       <option value="N/A">N/A</option>
                     </select>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono-data">
-                    {o.fields.OwnershipPercent != null ? `${o.fields.OwnershipPercent}%` : '—'}
+                  <td className="px-4 py-3 text-right font-mono-data" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={100}
+                      value={o.fields.OwnershipPercent ?? ''}
+                      onChange={async (e) => {
+                        const raw = e.target.value;
+                        const newValue = raw === '' ? null : Number(raw);
+                        if (raw !== '' && (Number.isNaN(newValue!) || newValue! < 0 || newValue! > 100)) {
+                          return;
+                        }
+                        try {
+                          await updateListItem(LIST_NAMES.Ownership, o.id, {
+                            OwnershipPercent: newValue,
+                          });
+                          await ownership.refetch?.();
+                        } catch (err) {
+                          alert('Failed to save %: ' + (err instanceof Error ? err.message : String(err)));
+                        }
+                      }}
+                      className="w-16 px-1.5 py-0.5 text-[11px] border border-gray-200 rounded text-right hover:border-gray-400 focus:outline-none focus:border-teal-500 bg-white font-mono-data"
+                      title="Click to edit ownership percentage"
+                    />
                   </td>
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
                     {formatDate(o.fields.EffectiveDate)}
