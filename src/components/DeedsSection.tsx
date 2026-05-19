@@ -10,6 +10,7 @@ import {
   type DeedType,
   type TaxMapID,
   type Property,
+  type Owner,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
 import { formatDateOnly, toDateOnlyISO } from '../lib/dates';
@@ -43,24 +44,11 @@ const DEED_TYPE_STYLES: Record<DeedType, string> = {
   'Other': 'bg-gray-100 text-gray-800',
 };
 
-/**
- * SharePoint URL fields are stored as { Url, Description }. Normalize to string.
- */
-function getUrlValue(v: unknown): string {
-  if (!v) return '';
-  if (typeof v === 'string') return v;
-  if (typeof v === 'object' && v !== null && 'Url' in v) {
-    return (v as { Url: string }).Url ?? '';
-  }
-  return '';
-}
-
 export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }: DeedsSectionProps) {
   const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
   const links = useSharePointList<DeedParcelLink>(LIST_NAMES.DeedParcelLinks, { top: 1000 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
 
-  const [addOpen, setAddOpen] = useState(false);
   const [editingDeedId, setEditingDeedId] = useState<string | null>(null);
 
   // Index parcels by id for fast lookup
@@ -141,21 +129,38 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
           <p className="text-xs text-gray-600 mt-0.5">{subtitle}</p>
         </div>
         {ownerId && (
-          <button
-            onClick={() => setAddOpen(true)}
+          <a
+            href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+            target="_blank"
+            rel="noopener noreferrer"
             className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+            title="Upload a new deed PDF to the Property Deeds library, then come back here to fill in metadata."
           >
             <Icon name="plus" size={12} />
-            Add Deed
-          </button>
+            Upload Deed PDF →
+          </a>
         )}
       </div>
 
       {filteredDeeds.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-gray-500">
-          {ownerId
-            ? 'No deeds recorded for this entity yet. Add one to capture the chain of title.'
-            : 'No deeds touch this property yet.'}
+          {ownerId ? (
+            <>
+              <p className="mb-2">No deeds yet for this entity.</p>
+              <p className="text-xs">
+                Upload a deed PDF to the{' '}
+                <a
+                  href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-700 hover:text-teal-900 underline"
+                >
+                  Property Deeds library
+                </a>
+                , then refresh this page to fill in metadata and link parcels.
+              </p>
+            </>
+          ) : 'No deeds touch this property yet.'}
         </div>
       ) : (
         <table className="w-full text-sm">
@@ -176,7 +181,9 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
               const linkedParcels = [...linkedParcelIds]
                 .map((id) => parcelsById.get(id))
                 .filter((t): t is TaxMapID => !!t);
-              const url = getUrlValue(d.fields.DocumentURL);
+              // Library items have webUrl directly on the item (the file's view URL)
+              const url = d.webUrl ?? '';
+              const displayLabel = d.fields.Title || d.fields.FileLeafRef || '(untitled)';
               return (
                 <tr key={d.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">
@@ -188,10 +195,10 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
                         className="text-teal-700 hover:text-teal-900 underline"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {d.fields.Title}
+                        {displayLabel}
                       </a>
                     ) : (
-                      d.fields.Title
+                      displayLabel
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -237,18 +244,6 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
         </table>
       )}
 
-      {addOpen && ownerId && (
-        <DeedModal
-          granteeOwnerId={ownerId}
-          granteeOwnerTitle={ownerTitle ?? ''}
-          onClose={() => setAddOpen(false)}
-          onSaved={() => {
-            deeds.refetch?.();
-            links.refetch?.();
-          }}
-        />
-      )}
-
       {editingDeedId && (
         <DeedModal
           deedId={editingDeedId}
@@ -268,30 +263,41 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
 }
 
 // ---------------------------------------------------------------------------
-// Add / Edit Deed modal
+// Add / Edit Deed modal (exported so other sections can open it)
 // ---------------------------------------------------------------------------
-interface DeedModalProps {
+export interface DeedModalProps {
   deedId?: string;
-  granteeOwnerId: string;
-  granteeOwnerTitle: string;
+  /** If set, locks the grantee to this owner (no picker). Used from Owner page. */
+  granteeOwnerId?: string;
+  granteeOwnerTitle?: string;
   existingDeed?: Deed;
   existingLinkedParcelIds?: Set<string>;
+  /** When opening for new deed, pre-check these parcels in the multi-select. */
+  preCheckedParcelIds?: Set<string>;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function DeedModal({
+export function DeedModal({
   deedId,
-  granteeOwnerId,
+  granteeOwnerId: fixedGranteeOwnerId,
   granteeOwnerTitle,
   existingDeed,
   existingLinkedParcelIds,
+  preCheckedParcelIds,
   onClose,
   onSaved,
 }: DeedModalProps) {
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const allLinks = useSharePointList<DeedParcelLink>(LIST_NAMES.DeedParcelLinks, { top: 1000 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
+  // Grantee can either be locked (passed in) or picked here
+  const initialGranteeId =
+    fixedGranteeOwnerId ||
+    (existingDeed?.fields.GranteeOwnerLookupId ? String(existingDeed.fields.GranteeOwnerLookupId) : '');
+  const [granteeOwnerId, setGranteeOwnerId] = useState(initialGranteeId);
 
   const [title, setTitle] = useState(existingDeed?.fields.Title ?? '');
   const [grantor, setGrantor] = useState(existingDeed?.fields.GrantorName ?? '');
@@ -306,14 +312,25 @@ function DeedModal({
   const [consideration, setConsideration] = useState<string>(
     existingDeed?.fields.ConsiderationAmount?.toString() ?? ''
   );
-  const [docUrl, setDocUrl] = useState(getUrlValue(existingDeed?.fields.DocumentURL));
   const [notes, setNotes] = useState(existingDeed?.fields.DeedNotes ?? '');
   const [selectedParcelIds, setSelectedParcelIds] = useState<Set<string>>(
-    new Set(existingLinkedParcelIds ?? [])
+    new Set([...(existingLinkedParcelIds ?? []), ...(preCheckedParcelIds ?? [])])
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Lookup title of selected grantee for display
+  const selectedGranteeTitle =
+    granteeOwnerTitle ||
+    owners.data?.find((o) => String(o.id) === String(granteeOwnerId))?.fields.Title ||
+    '';
+
+  const sortedOwners = useMemo(() => {
+    return [...(owners.data ?? [])].sort((a, b) =>
+      (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')
+    );
+  }, [owners.data]);
 
   // Group parcels by property for display
   const parcelsGrouped = useMemo(() => {
@@ -348,6 +365,10 @@ function DeedModal({
       setError('Deed label is required.');
       return;
     }
+    if (!granteeOwnerId) {
+      setError('Grantee entity is required.');
+      return;
+    }
     if (selectedParcelIds.size === 0) {
       setError('Select at least one tax map ID this deed covers.');
       return;
@@ -355,7 +376,7 @@ function DeedModal({
     setSaving(true);
     setError(null);
     try {
-      // Build deed payload
+      // Build deed payload (library item metadata)
       const deedPayload: Record<string, unknown> = {
         Title: title.trim(),
         GranteeOwnerLookupId: Number(granteeOwnerId),
@@ -367,21 +388,17 @@ function DeedModal({
         ConsiderationAmount: consideration ? Number(consideration) : undefined,
         DeedNotes: notes.trim() || undefined,
       };
-      // SharePoint URL fields take object form
-      if (docUrl.trim()) {
-        deedPayload.DocumentURL = { Url: docUrl.trim(), Description: docUrl.trim() };
-      } else {
-        deedPayload.DocumentURL = null;
-      }
 
-      let savedDeedId: string;
-      if (deedId) {
-        await updateListItem(LIST_NAMES.Deeds, deedId, deedPayload);
-        savedDeedId = deedId;
-      } else {
-        const created = await createListItem<{ id: string }>(LIST_NAMES.Deeds, deedPayload);
-        savedDeedId = String(created.id);
+      // Library items are created by uploading a PDF to SharePoint, never
+      // by app-side metadata create. If we don't have an existing deedId,
+      // this is a bug — the modal shouldn't allow save in that case.
+      if (!deedId) {
+        setError('To create a new deed, first upload the PDF to the Property Deeds library in SharePoint, then come back and edit its metadata.');
+        setSaving(false);
+        return;
       }
+      await updateListItem(LIST_NAMES.Deeds, deedId, deedPayload);
+      const savedDeedId = deedId;
 
       // Diff junction rows: add new, remove unselected
       const previouslyLinked = existingLinkedParcelIds ?? new Set<string>();
@@ -420,7 +437,9 @@ function DeedModal({
   const handleDelete = async () => {
     if (!deedId) return;
     const ok = window.confirm(
-      'Delete this deed and all its parcel links?\n\nThis does not delete the underlying PDF document, only the structured deed record.'
+      'Unlink this deed from all its parcels?\n\n' +
+      'This removes the parcel links and clears the deed metadata, but does NOT delete the PDF file from the Property Deeds library. ' +
+      'To delete the PDF itself, remove it directly from SharePoint.'
     );
     if (!ok) return;
     setDeleting(true);
@@ -432,8 +451,17 @@ function DeedModal({
       for (const row of existingJunctionRows) {
         await deleteListItem(LIST_NAMES.DeedParcelLinks, row.id);
       }
-      // Then the deed itself
-      await deleteListItem(LIST_NAMES.Deeds, deedId);
+      // Clear the metadata on the library item (don't delete the file)
+      await updateListItem(LIST_NAMES.Deeds, deedId, {
+        GranteeOwnerLookupId: null,
+        GrantorName: null,
+        DeedType: null,
+        DateRecorded: null,
+        BookPage: null,
+        RecordingCounty: null,
+        ConsiderationAmount: null,
+        DeedNotes: null,
+      });
       onSaved();
       onClose();
     } catch (err) {
@@ -454,12 +482,32 @@ function DeedModal({
           <h2 className="text-lg font-bold text-teal-700">
             {deedId ? 'Edit Deed' : 'Add Deed'}
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Grantee entity: <strong>{granteeOwnerTitle}</strong>
-          </p>
+          {fixedGranteeOwnerId && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Grantee entity: <strong>{selectedGranteeTitle || '—'}</strong>
+            </p>
+          )}
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {!fixedGranteeOwnerId && (
+            <Row label="Grantee Entity *">
+              <select
+                value={granteeOwnerId}
+                onChange={(e) => setGranteeOwnerId(e.target.value)}
+                disabled={saving}
+                className={INPUT + ' bg-white'}
+              >
+                <option value="">— Select the receiving entity —</option>
+                {sortedOwners.map((o) => (
+                  <option key={o.id} value={String(o.id)}>{o.fields.Title}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                The entity that received this deed. Usually the LLC that holds title.
+              </p>
+            </Row>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <Row label="Deed Label / Instrument # *">
               <input
@@ -542,28 +590,36 @@ function DeedModal({
             </Row>
           </div>
 
-          <Row label="Document URL (link to deed PDF in SharePoint)">
-            <input
-              type="url"
-              value={docUrl}
-              onChange={(e) => setDocUrl(e.target.value)}
-              disabled={saving}
-              placeholder="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/..."
-              className={INPUT}
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Deed PDFs live in the{' '}
-              <a
-                href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-teal-700 hover:text-teal-900 underline"
-              >
-                Property Deeds library
-              </a>
-              . Open it in a new tab, right-click the PDF → "Copy link" → paste here.
-            </p>
-          </Row>
+          {existingDeed && (
+            <Row label="PDF File">
+              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs flex items-center justify-between gap-2">
+                <span className="font-mono-data text-gray-700 truncate">
+                  {existingDeed.fields.FileLeafRef || '(filename unknown)'}
+                </span>
+                {existingDeed.webUrl && (
+                  <a
+                    href={existingDeed.webUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-teal-700 hover:text-teal-900 underline whitespace-nowrap"
+                  >
+                    Open PDF →
+                  </a>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                To replace the PDF, upload a new version directly in the{' '}
+                <a
+                  href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-700 hover:text-teal-900 underline"
+                >
+                  Property Deeds library
+                </a>.
+              </p>
+            </Row>
+          )}
 
           <Row label="Notes">
             <textarea
@@ -632,7 +688,7 @@ function DeedModal({
               disabled={saving || deleting}
               className="text-xs text-error hover:text-red-700 font-medium px-3 py-1.5 rounded hover:bg-red-50 disabled:opacity-50"
             >
-              {deleting ? 'Deleting…' : 'Delete deed'}
+              {deleting ? 'Unlinking…' : 'Unlink + clear metadata'}
             </button>
           ) : <div />}
           <div className="flex items-center gap-2">
@@ -645,7 +701,7 @@ function DeedModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || deleting || !title.trim() || selectedParcelIds.size === 0}
+              disabled={saving || deleting || !title.trim() || !granteeOwnerId || selectedParcelIds.size === 0}
               className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
             >
               {saving ? (

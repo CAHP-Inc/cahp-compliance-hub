@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -28,10 +28,73 @@ export function Properties() {
     top: 200,
   });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+
+  /**
+   * Parcels per property — used to indicate multi-parcel filings.
+   */
+  const parcelCountByProperty = useMemo(() => {
+    const map = new Map<string, number>();
+    (taxMapIDs.data ?? []).forEach((t) => {
+      const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
+      if (!pid) return;
+      map.set(pid, (map.get(pid) ?? 0) + 1);
+    });
+    return map;
+  }, [taxMapIDs.data]);
+
+  /**
+   * For each property's latest year+filing-type, count submittals by status.
+   * Used to show "X of N Filed" style multi-parcel breakdown.
+   */
+  const filingAggregateByProperty = useMemo(() => {
+    if (!submittals.data) return new Map<string, { total: number; filed: number; approved: number; denied: number; draft: number; year?: string; filingType?: string }>();
+    // Find max-year + tiebreaking latest filing per property first
+    const latestKey = new Map<string, { year: string; filingType: string }>();
+    submittals.data.forEach((s) => {
+      const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
+      if (!pid) return;
+      const year = s.fields.cahpTaxYear ?? '';
+      const ft = s.fields.FilingType ?? '';
+      const cur = latestKey.get(pid);
+      if (!cur || (year > cur.year) || (year === cur.year && ft > cur.filingType)) {
+        latestKey.set(pid, { year, filingType: ft });
+      }
+    });
+    // Aggregate counts for that latest year+filing-type
+    const result = new Map<string, { total: number; filed: number; approved: number; denied: number; draft: number; year?: string; filingType?: string }>();
+    latestKey.forEach((key, pid) => {
+      const matching = submittals.data!.filter(
+        (s) =>
+          String(s.fields.PropertyLookupId ?? '') === pid &&
+          (s.fields.cahpTaxYear ?? '') === key.year &&
+          (s.fields.FilingType ?? '') === key.filingType
+      );
+      const agg = {
+        total: matching.length,
+        filed: 0,
+        approved: 0,
+        denied: 0,
+        draft: 0,
+        year: key.year || undefined,
+        filingType: key.filingType || undefined,
+      };
+      matching.forEach((s) => {
+        const status = s.fields.SubmittalStatus;
+        if (status === 'Draft') agg.draft++;
+        else if (status === 'Approved') agg.approved++;
+        else if (status === 'Denied') agg.denied++;
+        else if (status) agg.filed++; // Filed, Letter Received, Responded etc.
+      });
+      result.set(pid, agg);
+    });
+    return result;
+  }, [submittals.data]);
 
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<CahpState | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
+  const [sortBy, setSortBy] = useState<'name' | 'filingStatus'>('name');
 
   /**
    * Build a map of propertyId → most recent submittal for the property.
@@ -77,8 +140,33 @@ export function Properties() {
       return true;
     });
     // Client-side sort — SharePoint won't sort server-side because Title isn't indexed
+    if (sortBy === 'filingStatus') {
+      // Status order per workflow: Draft → Filed → Letter Received → Responded → Denied → Approved → Withdrawn
+      // Properties without any submittal go to the bottom.
+      const ORDER: Record<string, number> = {
+        'Draft': 1,
+        'Filed': 2,
+        'Letter Received - Action Needed': 3,
+        'Letter Received': 3,
+        'Responded - Awaiting DOR': 4,
+        'Denied': 5,
+        'Approved': 6,
+        'Withdrawn': 7,
+      };
+      return result.sort((a, b) => {
+        const aSub = latestSubmittalByProperty.get(a.id);
+        const bSub = latestSubmittalByProperty.get(b.id);
+        const aStatus = aSub?.fields.SubmittalStatus ?? '';
+        const bStatus = bSub?.fields.SubmittalStatus ?? '';
+        const aRank = ORDER[aStatus] ?? 99;
+        const bRank = ORDER[bStatus] ?? 99;
+        if (aRank !== bRank) return aRank - bRank;
+        // Tiebreaker: property name
+        return (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '');
+      });
+    }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter]);
+  }, [data, search, stateFilter, statusFilter, sortBy, latestSubmittalByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -140,6 +228,17 @@ export function Properties() {
           onChange={(v) => setStatusFilter(v as PropertyStatus | 'All')}
           options={['All', 'Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold']}
         />
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Sort:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'name' | 'filingStatus')}
+            className="text-xs px-2 py-1.5 border border-gray-200 rounded-md bg-white focus:outline-none focus:border-teal-500"
+          >
+            <option value="name">Property name</option>
+            <option value="filingStatus">Filing status</option>
+          </select>
+        </div>
         {filtered.length !== data.length && (
           <span className="text-xs text-gray-500 px-1">
             {filtered.length} of {data.length}
@@ -216,27 +315,72 @@ export function Properties() {
                   </td>
                   <td className="px-4 py-3">
                     {(() => {
+                      const agg = filingAggregateByProperty.get(p.id);
                       const sub = latestSubmittalByProperty.get(p.id);
-                      if (!sub) {
-                        return <span className="text-gray-400 text-xs italic">Not Filed</span>;
+                      const parcelCount = parcelCountByProperty.get(p.id) ?? 0;
+
+                      if (!sub || !agg) {
+                        return (
+                          <div className="flex flex-col gap-0.5 items-start">
+                            <span className="text-gray-400 text-xs italic">Not Filed</span>
+                            {parcelCount > 1 && (
+                              <span className="text-[10px] text-gray-400 font-mono-data">
+                                {parcelCount} parcels
+                              </span>
+                            )}
+                          </div>
+                        );
                       }
+
                       const status = sub.fields.SubmittalStatus;
-                      const taxYear = sub.fields.cahpTaxYear;
-                      const filingType = sub.fields.FilingType;
+                      const year = agg.year ?? sub.fields.cahpTaxYear;
+                      const filingType = agg.filingType ?? sub.fields.FilingType;
+                      const multiParcel = agg.total > 1;
+
+                      // Decide what the "headline" status is
+                      // Mixed → show "Mixed"; uniform → show that single status
+                      const allApproved = agg.approved === agg.total;
+                      const allDenied = agg.denied === agg.total;
+                      const allDraft = agg.draft === agg.total;
+                      const allFiled = agg.filed === agg.total;
+                      const isMixed = multiParcel && !allApproved && !allDenied && !allDraft && !allFiled;
+                      const headlineStatus = isMixed ? 'Mixed' : status;
+
                       return (
                         <div className="flex flex-col gap-0.5 items-start">
-                          {status && (
+                          {headlineStatus && (
                             <span
                               className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                                FILING_STATUS_STYLES[status] || 'bg-gray-100 text-gray-700'
+                                FILING_STATUS_STYLES[headlineStatus as SubmittalStatusValue] || 'bg-purple-100 text-purple-800'
                               }`}
                             >
-                              {status}
+                              {headlineStatus}
                             </span>
                           )}
-                          {(taxYear || filingType) && (
+                          {(year || filingType) && (
                             <span className="text-[10px] text-gray-500 font-mono-data">
-                              {taxYear ?? ''}{taxYear && filingType ? ' · ' : ''}{filingType ?? ''}
+                              {year ?? ''}{year && filingType ? ' · ' : ''}{filingType ?? ''}
+                            </span>
+                          )}
+                          {multiParcel && (
+                            <span
+                              className="text-[10px] text-gray-600 font-mono-data"
+                              title={`${agg.draft} Draft / ${agg.filed} Filed / ${agg.approved} Approved / ${agg.denied} Denied`}
+                            >
+                              {isMixed ? (
+                                <>
+                                  {agg.approved > 0 && <span className="text-green-700">{agg.approved}A</span>}
+                                  {agg.approved > 0 && (agg.filed + agg.denied + agg.draft > 0) && ' / '}
+                                  {agg.filed > 0 && <span className="text-blue-700">{agg.filed}F</span>}
+                                  {agg.filed > 0 && (agg.denied + agg.draft > 0) && ' / '}
+                                  {agg.denied > 0 && <span className="text-red-700">{agg.denied}D</span>}
+                                  {agg.denied > 0 && agg.draft > 0 && ' / '}
+                                  {agg.draft > 0 && <span className="text-gray-600">{agg.draft}Dr</span>}
+                                  {' of '}{agg.total}
+                                </>
+                              ) : (
+                                <>{agg.total} of {parcelCount} parcels</>
+                              )}
                             </span>
                           )}
                         </div>

@@ -53,6 +53,8 @@ export function Submittals() {
   const [yearFilter, setYearFilter] = useState<CahpTaxYear | 'All'>('All');
   const [filingTypeFilter, setFilingTypeFilter] = useState<SubmittalFilingType | 'All'>('All');
   const [newSubmittalOpen, setNewSubmittalOpen] = useState(false);
+  const [groupByProperty, setGroupByProperty] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const loading = submittals.loading || properties.loading;
   const error = submittals.error || properties.error;
@@ -89,6 +91,75 @@ export function Submittals() {
         return db - da;
       });
   }, [submittals.data, search, statusFilter, yearFilter, filingTypeFilter, propertiesById]);
+
+  /**
+   * Group filtered submittals by property + year + filing type.
+   * Each group represents one "filing campaign" — what shows up as one MyDORWAY filing
+   * if it covers a single parcel, or one parent filing covering N parcels (Townes at Converse).
+   */
+  type SubmittalGroup = {
+    key: string;
+    propertyId: string;
+    propertyTitle: string;
+    year: string;
+    filingType: string;
+    submittals: Submittal[];
+    counts: { total: number; draft: number; filed: number; approved: number; denied: number };
+    headlineStatus: string;
+  };
+  const grouped: SubmittalGroup[] = useMemo(() => {
+    const groups = new Map<string, SubmittalGroup>();
+    filtered.forEach((s) => {
+      const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
+      const year = s.fields.cahpTaxYear ?? '';
+      const ft = s.fields.FilingType ?? '';
+      const key = `${pid}::${year}::${ft}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = {
+          key,
+          propertyId: pid,
+          propertyTitle: propertiesById.get(pid)?.fields.Title ?? '(unknown property)',
+          year,
+          filingType: ft,
+          submittals: [],
+          counts: { total: 0, draft: 0, filed: 0, approved: 0, denied: 0 },
+          headlineStatus: '',
+        };
+        groups.set(key, g);
+      }
+      g.submittals.push(s);
+      g.counts.total++;
+      const status = s.fields.SubmittalStatus;
+      if (status === 'Draft') g.counts.draft++;
+      else if (status === 'Approved') g.counts.approved++;
+      else if (status === 'Denied') g.counts.denied++;
+      else if (status) g.counts.filed++;
+    });
+    // Compute headline status per group: uniform → that status; otherwise "Mixed"
+    groups.forEach((g) => {
+      const { total, draft, filed, approved, denied } = g.counts;
+      if (approved === total) g.headlineStatus = 'Approved';
+      else if (denied === total) g.headlineStatus = 'Denied';
+      else if (draft === total) g.headlineStatus = 'Draft';
+      else if (filed === total) g.headlineStatus = 'Filed';
+      else g.headlineStatus = 'Mixed';
+    });
+    return Array.from(groups.values()).sort((a, b) => {
+      // Year DESC, then property name
+      if (a.year !== b.year) return (b.year || '').localeCompare(a.year || '');
+      return a.propertyTitle.localeCompare(b.propertyTitle);
+    });
+  }, [filtered, propertiesById]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const stats = useMemo(() => {
     if (!submittals.data) return null;
@@ -204,6 +275,15 @@ export function Submittals() {
           <option value="Annual">Annual</option>
           <option value="Amendment">Amendment</option>
         </select>
+        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer ml-2 select-none">
+          <input
+            type="checkbox"
+            checked={groupByProperty}
+            onChange={(e) => setGroupByProperty(e.target.checked)}
+            className="rounded border-gray-300 text-teal-700 focus:ring-teal-500"
+          />
+          Group by Property
+        </label>
         {filtered.length !== submittals.data.length && (
           <span className="text-xs text-gray-500 px-1">{filtered.length} of {submittals.data.length}</span>
         )}
@@ -233,54 +313,154 @@ export function Submittals() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map((s) => {
-                const property = s.fields.PropertyLookupId
-                  ? propertiesById.get(String(s.fields.PropertyLookupId))
-                  : null;
-                return (
-                  <tr
-                    key={s.id}
-                    onClick={() => navigate(`/submittals/${s.id}`)}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      {property?.fields.Title ?? <span className="text-gray-400 italic">(unlinked)</span>}
-                      {s.fields.Title && property?.fields.Title !== s.fields.Title && (
-                        <div className="text-[11px] text-gray-500 font-mono-data mt-0.5 truncate max-w-xs">{s.fields.Title}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
-                      {(() => {
-                        if (!s.fields.TaxMapIDLookupId) {
-                          return <span className="text-gray-400 italic font-sans">unassigned</span>;
-                        }
-                        const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
-                        return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      {s.fields.FilingType ? (
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${FILING_TYPE_STYLES[s.fields.FilingType]}`}>
-                          {s.fields.FilingType}
+              {groupByProperty ? (
+                grouped.flatMap((g) => {
+                  const isExpanded = expandedGroups.has(g.key);
+                  const headlineColor =
+                    g.headlineStatus === 'Approved' ? 'bg-green-100 text-green-800'
+                    : g.headlineStatus === 'Denied' ? 'bg-red-100 text-red-800'
+                    : g.headlineStatus === 'Draft' ? 'bg-gray-100 text-gray-700'
+                    : g.headlineStatus === 'Mixed' ? 'bg-purple-100 text-purple-800'
+                    : 'bg-blue-100 text-blue-800';
+                  const rows: JSX.Element[] = [];
+                  // Group header row
+                  rows.push(
+                    <tr
+                      key={g.key}
+                      onClick={() => toggleGroup(g.key)}
+                      className="bg-teal-50 hover:bg-teal-100 cursor-pointer border-l-4 border-teal-700"
+                    >
+                      <td className="px-4 py-3 font-semibold text-teal-900">
+                        <span className="inline-block w-4 text-center text-teal-700 mr-1">{isExpanded ? '▾' : '▸'}</span>
+                        {g.propertyTitle}
+                      </td>
+                      <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
+                        {g.counts.total} {g.counts.total === 1 ? 'parcel' : 'parcels'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{g.year || '—'}</td>
+                      <td className="px-4 py-3">
+                        {g.filingType ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${FILING_TYPE_STYLES[g.filingType as SubmittalFilingType] ?? 'bg-gray-100 text-gray-700'}`}>
+                            {g.filingType}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${headlineColor}`}>
+                          {g.headlineStatus}
                         </span>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {s.fields.SubmittalStatus ? (
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[s.fields.SubmittalStatus]}`}>
-                          {s.fields.SubmittalStatus}
+                        {g.headlineStatus === 'Mixed' && (
+                          <div className="text-[10px] text-gray-600 font-mono-data mt-0.5">
+                            {g.counts.approved > 0 && <span className="text-green-700">{g.counts.approved}A</span>}
+                            {g.counts.approved > 0 && (g.counts.filed + g.counts.denied + g.counts.draft > 0) && ' / '}
+                            {g.counts.filed > 0 && <span className="text-blue-700">{g.counts.filed}F</span>}
+                            {g.counts.filed > 0 && (g.counts.denied + g.counts.draft > 0) && ' / '}
+                            {g.counts.denied > 0 && <span className="text-red-700">{g.counts.denied}D</span>}
+                            {g.counts.denied > 0 && g.counts.draft > 0 && ' / '}
+                            {g.counts.draft > 0 && <span className="text-gray-700">{g.counts.draft}Dr</span>}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" colSpan={3}>
+                        <span className="text-xs text-gray-500 italic">
+                          {isExpanded ? 'Click to collapse' : `Click to expand ${g.counts.total} submittals`}
                         </span>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                      {formatDateOnly(s.fields.DateFiled)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>
-                  </tr>
-                );
-              })}
+                      </td>
+                    </tr>
+                  );
+                  // Detail rows when expanded
+                  if (isExpanded) {
+                    g.submittals.forEach((s) => {
+                      rows.push(
+                        <tr
+                          key={`${g.key}-${s.id}`}
+                          onClick={() => navigate(`/submittals/${s.id}`)}
+                          className="hover:bg-gray-50 cursor-pointer bg-white"
+                        >
+                          <td className="px-4 py-2 pl-12 text-gray-700 text-xs">
+                            {s.fields.Title || <span className="text-gray-400 italic">(no title)</span>}
+                          </td>
+                          <td className="px-4 py-2 font-mono-data text-xs text-gray-700">
+                            {(() => {
+                              if (!s.fields.TaxMapIDLookupId) return <span className="text-gray-400 italic font-sans">unassigned</span>;
+                              const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
+                              return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
+                            })()}
+                          </td>
+                          <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
+                          <td className="px-4 py-2">
+                            {s.fields.FilingType ? (
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${FILING_TYPE_STYLES[s.fields.FilingType]}`}>
+                                {s.fields.FilingType}
+                              </span>
+                            ) : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-2">
+                            {s.fields.SubmittalStatus ? (
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${STATUS_STYLES[s.fields.SubmittalStatus]}`}>
+                                {s.fields.SubmittalStatus}
+                              </span>
+                            ) : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{formatDateOnly(s.fields.DateFiled)}</td>
+                          <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
+                          <td className="px-4 py-2 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>
+                        </tr>
+                      );
+                    });
+                  }
+                  return rows;
+                })
+              ) : (
+                filtered.map((s) => {
+                  const property = s.fields.PropertyLookupId
+                    ? propertiesById.get(String(s.fields.PropertyLookupId))
+                    : null;
+                  return (
+                    <tr
+                      key={s.id}
+                      onClick={() => navigate(`/submittals/${s.id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        {property?.fields.Title ?? <span className="text-gray-400 italic">(unlinked)</span>}
+                        {s.fields.Title && property?.fields.Title !== s.fields.Title && (
+                          <div className="text-[11px] text-gray-500 font-mono-data mt-0.5 truncate max-w-xs">{s.fields.Title}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
+                        {(() => {
+                          if (!s.fields.TaxMapIDLookupId) {
+                            return <span className="text-gray-400 italic font-sans">unassigned</span>;
+                          }
+                          const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
+                          return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        {s.fields.FilingType ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${FILING_TYPE_STYLES[s.fields.FilingType]}`}>
+                            {s.fields.FilingType}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {s.fields.SubmittalStatus ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[s.fields.SubmittalStatus]}`}>
+                            {s.fields.SubmittalStatus}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
+                        {formatDateOnly(s.fields.DateFiled)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

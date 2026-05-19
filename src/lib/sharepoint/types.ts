@@ -532,7 +532,7 @@ export const LIST_NAMES = {
   Properties: 'Properties Registry',
   Submittals: 'Submittals Tracker',
   TaxMapIDs: 'Tax Map IDs',
-  Deeds: 'Deeds',
+  Deeds: 'Property Deeds',
   DeedParcelLinks: 'Deed Parcel Links',
   ComplianceDeadlines: 'Compliance Deadlines',
   Correspondence: 'DOR Correspondence Log',
@@ -584,7 +584,8 @@ export type DeedType =
   | 'Other';
 
 export interface DeedFields {
-  Title: string;                          // Deed label / instrument #
+  Title?: string;                         // Deed label (auto = filename until edited)
+  FileLeafRef?: string;                   // Filename — library items always have this
   GranteeOwnerLookupId?: string;          // → Owners (the entity receiving)
   GrantorName?: string;
   DeedType?: DeedType;
@@ -592,16 +593,17 @@ export interface DeedFields {
   BookPage?: string;
   RecordingCounty?: string;
   ConsiderationAmount?: number;
-  DocumentURL?: string;                   // Link to PDF in SP doc library
   DeedNotes?: string;
 }
 
 export type Deed = SharePointListItem<DeedFields>;
 
 // Junction list — one row per (deed, parcel) link
+// Deed lookup now points at Property Deeds library (items in libraries
+// work identically to items in lists for lookup purposes).
 export interface DeedParcelLinkFields {
   Title?: string;
-  DeedLookupId?: string;                  // → Deeds
+  DeedLookupId?: string;                  // → Property Deeds library item
   TaxMapIDLookupId?: string;              // → Tax Map IDs
 }
 

@@ -619,10 +619,19 @@ function LinkDeedToParcelModal({
             <div className="p-6 text-center text-sm text-gray-500">
               {search ? 'No deeds match your search.' : (
                 <>
-                  No deeds in the system yet.{' '}
-                  <span className="block mt-1 text-xs text-amber-700">
-                    Add a deed from the owning entity's page first, then come back here to link it.
-                  </span>
+                  <p className="mb-3">No deed PDFs uploaded yet.</p>
+                  <a
+                    href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+                  >
+                    <Icon name="plus" size={14} />
+                    Upload to Property Deeds library →
+                  </a>
+                  <p className="mt-3 text-xs text-gray-500">
+                    Upload your deed PDF in SharePoint, then refresh this page — the file will appear here to link.
+                  </p>
                 </>
               )}
             </div>
@@ -666,9 +675,21 @@ function LinkDeedToParcelModal({
         )}
 
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-2">
-          <span className="text-xs text-gray-600">
-            {selected.size} selected · {existingDeedIds.size} currently linked
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-600">
+              {selected.size} selected · {existingDeedIds.size} currently linked
+            </span>
+            <a
+              href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 inline-flex items-center gap-1"
+              title="Upload a new PDF to the Property Deeds library, then refresh"
+            >
+              <Icon name="plus" size={10} />
+              Upload new PDF →
+            </a>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
