@@ -16,6 +16,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { AssigneePicker } from '../components/AssigneePicker';
+import { formatDateOnly } from '../lib/dates';
 import {
   BreadcrumbBar,
   Section,
@@ -229,7 +230,7 @@ export function OutstandingItemDetail() {
               <>
                 {' · '}Due{' '}
                 <span className={overdue ? 'text-error font-semibold' : ''}>
-                  {new Date(item.fields.DueDate).toLocaleDateString()}
+                  {formatDateOnly(item.fields.DueDate)}
                 </span>
               </>
             )}

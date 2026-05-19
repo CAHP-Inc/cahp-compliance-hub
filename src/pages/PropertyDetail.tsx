@@ -40,6 +40,7 @@ import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentMod
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
+import { formatDateOnly } from '../lib/dates';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -865,7 +866,7 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
                       className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
                       onClick={() => navigate(`/outstanding-items/${o.id}`)}
                     >
-                      {o.fields.DueDate ? new Date(o.fields.DueDate).toLocaleDateString() : '—'}
+                      {formatDateOnly(o.fields.DueDate)}
                     </td>
                     <td
                       className="px-4 py-3 text-xs text-gray-600 cursor-pointer"

@@ -7,6 +7,7 @@ import {
   type DeadlineType,
   type DeadlineStatus,
 } from '../lib/sharepoint';
+import { toDateOnlyISO } from '../lib/dates';
 import { Icon } from './ui/Icon';
 import { AssigneePicker } from './AssigneePicker';
 
@@ -60,7 +61,7 @@ export function NewDeadlineModal({ onClose, onSuccess, defaultPropertyId }: NewD
         : null;
       const fields: Record<string, unknown> = {
         Title: title.trim(),
-        DueDate: new Date(dueDate).toISOString(),
+        DueDate: toDateOnlyISO(dueDate),
         DeadlineStatus: 'Upcoming' as DeadlineStatus,
       };
       if (propertyId) fields.PropertyLookupId = propertyId;

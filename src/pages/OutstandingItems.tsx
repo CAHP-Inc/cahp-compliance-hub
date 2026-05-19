@@ -10,6 +10,7 @@ import {
   type ItemPriority,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateOnly, parseDateOnly } from '../lib/dates';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 
@@ -53,7 +54,8 @@ function getKanbanColumn(status: ItemStatus | undefined): ItemStatus | null {
 
 function isOverdue(item: OutstandingItem): boolean {
   if (!item.fields.DueDate) return false;
-  const due = new Date(item.fields.DueDate);
+  const due = parseDateOnly(item.fields.DueDate);
+  if (!due) return false;
   const closed = item.fields.ItemStatus === 'Done' || item.fields.ItemStatus === 'Received' || item.fields.ItemStatus === 'Not Applicable';
   return due.getTime() < Date.now() && !closed;
 }
@@ -148,8 +150,8 @@ export function OutstandingItems() {
         const aP = priorityOrder[a.fields.Priority ?? 'Medium'] ?? 2;
         const bP = priorityOrder[b.fields.Priority ?? 'Medium'] ?? 2;
         if (aP !== bP) return aP - bP;
-        const aDue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Infinity;
-        const bDue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Infinity;
+        const aDue = a.fields.DueDate ? parseDateOnly(a.fields.DueDate)?.getTime() ?? Infinity : Infinity;
+        const bDue = b.fields.DueDate ? parseDateOnly(b.fields.DueDate)?.getTime() ?? Infinity : Infinity;
         return aDue - bDue;
       });
     });
@@ -459,7 +461,7 @@ function KanbanCard({
           {f.DueDate ? (
             <span className={overdue ? 'text-error font-semibold' : ''}>
               {overdue && '⚠ '}
-              {new Date(f.DueDate).toLocaleDateString()}
+              {formatDateOnly(f.DueDate)}
             </span>
           ) : (
             <span className="text-gray-400">no due date</span>
@@ -599,7 +601,7 @@ function ListView({
                   className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
                   onClick={() => onRowClick(item.id)}
                 >
-                  {item.fields.DueDate ? new Date(item.fields.DueDate).toLocaleDateString() : '—'}
+                  {formatDateOnly(item.fields.DueDate)}
                 </td>
                 <td
                   className="px-4 py-3 text-xs text-gray-600 cursor-pointer"

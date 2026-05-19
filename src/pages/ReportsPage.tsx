@@ -11,6 +11,7 @@ import {
   type Correspondence,
   type OwnerCommunication,
 } from '../lib/sharepoint';
+import { formatDateOnly } from '../lib/dates';
 import {
   REPORTS,
   downloadCSV,
@@ -369,7 +370,7 @@ async function runAnnualFilingReport(
         'Filing Type': s.fields.FilingType ?? '',
         'Filing Method': s.fields.FilingMethod ?? '',
         Status: s.fields.SubmittalStatus ?? '',
-        'Date Filed': s.fields.DateFiled ? new Date(s.fields.DateFiled).toLocaleDateString() : '',
+        'Date Filed': formatDateOnly(s.fields.DateFiled, ''),
         'Confirmation #': s.fields.ConfirmationNumber ?? '',
         'Approved Abatement': s.fields.ApprovedAbatement ?? '',
         'Next Action': s.fields.NextAction ?? '',
@@ -405,7 +406,7 @@ async function runComplianceStatusReport(
       'Overdue Deadlines': overdue.length,
       'Next Deadline': nextDeadline?.fields.Title ?? '',
       'Next Deadline Due': nextDeadline?.fields.DueDate
-        ? new Date(nextDeadline.fields.DueDate).toLocaleDateString()
+        ? formatDateOnly(nextDeadline.fields.DueDate)
         : '',
       'Compliance Status': overdue.length > 0 ? 'OVERDUE' : myDeadlines.length > 0 ? 'On Track' : 'No deadlines',
     };
@@ -440,7 +441,7 @@ async function runOutstandingItemsByOwnerReport(
         Status: o.fields.ItemStatus ?? '',
         Priority: o.fields.Priority ?? '',
         Category: o.fields.ItemCategory ?? '',
-        'Due Date': o.fields.DueDate ? new Date(o.fields.DueDate).toLocaleDateString() : '',
+        'Due Date': formatDateOnly(o.fields.DueDate, ''),
         Overdue: overdue ? 'YES' : '',
         'Date Requested': o.fields.DateRequested
           ? new Date(o.fields.DateRequested).toLocaleDateString()
@@ -486,7 +487,7 @@ async function runDocumentExpirationCalendar(
       Document: c.fields.Title ?? '',
       'Document Type': c.fields.DeadlineType ?? '',
       Property: property?.fields.Title ?? '(portfolio-wide)',
-      'Expires / Due': new Date(c.fields.DueDate).toLocaleDateString(),
+      'Expires / Due': formatDateOnly(c.fields.DueDate),
       'Days Until': Math.floor((due - now) / (24 * 60 * 60 * 1000)),
       Status: c.fields.DeadlineStatus ?? '',
       'Responsible Party': c.fields.ResponsibleParty ?? '',
@@ -578,7 +579,7 @@ async function runPropertyHoldingsReport(
             Role: rel.fields.RelationshipType ?? '',
             'Ownership %': rel.fields.OwnershipPercent ?? '',
             'Effective Date': rel.fields.EffectiveDate
-              ? new Date(rel.fields.EffectiveDate).toLocaleDateString()
+              ? formatDateOnly(rel.fields.EffectiveDate)
               : '',
           });
         });
@@ -675,7 +676,7 @@ async function bundleAuditPack(
       State: s.fields.cahpState ?? '',
       'Filing Type': s.fields.FilingType ?? '',
       Status: s.fields.SubmittalStatus ?? '',
-      'Date Filed': s.fields.DateFiled ? new Date(s.fields.DateFiled).toLocaleDateString() : '',
+      'Date Filed': formatDateOnly(s.fields.DateFiled, ''),
       'Confirmation #': s.fields.ConfirmationNumber ?? '',
       'Approved Abatement': s.fields.ApprovedAbatement ?? '',
     }));
@@ -694,7 +695,7 @@ async function bundleAuditPack(
         Role: rel.fields.RelationshipType ?? '',
         'Ownership %': rel.fields.OwnershipPercent ?? '',
         'Effective Date': rel.fields.EffectiveDate
-          ? new Date(rel.fields.EffectiveDate).toLocaleDateString()
+          ? formatDateOnly(rel.fields.EffectiveDate)
           : '',
       };
     });
@@ -709,7 +710,7 @@ async function bundleAuditPack(
       Deadline: c.fields.Title ?? '',
       Type: c.fields.DeadlineType ?? '',
       Status: c.fields.DeadlineStatus ?? '',
-      'Due Date': c.fields.DueDate ? new Date(c.fields.DueDate).toLocaleDateString() : '',
+      'Due Date': c.fields.DueDate ? formatDateOnly(c.fields.DueDate) : '',
       'Responsible Party': c.fields.ResponsibleParty ?? '',
     }));
 
@@ -735,7 +736,7 @@ async function bundleAuditPack(
       Category: o.fields.ItemCategory ?? '',
       Status: o.fields.ItemStatus ?? '',
       Priority: o.fields.Priority ?? '',
-      'Due Date': o.fields.DueDate ? new Date(o.fields.DueDate).toLocaleDateString() : '',
+      'Due Date': formatDateOnly(o.fields.DueDate, ''),
       'Has Document': o.fields.RelatedDocUrl ? 'YES' : '',
       'Document Filename': o.fields.RelatedDocFilename ?? '',
     }));

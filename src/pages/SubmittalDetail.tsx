@@ -141,9 +141,36 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     },
     { to: 'Denied', label: 'Denied', description: 'DOR denied. Terminal.', style: 'danger' },
   ],
-  'Approved': [],   // Terminal — but show appeal-not-yet-supported note
-  'Denied': [],     // Terminal — appeal logic in Phase 3 maybe
-  'Withdrawn': [],  // Terminal
+  'Approved': [
+    {
+      to: 'Responded - Awaiting DOR',
+      label: 'Reopen (mark as Awaiting DOR)',
+      description: 'Use this if Approved was set in error. Reopens the submittal back to "Responded - Awaiting DOR" so further action can be taken.',
+      style: 'neutral',
+    },
+  ],
+  'Denied': [
+    {
+      to: 'Responded - Awaiting DOR',
+      label: 'Reopen (mark as Awaiting DOR)',
+      description: 'Use this if you submitted additional information after a Denied decision and are now awaiting a fresh DOR response.',
+      style: 'neutral',
+    },
+    {
+      to: 'Letter Received - Action Needed',
+      label: 'Reopen (Action Needed)',
+      description: 'Use this if Denied was set in error or a new letter came in with action items.',
+      style: 'warning',
+    },
+  ],
+  'Withdrawn': [
+    {
+      to: 'Draft',
+      label: 'Reopen (back to Draft)',
+      description: 'Restore this submittal to Draft if it was withdrawn in error or you want to refile.',
+      style: 'neutral',
+    },
+  ],
 };
 
 const TRANSITION_STYLES: Record<Transition['style'], string> = {

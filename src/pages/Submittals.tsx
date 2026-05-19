@@ -10,6 +10,7 @@ import {
   type CahpTaxYear,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateOnly } from '../lib/dates';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -246,7 +247,7 @@ export function Submittals() {
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                      {s.fields.DateFiled ? new Date(s.fields.DateFiled).toLocaleDateString() : '—'}
+                      {formatDateOnly(s.fields.DateFiled)}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>

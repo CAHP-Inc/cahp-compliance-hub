@@ -8,6 +8,7 @@ import {
   type ItemPriority,
   type ItemCategory,
 } from '../lib/sharepoint';
+import { toDateOnlyISO } from '../lib/dates';
 import { notifyUser, resolveAssigneeToUpn } from '../lib/notifications';
 import { useSession } from '../lib/session';
 import { AssigneePicker } from './AssigneePicker';
@@ -88,7 +89,7 @@ export function NewOutstandingItemModal({
         DateRequested: new Date().toISOString(),
       };
       if (propertyId) fields.PropertyLookupId = propertyId;
-      if (dueDate) fields.DueDate = new Date(dueDate).toISOString();
+      if (dueDate) fields.DueDate = toDateOnlyISO(dueDate);
       if (assignedTo) fields.AssignedTo = assignedTo;
       if (notes) fields.ItemNotes = notes;
 

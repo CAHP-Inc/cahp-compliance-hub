@@ -9,6 +9,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { formatDateOnly } from '../lib/dates';
 
 /**
  * CAHP Entity module — Spec §3.5.
@@ -319,9 +320,7 @@ function CAHPEntityTab({
                     {relationship.fields.OwnershipPercent != null ? `${relationship.fields.OwnershipPercent}%` : '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                    {relationship.fields.EffectiveDate
-                      ? new Date(relationship.fields.EffectiveDate).toLocaleDateString()
-                      : '—'}
+                    {formatDateOnly(relationship.fields.EffectiveDate)}
                   </td>
                 </tr>
               ))}

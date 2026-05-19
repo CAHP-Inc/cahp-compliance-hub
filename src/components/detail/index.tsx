@@ -140,14 +140,20 @@ export function EditableField({
       />
     );
   } else if (type === 'date') {
-    const dateValue = value ? new Date(value as string).toISOString().slice(0, 10) : '';
+    // Parse SP ISO into YYYY-MM-DD without timezone shift.
+    let dateValue = '';
+    if (value) {
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      dateValue = match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+    }
     input = (
       <input
         type="date"
         value={dateValue}
-        onChange={(e) =>
-          onChange(e.target.value ? new Date(e.target.value).toISOString() : null)
-        }
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v ? `${v}T12:00:00.000Z` : null);
+        }}
         className={`${inputClass} font-mono-data`}
       />
     );
