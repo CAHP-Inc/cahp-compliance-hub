@@ -647,10 +647,9 @@ export function SubmittalDetail() {
                     <ul className="text-xs space-y-1">
                       {linkedDeeds.map((d) => (
                         <li key={d.id} className="font-mono-data">
-                          <strong>{d.fields.Title}</strong>
-                          {d.fields.DeedType && <span className="font-sans text-gray-700"> · {d.fields.DeedType}</span>}
-                          {d.fields.DateRecorded && <span className="font-sans text-gray-600"> · recorded {formatDateOnly(d.fields.DateRecorded)}</span>}
+                          <strong>{d.fields.Title || d.fields.FileLeafRef}</strong>
                           {d.fields.BookPage && <span className="text-gray-500"> · {d.fields.BookPage}</span>}
+                          {d.fields.DateRecorded && <span className="font-sans text-gray-600"> · recorded {formatDateOnly(d.fields.DateRecorded)}</span>}
                         </li>
                       ))}
                     </ul>

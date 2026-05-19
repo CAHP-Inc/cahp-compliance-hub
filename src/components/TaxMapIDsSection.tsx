@@ -544,7 +544,7 @@ function LinkDeedToParcelModal({
     const q = search.toLowerCase();
     return all.filter((d) =>
       (d.fields.Title ?? '').toLowerCase().includes(q) ||
-      (d.fields.GrantorName ?? '').toLowerCase().includes(q) ||
+      (d.fields.FileLeafRef ?? '').toLowerCase().includes(q) ||
       (d.fields.BookPage ?? '').toLowerCase().includes(q)
     );
   }, [deeds.data, search]);
@@ -653,12 +653,11 @@ function LinkDeedToParcelModal({
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <div className="font-medium text-gray-900">{d.fields.Title}</div>
+                      <div className="font-medium text-gray-900">{d.fields.Title || d.fields.FileLeafRef}</div>
                       <div className="text-[11px] text-gray-500 mt-0.5">
-                        {d.fields.DeedType && <span>{d.fields.DeedType}</span>}
-                        {d.fields.GrantorName && <span> · from {d.fields.GrantorName}</span>}
-                        {d.fields.DateRecorded && <span> · {formatDateOnly(d.fields.DateRecorded)}</span>}
-                        {d.fields.BookPage && <span className="font-mono-data"> · {d.fields.BookPage}</span>}
+                        {d.fields.BookPage && <span className="font-mono-data">{d.fields.BookPage}</span>}
+                        {d.fields.BookPage && d.fields.DateRecorded && <span> · </span>}
+                        {d.fields.DateRecorded && <span>{formatDateOnly(d.fields.DateRecorded)}</span>}
                       </div>
                     </td>
                   </tr>

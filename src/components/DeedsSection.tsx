@@ -7,7 +7,6 @@ import {
   LIST_NAMES,
   type Deed,
   type DeedParcelLink,
-  type DeedType,
   type TaxMapID,
   type Property,
   type Owner,
@@ -23,26 +22,6 @@ interface DeedsSectionProps {
   propertyId?: string;
   propertyTitle?: string;
 }
-
-const DEED_TYPES: DeedType[] = [
-  'Warranty Deed',
-  'Special Warranty Deed',
-  'Limited Warranty Deed',
-  'Quitclaim Deed',
-  "Trustee's Deed",
-  'Tax Deed',
-  'Other',
-];
-
-const DEED_TYPE_STYLES: Record<DeedType, string> = {
-  'Warranty Deed': 'bg-green-100 text-green-800',
-  'Special Warranty Deed': 'bg-emerald-100 text-emerald-800',
-  'Limited Warranty Deed': 'bg-teal-100 text-teal-800',
-  'Quitclaim Deed': 'bg-amber-100 text-amber-800',
-  "Trustee's Deed": 'bg-purple-100 text-purple-800',
-  'Tax Deed': 'bg-red-100 text-red-800',
-  'Other': 'bg-gray-100 text-gray-800',
-};
 
 export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }: DeedsSectionProps) {
   const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
@@ -167,10 +146,8 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
           <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
             <tr>
               <th className="px-4 py-3 text-left">Deed</th>
-              <th className="px-4 py-3 text-left">Type</th>
-              <th className="px-4 py-3 text-left">Grantor</th>
-              <th className="px-4 py-3 text-left">Recorded</th>
               <th className="px-4 py-3 text-left">Book/Page</th>
+              <th className="px-4 py-3 text-left">Recorded</th>
               <th className="px-4 py-3 text-left">Tax Map IDs</th>
               <th className="px-4 py-3 text-right w-20"></th>
             </tr>
@@ -181,7 +158,6 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
               const linkedParcels = [...linkedParcelIds]
                 .map((id) => parcelsById.get(id))
                 .filter((t): t is TaxMapID => !!t);
-              // Library items have webUrl directly on the item (the file's view URL)
               const url = d.webUrl ?? '';
               const displayLabel = d.fields.Title || d.fields.FileLeafRef || '(untitled)';
               return (
@@ -201,18 +177,10 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
                       displayLabel
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    {d.fields.DeedType && (
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${DEED_TYPE_STYLES[d.fields.DeedType]}`}>
-                        {d.fields.DeedType}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-700">{d.fields.GrantorName || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-700 font-mono-data">{d.fields.BookPage || '—'}</td>
                   <td className="px-4 py-3 text-xs text-gray-700 font-mono-data">
                     {formatDateOnly(d.fields.DateRecorded)}
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-700 font-mono-data">{d.fields.BookPage || '—'}</td>
                   <td className="px-4 py-3 text-xs">
                     {linkedParcels.length === 0 ? (
                       <span className="text-gray-400 italic">None linked</span>
@@ -300,19 +268,12 @@ export function DeedModal({
   const [granteeOwnerId, setGranteeOwnerId] = useState(initialGranteeId);
 
   const [title, setTitle] = useState(existingDeed?.fields.Title ?? '');
-  const [grantor, setGrantor] = useState(existingDeed?.fields.GrantorName ?? '');
-  const [deedType, setDeedType] = useState<DeedType>(existingDeed?.fields.DeedType ?? 'Warranty Deed');
   const [dateRecorded, setDateRecorded] = useState(
     existingDeed?.fields.DateRecorded
       ? String(existingDeed.fields.DateRecorded).slice(0, 10)
       : ''
   );
   const [bookPage, setBookPage] = useState(existingDeed?.fields.BookPage ?? '');
-  const [county, setCounty] = useState(existingDeed?.fields.RecordingCounty ?? '');
-  const [consideration, setConsideration] = useState<string>(
-    existingDeed?.fields.ConsiderationAmount?.toString() ?? ''
-  );
-  const [notes, setNotes] = useState(existingDeed?.fields.DeedNotes ?? '');
   const [selectedParcelIds, setSelectedParcelIds] = useState<Set<string>>(
     new Set([...(existingLinkedParcelIds ?? []), ...(preCheckedParcelIds ?? [])])
   );
@@ -360,6 +321,33 @@ export function DeedModal({
     });
   };
 
+  const [parcelSearch, setParcelSearch] = useState('');
+
+  /** Check every parcel in a group. */
+  const selectAllInGroup = (parcelIds: string[]) => {
+    setSelectedParcelIds((prev) => {
+      const next = new Set(prev);
+      parcelIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  /** Uncheck every parcel in a group. */
+  const clearGroup = (parcelIds: string[]) => {
+    setSelectedParcelIds((prev) => {
+      const next = new Set(prev);
+      parcelIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
+  /** Are all parcels in a group already checked? */
+  const isGroupAllSelected = (parcelIds: string[]) =>
+    parcelIds.length > 0 && parcelIds.every((id) => selectedParcelIds.has(id));
+
+  /** Clear every selection. */
+  const clearAllParcels = () => setSelectedParcelIds(new Set());
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError('Deed label is required.');
@@ -380,13 +368,8 @@ export function DeedModal({
       const deedPayload: Record<string, unknown> = {
         Title: title.trim(),
         GranteeOwnerLookupId: Number(granteeOwnerId),
-        GrantorName: grantor.trim() || undefined,
-        DeedType: deedType,
-        DateRecorded: toDateOnlyISO(dateRecorded),
         BookPage: bookPage.trim() || undefined,
-        RecordingCounty: county.trim() || undefined,
-        ConsiderationAmount: consideration ? Number(consideration) : undefined,
-        DeedNotes: notes.trim() || undefined,
+        DateRecorded: toDateOnlyISO(dateRecorded),
       };
 
       // Library items are created by uploading a PDF to SharePoint, never
@@ -454,13 +437,8 @@ export function DeedModal({
       // Clear the metadata on the library item (don't delete the file)
       await updateListItem(LIST_NAMES.Deeds, deedId, {
         GranteeOwnerLookupId: null,
-        GrantorName: null,
-        DeedType: null,
-        DateRecorded: null,
         BookPage: null,
-        RecordingCounty: null,
-        ConsiderationAmount: null,
-        DeedNotes: null,
+        DateRecorded: null,
       });
       onSaved();
       onClose();
@@ -509,86 +487,38 @@ export function DeedModal({
             </Row>
           )}
           <div className="grid grid-cols-2 gap-4">
-            <Row label="Deed Label / Instrument # *">
+            <Row label="Deed Label *">
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 disabled={saving}
-                placeholder='e.g., "WD 2024-08-15" or "Inst. 2024-12345"'
+                placeholder='e.g., "Townes at Converse - Book 151R Pg 575"'
                 className={INPUT}
                 autoFocus
               />
             </Row>
-            <Row label="Deed Type">
-              <select
-                value={deedType}
-                onChange={(e) => setDeedType(e.target.value as DeedType)}
-                disabled={saving}
-                className={INPUT + ' bg-white'}
-              >
-                {DEED_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </Row>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Row label="Grantor (from)">
-              <input
-                type="text"
-                value={grantor}
-                onChange={(e) => setGrantor(e.target.value)}
-                disabled={saving}
-                placeholder='e.g., "John Doe" or "ABC Holdings LLC"'
-                className={INPUT}
-              />
-            </Row>
-            <Row label="Date Recorded">
-              <input
-                type="date"
-                value={dateRecorded}
-                onChange={(e) => setDateRecorded(e.target.value)}
-                disabled={saving}
-                className={INPUT}
-              />
-            </Row>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <Row label="Book / Page or Instrument #">
+            <Row label="Book/Page *">
               <input
                 type="text"
                 value={bookPage}
                 onChange={(e) => setBookPage(e.target.value)}
                 disabled={saving}
-                placeholder='Book 1234 Pg 567'
-                className={INPUT}
-              />
-            </Row>
-            <Row label="Recording County">
-              <input
-                type="text"
-                value={county}
-                onChange={(e) => setCounty(e.target.value)}
-                disabled={saving}
-                placeholder="Greenville"
-                className={INPUT}
-              />
-            </Row>
-            <Row label="Consideration Amount">
-              <input
-                type="number"
-                step="0.01"
-                value={consideration}
-                onChange={(e) => setConsideration(e.target.value)}
-                disabled={saving}
-                placeholder="0.00"
+                placeholder='e.g., "151R 575"'
                 className={INPUT}
               />
             </Row>
           </div>
+
+          <Row label="Date Recorded">
+            <input
+              type="date"
+              value={dateRecorded}
+              onChange={(e) => setDateRecorded(e.target.value)}
+              disabled={saving}
+              className={INPUT}
+            />
+          </Row>
 
           {existingDeed && (
             <Row label="PDF File">
@@ -621,54 +551,88 @@ export function DeedModal({
             </Row>
           )}
 
-          <Row label="Notes">
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={saving}
-              rows={2}
-              className={INPUT + ' resize-y'}
-            />
-          </Row>
-
           {/* Tax Map IDs multi-select */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               Tax Map IDs this deed conveys * <span className="text-gray-400 normal-case font-normal">({selectedParcelIds.size} selected)</span>
             </label>
+            <div className="flex items-center gap-2 mb-1">
+              <input
+                type="text"
+                value={parcelSearch}
+                onChange={(e) => setParcelSearch(e.target.value)}
+                placeholder="Search parcels by tax map ID or address…"
+                className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:border-teal-500"
+              />
+              {selectedParcelIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllParcels}
+                  className="text-[11px] text-gray-600 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 whitespace-nowrap"
+                >
+                  Clear all ({selectedParcelIds.size})
+                </button>
+              )}
+            </div>
             <div className="border border-gray-300 rounded max-h-64 overflow-y-auto bg-white">
               {parcelsGrouped.length === 0 ? (
                 <div className="p-3 text-xs text-gray-500 italic">
                   No tax map IDs in the system yet. Add some on a property's Overview tab first.
                 </div>
               ) : (
-                parcelsGrouped.map((group) => (
-                  <div key={group.propertyId} className="border-b border-gray-100 last:border-b-0">
-                    <div className="px-3 py-1.5 bg-gray-50 text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
-                      {group.propertyTitle}
+                parcelsGrouped.map((group) => {
+                  // Apply search filter to this group's parcels
+                  const q = parcelSearch.toLowerCase().trim();
+                  const visibleParcels = q
+                    ? group.parcels.filter((p) =>
+                        (p.fields.Title ?? '').toLowerCase().includes(q) ||
+                        (p.fields.ParcelAddress ?? '').toLowerCase().includes(q)
+                      )
+                    : group.parcels;
+                  if (visibleParcels.length === 0) return null;
+
+                  const allParcelIds = group.parcels.map((p) => p.id);
+                  const allSelected = isGroupAllSelected(allParcelIds);
+                  return (
+                    <div key={group.propertyId} className="border-b border-gray-100 last:border-b-0">
+                      <div className="px-3 py-1.5 bg-gray-50 flex items-center justify-between gap-2 sticky top-0 z-10">
+                        <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
+                          {group.propertyTitle}
+                          <span className="ml-1.5 text-gray-400 normal-case font-normal">({group.parcels.length})</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            allSelected ? clearGroup(allParcelIds) : selectAllInGroup(allParcelIds)
+                          }
+                          className="text-[10px] font-medium text-teal-700 hover:text-teal-900 px-2 py-0.5 rounded hover:bg-teal-50 whitespace-nowrap"
+                        >
+                          {allSelected ? 'Clear this property' : 'Select all under this property'}
+                        </button>
+                      </div>
+                      {visibleParcels.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex items-start gap-2 px-3 py-2 hover:bg-teal-50 cursor-pointer text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedParcelIds.has(p.id)}
+                            onChange={() => toggleParcel(p.id)}
+                            disabled={saving}
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-mono-data font-medium">{p.fields.Title}</div>
+                            {p.fields.ParcelAddress && (
+                              <div className="text-gray-500 text-[11px]">{p.fields.ParcelAddress}</div>
+                            )}
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                    {group.parcels.map((p) => (
-                      <label
-                        key={p.id}
-                        className="flex items-start gap-2 px-3 py-2 hover:bg-teal-50 cursor-pointer text-xs"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedParcelIds.has(p.id)}
-                          onChange={() => toggleParcel(p.id)}
-                          disabled={saving}
-                          className="mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-mono-data font-medium">{p.fields.Title}</div>
-                          {p.fields.ParcelAddress && (
-                            <div className="text-gray-500 text-[11px]">{p.fields.ParcelAddress}</div>
-                          )}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

@@ -571,36 +571,21 @@ export interface TaxMapIDFields {
 export type TaxMapID = SharePointListItem<TaxMapIDFields>;
 
 // =============================================================================
-// LIST: Deeds (record of property conveyances; many-to-many with Tax Map IDs)
+// LIST: Deeds (metadata on Property Deeds library; many-to-many with Tax Map IDs)
 // =============================================================================
 
-export type DeedType =
-  | 'Warranty Deed'
-  | 'Special Warranty Deed'
-  | 'Limited Warranty Deed'
-  | 'Quitclaim Deed'
-  | "Trustee's Deed"
-  | 'Tax Deed'
-  | 'Other';
-
 export interface DeedFields {
-  Title?: string;                         // Deed label (auto = filename until edited)
-  FileLeafRef?: string;                   // Filename — library items always have this
-  GranteeOwnerLookupId?: string;          // → Owners (the entity receiving)
-  GrantorName?: string;
-  DeedType?: DeedType;
+  Title?: string;                         // Library auto-sets to filename
+  FileLeafRef?: string;                   // Filename
+  GranteeOwnerLookupId?: string;          // → Owners
+  BookPage?: string;                      // The thing SCDOR cares about
   DateRecorded?: string;
-  BookPage?: string;
-  RecordingCounty?: string;
-  ConsiderationAmount?: number;
-  DeedNotes?: string;
 }
 
 export type Deed = SharePointListItem<DeedFields>;
 
 // Junction list — one row per (deed, parcel) link
-// Deed lookup now points at Property Deeds library (items in libraries
-// work identically to items in lists for lookup purposes).
+// Deed lookup points at Property Deeds library.
 export interface DeedParcelLinkFields {
   Title?: string;
   DeedLookupId?: string;                  // → Property Deeds library item
