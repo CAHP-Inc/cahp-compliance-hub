@@ -531,6 +531,8 @@ export const LIST_NAMES = {
   Properties: 'Properties Registry',
   Submittals: 'Submittals Tracker',
   TaxMapIDs: 'Tax Map IDs',
+  Deeds: 'Deeds',
+  DeedParcelLinks: 'Deed Parcel Links',
   ComplianceDeadlines: 'Compliance Deadlines',
   Correspondence: 'DOR Correspondence Log',
   Billing: 'Billing Tracker',
@@ -566,3 +568,40 @@ export interface TaxMapIDFields {
 }
 
 export type TaxMapID = SharePointListItem<TaxMapIDFields>;
+
+// =============================================================================
+// LIST: Deeds (record of property conveyances; many-to-many with Tax Map IDs)
+// =============================================================================
+
+export type DeedType =
+  | 'Warranty Deed'
+  | 'Special Warranty Deed'
+  | 'Limited Warranty Deed'
+  | 'Quitclaim Deed'
+  | "Trustee's Deed"
+  | 'Tax Deed'
+  | 'Other';
+
+export interface DeedFields {
+  Title: string;                          // Deed label / instrument #
+  GranteeOwnerLookupId?: string;          // → Owners (the entity receiving)
+  GrantorName?: string;
+  DeedType?: DeedType;
+  DateRecorded?: string;
+  BookPage?: string;
+  RecordingCounty?: string;
+  ConsiderationAmount?: number;
+  DocumentURL?: string;                   // Link to PDF in SP doc library
+  DeedNotes?: string;
+}
+
+export type Deed = SharePointListItem<DeedFields>;
+
+// Junction list — one row per (deed, parcel) link
+export interface DeedParcelLinkFields {
+  Title?: string;
+  DeedLookupId?: string;                  // → Deeds
+  TaxMapIDLookupId?: string;              // → Tax Map IDs
+}
+
+export type DeedParcelLink = SharePointListItem<DeedParcelLinkFields>;

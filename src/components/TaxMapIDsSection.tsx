@@ -7,9 +7,12 @@ import {
   LIST_NAMES,
   type TaxMapID,
   type Submittal,
+  type Deed,
+  type DeedParcelLink,
   type ParcelStatus,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
+import { formatDateOnly } from '../lib/dates';
 
 interface TaxMapIDsSectionProps {
   propertyId: string;
@@ -31,9 +34,12 @@ const STATUS_STYLES: Record<ParcelStatus, string> = {
 export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSectionProps) {
   const taxMapIds = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
+  const links = useSharePointList<DeedParcelLink>(LIST_NAMES.DeedParcelLinks, { top: 2000 });
 
   const [addOpen, setAddOpen] = useState(false);
   const [editingParcelId, setEditingParcelId] = useState<string | null>(null);
+  const [linkingDeedForParcelId, setLinkingDeedForParcelId] = useState<string | null>(null);
 
   const linkedParcels = useMemo(() => {
     return (taxMapIds.data ?? []).filter(
@@ -54,6 +60,34 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
     return map;
   }, [submittals.data]);
 
+  // For each parcel, list of linked deeds (ordered by DateRecorded DESC = most recent first)
+  const deedsByParcel = useMemo(() => {
+    const map = new Map<string, Deed[]>();
+    if (!links.data || !deeds.data) return map;
+    const deedsById = new Map((deeds.data ?? []).map((d) => [String(d.id), d]));
+    links.data.forEach((link) => {
+      const parcelId = link.fields.TaxMapIDLookupId ? String(link.fields.TaxMapIDLookupId) : '';
+      const deedId = link.fields.DeedLookupId ? String(link.fields.DeedLookupId) : '';
+      if (!parcelId || !deedId) return;
+      const deed = deedsById.get(deedId);
+      if (!deed) return;
+      if (!map.has(parcelId)) map.set(parcelId, []);
+      map.get(parcelId)!.push(deed);
+    });
+    // Sort each parcel's deeds by date desc
+    map.forEach((deedList) => {
+      deedList.sort((a, b) => (b.fields.DateRecorded ?? '').localeCompare(a.fields.DateRecorded ?? ''));
+    });
+    return map;
+  }, [links.data, deeds.data]);
+
+  // Helper for refreshes
+  const refetchAll = () => {
+    taxMapIds.refetch?.();
+    deeds.refetch?.();
+    links.refetch?.();
+  };
+
   if (taxMapIds.loading) {
     return (
       <div className="text-sm text-gray-500 py-4">Loading tax map IDs…</div>
@@ -67,7 +101,8 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
           <h3 className="text-sm font-semibold text-teal-900">Tax Map IDs</h3>
           <p className="text-xs text-gray-600 mt-0.5">
             Per-parcel tracking. SCDOR requires one submittal per tax map ID for
-            properties spanning multiple parcels.
+            properties spanning multiple parcels. The only per-parcel check is deed coverage —
+            the rest of the filing checklist lives at the property/entity level.
           </p>
         </div>
         <button
@@ -78,6 +113,26 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
           Add Tax Map ID
         </button>
       </div>
+
+      {/* Deed coverage summary */}
+      {linkedParcels.length > 0 && (() => {
+        const withDeed = linkedParcels.filter((p) => (deedsByParcel.get(p.id)?.length ?? 0) > 0).length;
+        const without = linkedParcels.length - withDeed;
+        if (without === 0) {
+          return (
+            <div className="px-4 py-2 bg-green-50 border-b border-green-200 text-xs text-green-800 flex items-center gap-2">
+              <Icon name="check" size={12} className="text-green-700" />
+              All {linkedParcels.length} parcels have at least one deed linked.
+            </div>
+          );
+        }
+        return (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800 flex items-center gap-2">
+            <Icon name="alert" size={12} className="text-amber-700" />
+            <strong>{without} of {linkedParcels.length}</strong> parcels need a deed linked or obtained.
+          </div>
+        );
+      })()}
 
       {linkedParcels.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-gray-500">
@@ -92,12 +147,16 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
               <th className="px-4 py-3 text-left">County</th>
               <th className="px-4 py-3 text-right">Acreage</th>
               <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-left">Deed</th>
               <th className="px-4 py-3 text-right">Submittals</th>
-              <th className="px-4 py-3 text-right w-20"></th>
+              <th className="px-4 py-3 text-right w-24"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {linkedParcels.map((p) => (
+            {linkedParcels.map((p) => {
+              const parcelDeeds = deedsByParcel.get(p.id) ?? [];
+              const hasDeed = parcelDeeds.length > 0;
+              return (
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono-data text-xs font-medium text-gray-900">
                   {p.fields.Title}
@@ -114,19 +173,52 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
                     </span>
                   )}
                 </td>
+                <td className="px-4 py-3 text-xs">
+                  {hasDeed ? (
+                    <div className="flex flex-col gap-0.5">
+                      {parcelDeeds.slice(0, 2).map((d) => (
+                        <span key={d.id} className="inline-flex items-center gap-1">
+                          <Icon name="check" size={10} className="text-success" />
+                          <span className="font-mono-data">{d.fields.Title}</span>
+                          {d.fields.DateRecorded && (
+                            <span className="text-gray-500">· {formatDateOnly(d.fields.DateRecorded)}</span>
+                          )}
+                        </span>
+                      ))}
+                      {parcelDeeds.length > 2 && (
+                        <span className="text-gray-500 italic">+ {parcelDeeds.length - 2} more</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold">
+                      <Icon name="alert" size={10} />
+                      No deed
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right font-mono-data text-xs">
                   {submittalCountByParcel.get(p.id) ?? 0}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => setEditingParcelId(p.id)}
-                    className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50"
-                  >
-                    Edit
-                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => setLinkingDeedForParcelId(p.id)}
+                      className="text-[11px] text-amber-700 hover:text-amber-900 font-medium px-2 py-1 rounded hover:bg-amber-50"
+                      title="Link an existing deed to this parcel"
+                    >
+                      Link Deed
+                    </button>
+                    <button
+                      onClick={() => setEditingParcelId(p.id)}
+                      className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50"
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -147,6 +239,16 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
           propertyTitle={propertyTitle}
           onClose={() => setEditingParcelId(null)}
           onSaved={() => taxMapIds.refetch?.()}
+        />
+      )}
+
+      {linkingDeedForParcelId && (
+        <LinkDeedToParcelModal
+          parcelId={linkingDeedForParcelId}
+          parcelTitle={linkedParcels.find((p) => p.id === linkingDeedForParcelId)?.fields.Title ?? ''}
+          existingDeedIds={new Set((deedsByParcel.get(linkingDeedForParcelId) ?? []).map((d) => String(d.id)))}
+          onClose={() => setLinkingDeedForParcelId(null)}
+          onSaved={refetchAll}
         />
       )}
     </div>
@@ -382,6 +484,193 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
         {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Link existing deed(s) to a parcel — multi-select to handle multi-deed coverage
+// ---------------------------------------------------------------------------
+interface LinkDeedToParcelModalProps {
+  parcelId: string;
+  parcelTitle: string;
+  existingDeedIds: Set<string>;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function LinkDeedToParcelModal({
+  parcelId,
+  parcelTitle,
+  existingDeedIds,
+  onClose,
+  onSaved,
+}: LinkDeedToParcelModalProps) {
+  const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
+  const links = useSharePointList<DeedParcelLink>(LIST_NAMES.DeedParcelLinks, { top: 2000 });
+  const [selected, setSelected] = useState<Set<string>>(new Set(existingDeedIds));
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sortedDeeds = useMemo(() => {
+    const all = [...(deeds.data ?? [])].sort((a, b) =>
+      (b.fields.DateRecorded ?? '').localeCompare(a.fields.DateRecorded ?? '')
+    );
+    if (!search.trim()) return all;
+    const q = search.toLowerCase();
+    return all.filter((d) =>
+      (d.fields.Title ?? '').toLowerCase().includes(q) ||
+      (d.fields.GrantorName ?? '').toLowerCase().includes(q) ||
+      (d.fields.BookPage ?? '').toLowerCase().includes(q)
+    );
+  }, [deeds.data, search]);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const toAdd = [...selected].filter((id) => !existingDeedIds.has(id));
+      const toRemove = [...existingDeedIds].filter((id) => !selected.has(id));
+      // Find junction rows touching this parcel
+      const parcelLinks = (links.data ?? []).filter(
+        (l) => String(l.fields.TaxMapIDLookupId ?? '') === String(parcelId)
+      );
+      for (const deedId of toAdd) {
+        await createListItem(LIST_NAMES.DeedParcelLinks, {
+          Title: `Deed ${deedId} ↔ Parcel ${parcelId}`,
+          DeedLookupId: Number(deedId),
+          TaxMapIDLookupId: Number(parcelId),
+        });
+      }
+      for (const deedId of toRemove) {
+        const row = parcelLinks.find((l) => String(l.fields.DeedLookupId ?? '') === String(deedId));
+        if (row) {
+          await deleteListItem(LIST_NAMES.DeedParcelLinks, row.id);
+        }
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-teal-700">Link Deed(s) to Parcel</h2>
+          <p className="text-xs text-gray-500 mt-0.5 font-mono-data">{parcelTitle}</p>
+        </div>
+
+        <div className="px-6 py-3 border-b border-gray-200">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search deeds by label, grantor, or book/page…"
+            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {deeds.loading ? (
+            <div className="p-6 text-center text-sm text-gray-500">Loading deeds…</div>
+          ) : sortedDeeds.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              {search ? 'No deeds match your search.' : (
+                <>
+                  No deeds in the system yet.{' '}
+                  <span className="block mt-1 text-xs text-amber-700">
+                    Add a deed from the owning entity's page first, then come back here to link it.
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-gray-100">
+                {sortedDeeds.map((d) => (
+                  <tr
+                    key={d.id}
+                    onClick={() => toggle(String(d.id))}
+                    className={`cursor-pointer hover:bg-teal-50 ${selected.has(String(d.id)) ? 'bg-teal-50' : ''}`}
+                  >
+                    <td className="px-4 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(String(d.id))}
+                        onChange={() => toggle(String(d.id))}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="font-medium text-gray-900">{d.fields.Title}</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">
+                        {d.fields.DeedType && <span>{d.fields.DeedType}</span>}
+                        {d.fields.GrantorName && <span> · from {d.fields.GrantorName}</span>}
+                        {d.fields.DateRecorded && <span> · {formatDateOnly(d.fields.DateRecorded)}</span>}
+                        {d.fields.BookPage && <span className="font-mono-data"> · {d.fields.BookPage}</span>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {error && (
+          <div className="px-6 py-3 border-t border-red-200 bg-red-50">
+            <p className="text-xs text-error">{error}</p>
+          </div>
+        )}
+
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-600">
+            {selected.size} selected · {existingDeedIds.size} currently linked
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 rounded-md"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+            >
+              {saving ? (
+                <>
+                  <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                'Save Links'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

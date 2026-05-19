@@ -12,6 +12,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { formatDateOnly } from '../lib/dates';
+import { NewSubmittalModal } from '../components/NewSubmittalModal';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -51,6 +52,7 @@ export function Submittals() {
   const [statusFilter, setStatusFilter] = useState<SubmittalStatusValue | 'All'>('All');
   const [yearFilter, setYearFilter] = useState<CahpTaxYear | 'All'>('All');
   const [filingTypeFilter, setFilingTypeFilter] = useState<SubmittalFilingType | 'All'>('All');
+  const [newSubmittalOpen, setNewSubmittalOpen] = useState(false);
 
   const loading = submittals.loading || properties.loading;
   const error = submittals.error || properties.error;
@@ -142,9 +144,16 @@ export function Submittals() {
         <div>
           <h1 className="text-2xl font-bold text-teal-700">Submittals</h1>
           <p className="text-sm text-gray-500 mt-1">
-            DOR property tax abatement filings. One submittal per property per tax year for annual filings; additional for amendments.
+            DOR property tax abatement filings. One submittal per tax map ID per tax year.
           </p>
         </div>
+        <button
+          onClick={() => setNewSubmittalOpen(true)}
+          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+        >
+          <Icon name="plus" size={14} />
+          New Submittal
+        </button>
       </div>
 
       {/* KPI row */}
@@ -275,6 +284,16 @@ export function Submittals() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {newSubmittalOpen && (
+        <NewSubmittalModal
+          onClose={() => setNewSubmittalOpen(false)}
+          onCreated={(id) => {
+            submittals.refetch?.();
+            navigate(`/submittals/${id}`);
+          }}
+        />
       )}
     </div>
   );

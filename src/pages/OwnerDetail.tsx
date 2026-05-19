@@ -18,6 +18,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { DeedsSection } from '../components/DeedsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import {
   BreadcrumbBar,
@@ -498,6 +499,8 @@ export function OwnerDetail() {
         uploadOwnerId={String(owner.id)}
       />
 
+      {/* Deeds where this entity is the grantee */}
+      <DeedsSection ownerId={String(owner.id)} ownerTitle={owner.fields.Title} />
       {editingOwnershipId && (
         <EditOwnershipModal
           ownershipId={editingOwnershipId}

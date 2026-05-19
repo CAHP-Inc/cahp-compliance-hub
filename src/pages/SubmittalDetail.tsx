@@ -20,8 +20,11 @@ import {
   type Ownership,
   type Owner,
   type TaxMapID,
+  type Deed,
+  type DeedParcelLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateOnly } from '../lib/dates';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { notifyUser } from '../lib/notifications';
 import { useSession } from '../lib/session';
@@ -197,6 +200,8 @@ export function SubmittalDetail() {
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
+  const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
+  const deedLinks = useSharePointList<DeedParcelLink>(LIST_NAMES.DeedParcelLinks, { top: 2000 });
 
   // Editing state
   const [editing, setEditing] = useState(false);
@@ -601,19 +606,77 @@ export function SubmittalDetail() {
         )}
       </div>
 
-      {/* Filing Checklist generator — visible in Draft state */}
+      {/* Deed Coverage — confirms which deed (if any) conveys the linked tax map ID.
+          The ONLY per-tax-map-ID check; the rest of the filing checklist lives at the property level. */}
+      {!editing && submittal.fields.TaxMapIDLookupId && (() => {
+        const linkedParcel = taxMapIDs.data?.find(
+          (t) => String(t.id) === String(submittal.fields.TaxMapIDLookupId)
+        );
+        if (!linkedParcel) return null;
+        const parcelLinks = (deedLinks.data ?? []).filter(
+          (l) => String(l.fields.TaxMapIDLookupId ?? '') === String(linkedParcel.id)
+        );
+        const linkedDeeds = parcelLinks
+          .map((l) => deeds.data?.find((d) => String(d.id) === String(l.fields.DeedLookupId)))
+          .filter((d): d is Deed => !!d);
+        const hasDeed = linkedDeeds.length > 0;
+        return (
+          <div className={`border rounded-lg shadow-card mb-6 p-4 ${hasDeed ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className="flex items-start gap-3">
+              <Icon name={hasDeed ? 'check' : 'alert'} size={18} className={`${hasDeed ? 'text-success' : 'text-amber-700'} flex-shrink-0 mt-0.5`} />
+              <div className="flex-1">
+                <div className="font-semibold text-teal-900 text-sm">
+                  Deed Coverage for {linkedParcel.fields.Title}
+                </div>
+                {hasDeed ? (
+                  <>
+                    <p className="text-xs text-gray-700 mt-1 mb-2">
+                      This parcel is covered by {linkedDeeds.length} deed{linkedDeeds.length === 1 ? '' : 's'}:
+                    </p>
+                    <ul className="text-xs space-y-1">
+                      {linkedDeeds.map((d) => (
+                        <li key={d.id} className="font-mono-data">
+                          <strong>{d.fields.Title}</strong>
+                          {d.fields.DeedType && <span className="font-sans text-gray-700"> · {d.fields.DeedType}</span>}
+                          {d.fields.DateRecorded && <span className="font-sans text-gray-600"> · recorded {formatDateOnly(d.fields.DateRecorded)}</span>}
+                          {d.fields.BookPage && <span className="text-gray-500"> · {d.fields.BookPage}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-700 mt-1 mb-2">
+                      No deed is linked to this tax map ID yet. Confirm whether an existing deed conveys this parcel,
+                      or obtain a new deed before filing.
+                    </p>
+                    <p className="text-[11px] text-gray-600 italic">
+                      Link a deed on the property's Tax Map IDs section, or add a new deed from the grantee entity's page.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Filing Checklist generator — visible in Draft state.
+          Note: the checklist is property/entity-level. Generate it ONCE per property — all
+          submittals for that property share the same docs. */}
       {!editing && currentStatus === 'Draft' && (
         <div className="bg-gold-50 border border-gold-200 rounded-lg shadow-card mb-6 p-4">
           <div className="flex items-start gap-3">
             <Icon name="file" size={18} className="text-gold-700 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <div className="font-semibold text-teal-900 text-sm">
-                Filing Checklist
+                Filing Checklist <span className="text-xs font-normal text-gray-600">(property-level)</span>
               </div>
               <p className="text-xs text-gray-700 mt-1 mb-3">
-                Generate a DOR-aligned 13-item checklist for this submittal.
-                Existing CAHP entity, property-owner, and property docs are auto-matched
-                so you only see items that still need to be obtained.
+                The 12-item document checklist (LURA, Operating Agreement, AMI cert, etc.) is shared across
+                all submittals for this property. Generate it once — items will auto-link any existing CAHP entity,
+                property-owner, and property docs so you only see what still needs to be obtained.
+                <strong className="block mt-1">The only per-tax-map-ID confirmation is the deed coverage above.</strong>
               </p>
               <button
                 onClick={() => setChecklistOpen(true)}

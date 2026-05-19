@@ -10,6 +10,7 @@ import {
   type Property,
   type PropertyFields,
   type Submittal,
+  type TaxMapID,
   type PropertyStatus,
   type SubmittalStatusValue,
   type ComplianceDeadline,
@@ -41,6 +42,8 @@ import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
+import { DeedsSection } from '../components/DeedsSection';
+import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
 import { formatDateOnly } from '../lib/dates';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -351,9 +354,10 @@ export function PropertyDetail() {
         <>
           <OverviewTab display={display} editing={editing} onChange={handleFieldChange} />
           {id && <TaxMapIDsSection propertyId={id} propertyTitle={property.fields.Title} />}
+          {id && <DeedsSection propertyId={id} propertyTitle={property.fields.Title} />}
         </>
       )}
-      {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} />}
+      {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} property={property} onRefetch={refetch} />}
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}
       {activeTab === 'ownership' && id && <PropertyOwnershipTab propertyId={id} propertyTitle={property.fields.Title} />}
       {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} property={property} />}
@@ -457,57 +461,136 @@ function OverviewTab({
   );
 }
 
-function SubmittalsTab({ submittals }: { submittals: Submittal[] }) {
+function SubmittalsTab({
+  submittals,
+  property,
+  onRefetch,
+}: {
+  submittals: Submittal[];
+  property: Property;
+  onRefetch?: () => void;
+}) {
   const navigate = useNavigate();
-  if (submittals.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
-        <p className="text-sm text-gray-500">No submittals on file for this property yet.</p>
-      </div>
-    );
-  }
+  const [newOpen, setNewOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+  const propertyParcels = (taxMapIDs.data ?? []).filter(
+    (t) => String(t.fields.LinkedPropertyLookupId ?? '') === String(property.id)
+  );
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-          <tr>
-            <th className="px-4 py-3 text-left">Submittal</th>
-            <th className="px-4 py-3 text-left">Tax Year</th>
-            <th className="px-4 py-3 text-left">Filing Method</th>
-            <th className="px-4 py-3 text-left">Status</th>
-            <th className="px-4 py-3 text-left">Filed Date</th>
-            <th className="px-4 py-3 text-right">Approved Abatement</th>
-            <th className="px-4 py-3 text-left">Next Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {submittals.map((s) => (
-            <tr
-              key={s.id}
-              onClick={() => navigate(`/submittals/${s.id}`)}
-              className="hover:bg-gray-50 transition-colors cursor-pointer"
+    <>
+      {/* Action bar */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="text-xs text-gray-600">
+          {submittals.length} submittal{submittals.length === 1 ? '' : 's'} · {propertyParcels.length} tax map ID{propertyParcels.length === 1 ? '' : 's'} registered
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setNewOpen(true)}
+            className="border border-teal-700 text-teal-700 hover:bg-teal-50 px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={12} />
+            New Submittal
+          </button>
+          {propertyParcels.length > 1 && (
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
             >
-              <td className="px-4 py-3 font-medium text-gray-900">{s.fields.Title}</td>
-              <td className="px-4 py-3 text-gray-700 font-mono-data">{s.fields.cahpTaxYear || '—'}</td>
-              <td className="px-4 py-3 text-gray-700 text-xs">{s.fields.FilingMethod || '—'}</td>
-              <td className="px-4 py-3">
-                {s.fields.SubmittalStatus ? (
-                  <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${SUBMITTAL_STATUS_STYLES[s.fields.SubmittalStatus] || 'bg-gray-100'}`}>
-                    {s.fields.SubmittalStatus}
-                  </span>
-                ) : '—'}
-              </td>
-              <td className="px-4 py-3 text-gray-700 text-xs">{formatDate(s.fields.DateFiled)}</td>
-              <td className="px-4 py-3 text-right font-mono-data">
-                {s.fields.ApprovedAbatement ? `$${s.fields.ApprovedAbatement.toLocaleString()}` : '—'}
-              </td>
-              <td className="px-4 py-3 text-gray-700 text-xs">{s.fields.NextAction || '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              <Icon name="plus" size={12} />
+              Bulk create for all {propertyParcels.length} parcels
+            </button>
+          )}
+        </div>
+      </div>
+
+      {submittals.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500 mb-3">No submittals on file for this property yet.</p>
+          {propertyParcels.length === 0 ? (
+            <p className="text-xs text-amber-700 italic">
+              Add tax map IDs on the Overview tab first, then create submittals here.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-600">
+              Use "New Submittal" for a single submittal, or "Bulk create" to generate one per tax map ID at once.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Submittal</th>
+                <th className="px-4 py-3 text-left">Tax Map ID</th>
+                <th className="px-4 py-3 text-left">Tax Year</th>
+                <th className="px-4 py-3 text-left">Filing Type</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Filed</th>
+                <th className="px-4 py-3 text-right">Abatement</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {submittals.map((s) => {
+                const parcel = s.fields.TaxMapIDLookupId
+                  ? propertyParcels.find((p) => String(p.id) === String(s.fields.TaxMapIDLookupId))
+                  : null;
+                return (
+                  <tr
+                    key={s.id}
+                    onClick={() => navigate(`/submittals/${s.id}`)}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3 font-medium text-gray-900">{s.fields.Title}</td>
+                    <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
+                      {parcel ? parcel.fields.Title : <span className="text-gray-400 italic font-sans">unassigned</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 font-mono-data">{s.fields.cahpTaxYear || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700 text-xs">{s.fields.FilingType || '—'}</td>
+                    <td className="px-4 py-3">
+                      {s.fields.SubmittalStatus ? (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${SUBMITTAL_STATUS_STYLES[s.fields.SubmittalStatus] || 'bg-gray-100'}`}>
+                          {s.fields.SubmittalStatus}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 text-xs">{formatDate(s.fields.DateFiled)}</td>
+                    <td className="px-4 py-3 text-right font-mono-data text-xs">
+                      {s.fields.ApprovedAbatement ? `$${s.fields.ApprovedAbatement.toLocaleString()}` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {newOpen && (
+        <NewSubmittalModal
+          fixedPropertyId={String(property.id)}
+          onClose={() => setNewOpen(false)}
+          onCreated={(id) => {
+            onRefetch?.();
+            navigate(`/submittals/${id}`);
+          }}
+        />
+      )}
+
+      {bulkOpen && (
+        <BulkCreateSubmittalsModal
+          propertyId={String(property.id)}
+          propertyTitle={property.fields.Title}
+          propertyState={property.fields.cahpState}
+          onClose={() => setBulkOpen(false)}
+          onCreated={() => {
+            onRefetch?.();
+          }}
+        />
+      )}
+    </>
   );
 }
 
