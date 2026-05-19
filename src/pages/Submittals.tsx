@@ -4,6 +4,7 @@ import {
   useSharePointList,
   LIST_NAMES,
   type Submittal,
+  type TaxMapID,
   type Property,
   type SubmittalStatusValue,
   type SubmittalFilingType,
@@ -38,6 +39,13 @@ export function Submittals() {
   const navigate = useNavigate();
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
+
+  const taxMapIdsById = useMemo(() => {
+    const m = new Map<string, TaxMapID>();
+    (taxMapIDs.data ?? []).forEach((t) => m.set(String(t.id), t));
+    return m;
+  }, [taxMapIDs.data]);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<SubmittalStatusValue | 'All'>('All');
@@ -206,6 +214,7 @@ export function Submittals() {
             <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
               <tr>
                 <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left">Tax Map ID</th>
                 <th className="px-4 py-3 text-left">Year</th>
                 <th className="px-4 py-3 text-left">Filing Type</th>
                 <th className="px-4 py-3 text-left">Status</th>
@@ -230,6 +239,15 @@ export function Submittals() {
                       {s.fields.Title && property?.fields.Title !== s.fields.Title && (
                         <div className="text-[11px] text-gray-500 font-mono-data mt-0.5 truncate max-w-xs">{s.fields.Title}</div>
                       )}
+                    </td>
+                    <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
+                      {(() => {
+                        if (!s.fields.TaxMapIDLookupId) {
+                          return <span className="text-gray-400 italic font-sans">unassigned</span>;
+                        }
+                        const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
+                        return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
                     <td className="px-4 py-3">

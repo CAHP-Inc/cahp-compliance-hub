@@ -129,6 +129,7 @@ export type SubmittalFilingType = 'Initial' | 'Annual' | 'Amendment';
 export interface SubmittalFields {
   Title: string;                              // Submittal Label
   PropertyLookupId?: string;                  // → Properties Registry
+  TaxMapIDLookupId?: string;                  // → Tax Map IDs list (per-parcel filing)
   AssignedToLookupId?: string;                // User picker
   cahpTaxYear?: CahpTaxYear;
   cahpState?: CahpState;
@@ -529,6 +530,7 @@ export type PropertyNote = SharePointListItem<PropertyNoteFields>;
 export const LIST_NAMES = {
   Properties: 'Properties Registry',
   Submittals: 'Submittals Tracker',
+  TaxMapIDs: 'Tax Map IDs',
   ComplianceDeadlines: 'Compliance Deadlines',
   Correspondence: 'DOR Correspondence Log',
   Billing: 'Billing Tracker',
@@ -545,3 +547,21 @@ export const LIST_NAMES = {
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
+
+// =============================================================================
+// LIST: Tax Map IDs (per-parcel tracking for multi-parcel properties)
+// =============================================================================
+
+export type ParcelStatus = 'Active' | 'Inactive' | 'Split' | 'Merged';
+
+export interface TaxMapIDFields {
+  Title: string;                          // The tax map / parcel ID
+  LinkedPropertyLookupId?: string;        // → Properties Registry
+  County?: string;
+  Acreage?: number;
+  LegalDescription?: string;
+  ParcelStatus?: ParcelStatus;
+  ParcelNotes?: string;
+}
+
+export type TaxMapID = SharePointListItem<TaxMapIDFields>;

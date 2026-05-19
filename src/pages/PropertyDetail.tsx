@@ -40,6 +40,7 @@ import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentMod
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
+import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { formatDateOnly } from '../lib/dates';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -347,7 +348,10 @@ export function PropertyDetail() {
       </div>
 
       {activeTab === 'overview' && (
-        <OverviewTab display={display} editing={editing} onChange={handleFieldChange} />
+        <>
+          <OverviewTab display={display} editing={editing} onChange={handleFieldChange} />
+          {id && <TaxMapIDsSection propertyId={id} propertyTitle={property.fields.Title} />}
+        </>
       )}
       {activeTab === 'submittals' && <SubmittalsTab submittals={relatedSubmittals} />}
       {activeTab === 'compliance' && id && <PropertyComplianceTab propertyId={id} />}

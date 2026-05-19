@@ -19,6 +19,7 @@ import {
   getBeneficialOwnershipTree,
   type Ownership,
   type Owner,
+  type TaxMapID,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
@@ -195,6 +196,7 @@ export function SubmittalDetail() {
   const auditLog = useSharePointList<AuditLog>(LIST_NAMES.AuditLog, { top: 200 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
 
   // Editing state
   const [editing, setEditing] = useState(false);
@@ -672,6 +674,13 @@ export function SubmittalDetail() {
               choices={TAX_YEARS}
               onChange={(v) => handleFieldChange('cahpTaxYear', v as CahpTaxYear)}
               mono
+            />
+            <TaxMapIDPicker
+              currentValue={display.TaxMapIDLookupId}
+              editing={editing}
+              propertyId={submittal.fields.PropertyLookupId}
+              taxMapIDs={taxMapIDs.data ?? []}
+              onChange={(v) => handleFieldChange('TaxMapIDLookupId', v)}
             />
             <EditableField
               label="State"
@@ -1180,4 +1189,64 @@ function formatDate(iso: string | undefined): string | undefined {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString();
+}
+
+/**
+ * Tax Map ID picker for a Submittal. Lists only the tax map IDs linked to the
+ * submittal's property. In read mode, displays the parcel ID title.
+ */
+function TaxMapIDPicker({
+  currentValue,
+  editing,
+  propertyId,
+  taxMapIDs,
+  onChange,
+}: {
+  currentValue: string | undefined;
+  editing: boolean;
+  propertyId: string | undefined;
+  taxMapIDs: TaxMapID[];
+  onChange: (value: string | undefined) => void;
+}) {
+  const availableParcels = propertyId
+    ? taxMapIDs.filter((t) => String(t.fields.LinkedPropertyLookupId ?? '') === String(propertyId))
+    : [];
+
+  const selected = currentValue
+    ? taxMapIDs.find((t) => String(t.id) === String(currentValue))
+    : undefined;
+
+  return (
+    <div className="contents">
+      <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tax Map ID</dt>
+      <dd className="text-sm text-gray-900 font-mono-data">
+        {editing ? (
+          <select
+            value={String(currentValue ?? '')}
+            onChange={(e) => onChange(e.target.value || undefined)}
+            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 bg-white font-mono-data"
+          >
+            <option value="">— none / not yet assigned —</option>
+            {availableParcels.map((t) => (
+              <option key={t.id} value={String(t.id)}>
+                {t.fields.Title}{t.fields.County ? ` (${t.fields.County})` : ''}
+              </option>
+            ))}
+          </select>
+        ) : selected ? (
+          <span>
+            {selected.fields.Title}
+            {selected.fields.County && <span className="text-gray-500 font-sans"> · {selected.fields.County} County</span>}
+          </span>
+        ) : (
+          <span className="italic text-gray-400">Not assigned</span>
+        )}
+        {editing && availableParcels.length === 0 && propertyId && (
+          <p className="text-[10px] text-amber-700 mt-1 italic font-sans">
+            No tax map IDs added to this property yet. Add them on the property's Overview tab.
+          </p>
+        )}
+      </dd>
+    </div>
+  );
 }
