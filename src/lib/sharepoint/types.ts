@@ -97,6 +97,7 @@ export interface PropertyFields {
   cahpState?: CahpState;
   cahpVerificationStatus?: VerificationStatus;
   DORAccountID?: string;
+  PropertyEIN?: string;             // Federal EIN — used for DOR submittal lookups
   DateAddedToCAHP?: string;
   LURAExecuted?: LURAExecutedStatus;
   OpAgreementVersion?: string;

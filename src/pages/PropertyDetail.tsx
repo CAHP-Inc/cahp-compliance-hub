@@ -254,6 +254,14 @@ export function PropertyDetail() {
               property.fields.cahpOwnerGroup,
             ].filter(Boolean).join(' · ')}
           </p>
+          {property.fields.PropertyEIN && (
+            <p className="text-xs text-gray-600 mt-0.5 font-mono-data">
+              EIN: <span className="select-all">{property.fields.PropertyEIN}</span>
+              {property.fields.DORAccountID && (
+                <span className="ml-3">DOR Account: <span className="select-all">{property.fields.DORAccountID}</span></span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {!editing && (
@@ -427,6 +435,7 @@ function OverviewTab({
         <EditableField label="Legal Entity" value={display.LegalEntity} editing={editing} onChange={(v) => onChange('LegalEntity', v as string)} />
         <EditableField label="Property Address" value={display.PropertyAddress} editing={editing} onChange={(v) => onChange('PropertyAddress', v as string)} />
         <EditableField label="DOR Account ID" value={display.DORAccountID} editing={editing} mono onChange={(v) => onChange('DORAccountID', v as string)} />
+        <EditableField label="EIN" value={display.PropertyEIN} editing={editing} mono onChange={(v) => onChange('PropertyEIN', v as string)} />
         <EditableField label="Date Added to CAHP" value={display.DateAddedToCAHP} editing={editing} type="date" onChange={(v) => onChange('DateAddedToCAHP', v as string)} />
       </Section>
 

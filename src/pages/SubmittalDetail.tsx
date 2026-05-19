@@ -518,6 +518,17 @@ export function SubmittalDetail() {
             {f.cahpTaxYear && ` · Tax Year ${f.cahpTaxYear}`}
             {f.cahpState && ` · ${f.cahpState}`}
           </p>
+          {property && (property.fields.PropertyEIN || property.fields.DORAccountID) && (
+            <p className="text-xs text-gray-600 mt-0.5 font-mono-data">
+              {property.fields.PropertyEIN && (
+                <>EIN: <span className="select-all">{property.fields.PropertyEIN}</span></>
+              )}
+              {property.fields.PropertyEIN && property.fields.DORAccountID && <span className="mx-2">·</span>}
+              {property.fields.DORAccountID && (
+                <>DOR Account: <span className="select-all">{property.fields.DORAccountID}</span></>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {!editing ? (

@@ -548,9 +548,21 @@ function DeedModal({
               value={docUrl}
               onChange={(e) => setDocUrl(e.target.value)}
               disabled={saving}
-              placeholder="https://vanrockre.sharepoint.com/sites/..."
+              placeholder="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/..."
               className={INPUT}
             />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Deed PDFs live in the{' '}
+              <a
+                href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-teal-700 hover:text-teal-900 underline"
+              >
+                Property Deeds library
+              </a>
+              . Open it in a new tab, right-click the PDF → "Copy link" → paste here.
+            </p>
           </Row>
 
           <Row label="Notes">

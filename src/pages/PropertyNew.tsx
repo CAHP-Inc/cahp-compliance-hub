@@ -89,6 +89,7 @@ export function PropertyNew() {
     OpAgreementVersion: '',
     UnitCount: undefined,
     DORAccountID: '',
+    PropertyEIN: '',
     PropertyStatus: 'Pending',
     cahpVerificationStatus: 'Inherited - Unverified',
     PropertyNotes: '',
@@ -382,6 +383,9 @@ export function PropertyNew() {
             <Field label="DOR Account ID">
               <input type="text" value={form.DORAccountID ?? ''} onChange={(e) => handleChange('DORAccountID', e.target.value)} className={`${inputClass} font-mono-data`} />
             </Field>
+            <Field label="EIN">
+              <input type="text" value={form.PropertyEIN ?? ''} onChange={(e) => handleChange('PropertyEIN', e.target.value)} placeholder="XX-XXXXXXX" className={`${inputClass} font-mono-data`} />
+            </Field>
             <Field label="Property Status">
               <select value={form.PropertyStatus ?? 'Pending'} onChange={(e) => handleChange('PropertyStatus', e.target.value as PropertyStatus)} className={`${inputClass} bg-white`}>
                 {CHOICES.PropertyStatus.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -570,6 +574,7 @@ export function PropertyNew() {
                 <ReviewRow label="Units" value={form.UnitCount?.toString()} mono />
                 <ReviewRow label="Status" value={form.PropertyStatus} />
                 <ReviewRow label="DOR Account ID" value={form.DORAccountID} mono />
+                <ReviewRow label="EIN" value={form.PropertyEIN} mono />
               </dl>
             </div>
 
