@@ -1229,13 +1229,14 @@ function TaxMapIDPicker({
             <option value="">— none / not yet assigned —</option>
             {availableParcels.map((t) => (
               <option key={t.id} value={String(t.id)}>
-                {t.fields.Title}{t.fields.County ? ` (${t.fields.County})` : ''}
+                {t.fields.Title}{t.fields.ParcelAddress ? ` — ${t.fields.ParcelAddress}` : ''}{t.fields.County ? ` (${t.fields.County})` : ''}
               </option>
             ))}
           </select>
         ) : selected ? (
           <span>
             {selected.fields.Title}
+            {selected.fields.ParcelAddress && <span className="text-gray-500 font-sans"> · {selected.fields.ParcelAddress}</span>}
             {selected.fields.County && <span className="text-gray-500 font-sans"> · {selected.fields.County} County</span>}
           </span>
         ) : (

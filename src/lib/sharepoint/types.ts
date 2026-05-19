@@ -557,6 +557,7 @@ export type ParcelStatus = 'Active' | 'Inactive' | 'Split' | 'Merged';
 export interface TaxMapIDFields {
   Title: string;                          // The tax map / parcel ID
   LinkedPropertyLookupId?: string;        // → Properties Registry
+  ParcelAddress?: string;                 // Physical street address for this parcel
   County?: string;
   Acreage?: number;
   LegalDescription?: string;

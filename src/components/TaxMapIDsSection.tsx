@@ -88,6 +88,7 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
           <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
             <tr>
               <th className="px-4 py-3 text-left">Tax Map ID</th>
+              <th className="px-4 py-3 text-left">Address</th>
               <th className="px-4 py-3 text-left">County</th>
               <th className="px-4 py-3 text-right">Acreage</th>
               <th className="px-4 py-3 text-left">Status</th>
@@ -101,6 +102,7 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
                 <td className="px-4 py-3 font-mono-data text-xs font-medium text-gray-900">
                   {p.fields.Title}
                 </td>
+                <td className="px-4 py-3 text-xs text-gray-700">{p.fields.ParcelAddress || '—'}</td>
                 <td className="px-4 py-3 text-xs text-gray-700">{p.fields.County || '—'}</td>
                 <td className="px-4 py-3 text-right font-mono-data text-xs text-gray-700">
                   {p.fields.Acreage != null ? p.fields.Acreage.toFixed(2) : '—'}
@@ -167,6 +169,7 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
   const existing = parcelId ? taxMapIds.data?.find((t) => t.id === parcelId) : undefined;
 
   const [taxMapID, setTaxMapID] = useState(existing?.fields.Title ?? '');
+  const [parcelAddress, setParcelAddress] = useState(existing?.fields.ParcelAddress ?? '');
   const [county, setCounty] = useState(existing?.fields.County ?? '');
   const [acreage, setAcreage] = useState<string>(existing?.fields.Acreage?.toString() ?? '');
   const [legalDesc, setLegalDesc] = useState(existing?.fields.LegalDescription ?? '');
@@ -187,6 +190,7 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
       const payload = {
         Title: taxMapID.trim(),
         LinkedPropertyLookupId: Number(propertyId),
+        ParcelAddress: parcelAddress.trim() || undefined,
         County: county.trim() || undefined,
         Acreage: acreage ? Number(acreage) : undefined,
         LegalDescription: legalDesc.trim() || undefined,
@@ -248,6 +252,17 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
               placeholder="e.g., 0123-45-678.000"
               className={INPUT}
               autoFocus
+            />
+          </Row>
+
+          <Row label="Physical Address">
+            <input
+              type="text"
+              value={parcelAddress}
+              onChange={(e) => setParcelAddress(e.target.value)}
+              disabled={saving}
+              placeholder="e.g., 310 Walker Ave, Greenwood, SC 29649"
+              className={INPUT}
             />
           </Row>
 
