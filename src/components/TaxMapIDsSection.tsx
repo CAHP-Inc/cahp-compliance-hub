@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   useSharePointList,
   createListItem,
@@ -280,6 +280,23 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(!parcelId); // create mode = already "hydrated"
+
+  // When editing an existing parcel, hydrate the form once data arrives from SharePoint.
+  // useState only captures the FIRST render's value — at that point taxMapIds.data is
+  // typically still undefined, so without this effect the form would stay blank.
+  useEffect(() => {
+    if (parcelId && existing && !hydrated) {
+      setTaxMapID(existing.fields.Title ?? '');
+      setParcelAddress(existing.fields.ParcelAddress ?? '');
+      setCounty(existing.fields.County ?? '');
+      setAcreage(existing.fields.Acreage?.toString() ?? '');
+      setLegalDesc(existing.fields.LegalDescription ?? '');
+      setStatus(existing.fields.ParcelStatus ?? 'Active');
+      setNotes(existing.fields.ParcelNotes ?? '');
+      setHydrated(true);
+    }
+  }, [parcelId, existing, hydrated]);
 
   const handleSave = async () => {
     if (!taxMapID.trim()) {
@@ -345,6 +362,10 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {parcelId && !hydrated ? (
+            <div className="py-8 text-center text-sm text-gray-500">Loading parcel details…</div>
+          ) : (
+          <>
           <Row label="Tax Map ID *">
             <input
               type="text"
@@ -433,6 +454,8 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
               <Icon name="alert" size={14} className="text-error flex-shrink-0 mt-0.5" />
               <p className="text-xs text-error">{error}</p>
             </div>
+          )}
+          </>
           )}
         </div>
 
