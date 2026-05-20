@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   useSharePointItem,
@@ -1444,7 +1444,6 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
   void owners;
 
   // PDF export state
-  const chartRef = useRef<HTMLDivElement>(null);
   const orgChartsLibrary = useSharePointList<{ id: string; fields: { FileLeafRef?: string } }>('Org Charts', { top: 500 });
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<string>('');
@@ -1452,7 +1451,6 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
   const [exportError, setExportError] = useState<string | null>(null);
 
   const handleExport = async () => {
-    if (!chartRef.current) return;
     setExporting(true);
     setExportError(null);
     setExportResult(null);
@@ -1462,9 +1460,9 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
         .map((d) => d.fields.FileLeafRef ?? '')
         .filter(Boolean);
       const result = await exportOrgChartPDF({
-        element: chartRef.current,
-        propertyId: String(property.id),
-        propertyTitle: property.fields.Title ?? 'Property',
+        tree,
+        property,
+        managerName,
         existingFilenames: existing,
         onProgress: (_pct, label) => setExportProgress(label),
       });
@@ -1527,7 +1525,7 @@ function DORChart({ tree, property, owners }: { tree: OwnershipNode[]; property:
         </div>
       )}
 
-      <div ref={chartRef} className="flex flex-col items-center min-w-fit bg-white p-3">
+      <div className="flex flex-col items-center min-w-fit bg-white p-3">
         {/* Top section: one column per direct owner of the property.
             Uses the same T-junction pattern as nested levels — half-bars
             converge at center, single arrow goes down to the property. */}
@@ -1693,9 +1691,9 @@ function PropertyRootNode({
   address?: string;
   managerName?: string;
 }) {
-  // Detailed-mode rendering: large green card matching DOR convention.
-  // Uses inline styles (not Tailwind classes) for color — html2canvas reliably
-  // captures inline styles but can fail on inherited color from class-applied parents.
+  // Detailed-mode rendering: large card matching DOR convention. The PDF
+  // export is now drawn natively with jsPDF (see exportOrgChartPDF.ts), so
+  // this is on-screen only — Tailwind classes would be fine here too.
   if (legalEntity) {
     const stateName = ownerState ? spellState(ownerState) : '';
     return (
