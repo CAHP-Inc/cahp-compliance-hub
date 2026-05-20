@@ -56,35 +56,56 @@ export function MyDay() {
       .slice(0, 5);
   }, [allDeadlines]);
 
-  // Outstanding Items widget — open items, overdue first, then by due date / priority
-  const openItems = useMemo(() => {
+  // Outstanding Items widget — open items assigned to me OR unassigned,
+  // grouped by property so I can pick a property to work on rather than
+  // wading through a flat list of every item.
+  const myOpenItemsByProperty = useMemo(() => {
     if (!allItems) return [];
     const isClosed = (s: string | undefined) =>
       s === 'Done' || s === 'Received' || s === 'Not Applicable';
-    const priorityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 
-    return allItems
-      .filter((i) => !isClosed(i.fields.ItemStatus))
-      .sort((a, b) => {
-        const aOverdue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() < Date.now() : false;
-        const bOverdue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() < Date.now() : false;
-        if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
-        const aP = priorityOrder[a.fields.Priority ?? 'Medium'] ?? 2;
-        const bP = priorityOrder[b.fields.Priority ?? 'Medium'] ?? 2;
-        if (aP !== bP) return aP - bP;
-        const aDue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Infinity;
-        const bDue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Infinity;
-        return aDue - bDue;
-      })
-      .slice(0, 8);
-  }, [allItems]);
+    const userName = (user?.name ?? '').trim().toLowerCase();
+    const userEmail = (user?.email ?? '').trim().toLowerCase();
+    const isMineOrUnassigned = (assignee: string | undefined) => {
+      const a = (assignee ?? '').trim().toLowerCase();
+      if (!a) return true; // unassigned counts as "mine to triage"
+      return a === userName || a === userEmail;
+    };
 
-  const openItemsTotal = useMemo(() => {
-    if (!allItems) return 0;
-    const isClosed = (s: string | undefined) =>
-      s === 'Done' || s === 'Received' || s === 'Not Applicable';
-    return allItems.filter((i) => !isClosed(i.fields.ItemStatus)).length;
-  }, [allItems]);
+    const open = allItems.filter(
+      (i) => !isClosed(i.fields.ItemStatus) && isMineOrUnassigned(i.fields.AssignedTo),
+    );
+
+    // Group by property (use a sentinel key for items with no property linked)
+    const UNLINKED = '__unlinked__';
+    const groups = new Map<string, { propertyId: string; propertyTitle: string; items: typeof open; overdueCount: number }>();
+    for (const item of open) {
+      const propId = item.fields.PropertyLookupId ? String(item.fields.PropertyLookupId) : UNLINKED;
+      const propertyTitle =
+        propId === UNLINKED
+          ? '(no property linked)'
+          : propertiesById.get(propId)?.fields.Title ?? `Property #${propId}`;
+      if (!groups.has(propId)) {
+        groups.set(propId, { propertyId: propId, propertyTitle, items: [], overdueCount: 0 });
+      }
+      const group = groups.get(propId)!;
+      group.items.push(item);
+      const due = item.fields.DueDate ? new Date(item.fields.DueDate).getTime() : null;
+      if (due !== null && due < Date.now()) group.overdueCount += 1;
+    }
+
+    // Sort: properties with overdue items first, then by count desc, then alpha
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.overdueCount !== b.overdueCount) return b.overdueCount - a.overdueCount;
+      if (a.items.length !== b.items.length) return b.items.length - a.items.length;
+      return a.propertyTitle.localeCompare(b.propertyTitle);
+    });
+  }, [allItems, propertiesById, user?.name, user?.email]);
+
+  const myOpenItemsTotal = useMemo(
+    () => myOpenItemsByProperty.reduce((sum, g) => sum + g.items.length, 0),
+    [myOpenItemsByProperty],
+  );
 
   // Submittal Next Actions — submittals with a NextAction set that aren't in terminal state
   const submittalsWithNextAction = useMemo(() => {
@@ -217,8 +238,8 @@ export function MyDay() {
         </div>
       )}
 
-      {/* Outstanding Items widget */}
-      {openItems.length > 0 && (
+      {/* Outstanding Items widget — grouped by property */}
+      {myOpenItemsByProperty.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
             <div>
@@ -227,7 +248,7 @@ export function MyDay() {
                 Outstanding Items
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Open · sorted by urgency · {openItemsTotal} total open
+                Properties with items assigned to you or unassigned · {myOpenItemsTotal} item{myOpenItemsTotal === 1 ? '' : 's'} across {myOpenItemsByProperty.length} propert{myOpenItemsByProperty.length === 1 ? 'y' : 'ies'}
               </p>
             </div>
             <Link
@@ -237,57 +258,41 @@ export function MyDay() {
               View all →
             </Link>
           </div>
-          <div className="divide-y divide-gray-100">
-            {openItems.map((i) => {
-              const property = i.fields.PropertyLookupId
-                ? propertiesById.get(String(i.fields.PropertyLookupId))
-                : null;
-              const dueDate = i.fields.DueDate ? new Date(i.fields.DueDate) : null;
-              const daysOut = dueDate ? Math.round((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
-              const isOverdue = daysOut !== null && daysOut < 0;
-              const priority = i.fields.Priority ?? 'Medium';
-              const priorityStyle =
-                priority === 'Critical' ? 'bg-red-100 text-red-800' :
-                priority === 'High' ? 'bg-amber-100 text-amber-800' :
-                priority === 'Medium' ? 'bg-blue-100 text-blue-800' :
-                'bg-gray-100 text-gray-600';
+          <ul className="divide-y divide-gray-100">
+            {myOpenItemsByProperty.map((group) => {
+              const isUnlinked = group.propertyId === '__unlinked__';
+              const target = isUnlinked
+                ? '/outstanding-items'
+                : `/outstanding-items?property=${group.propertyId}`;
               return (
-                <Link
-                  key={i.id}
-                  to={`/outstanding-items/${i.id}`}
-                  className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      {isOverdue && <span className="text-error mr-1">⚠</span>}
-                      {i.fields.Title}
+                <li key={group.propertyId}>
+                  <Link
+                    to={target}
+                    className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {group.overdueCount > 0 && <span className="text-error mr-1">⚠</span>}
+                        {group.propertyTitle}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {group.items.length} open
+                        {group.overdueCount > 0 && (
+                          <span className="text-error font-semibold"> · {group.overdueCount} overdue</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {property ? property.fields.Title : <span className="italic">unassigned property</span>}
-                      {i.fields.AssignedTo && <span> · {i.fields.AssignedTo}</span>}
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                      <span className="bg-teal-50 text-teal-800 font-mono-data text-xs font-semibold px-2 py-0.5 rounded">
+                        {group.items.length}
+                      </span>
+                      <Icon name="chevron-right" size={14} className="text-gray-400" />
                     </div>
-                  </div>
-                  <span className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold ${priorityStyle}`}>
-                    {priority}
-                  </span>
-                  <div className="text-right flex-shrink-0 w-20">
-                    {dueDate ? (
-                      <>
-                        <div className={`text-xs font-mono-data ${isOverdue ? 'text-error font-bold' : 'text-gray-700'}`}>
-                          {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                        <div className="text-[10px] text-gray-500">
-                          {isOverdue ? `${Math.abs(daysOut!)}d overdue` : daysOut === 0 ? 'Today' : `in ${daysOut}d`}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="text-[10px] text-gray-400">no due date</span>
-                    )}
-                  </div>
-                </Link>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       )}
 

@@ -243,7 +243,8 @@ export interface DeedModalProps {
   /** When opening for new deed, pre-check these parcels in the multi-select. */
   preCheckedParcelIds?: Set<string>;
   onClose: () => void;
-  onSaved: () => void;
+  /** Called after a successful save. For create flows the new deed's listItem ID is passed back. */
+  onSaved: (savedDeedId?: string) => void;
 }
 
 export function DeedModal({
@@ -447,7 +448,7 @@ export function DeedModal({
         }
       }
 
-      onSaved();
+      onSaved(savedDeedId);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

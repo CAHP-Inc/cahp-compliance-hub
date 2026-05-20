@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useSharePointList,
   updateListItem,
@@ -13,6 +13,7 @@ import { Icon } from '../components/ui/Icon';
 import { formatDateOnly, parseDateOnly } from '../lib/dates';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
+import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
 
 // =============================================================================
 // Status / category styles
@@ -68,6 +69,7 @@ type ViewMode = 'kanban' | 'list';
 
 export function OutstandingItems() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const items = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
 
@@ -75,10 +77,15 @@ export function OutstandingItems() {
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<ItemPriority | 'All'>('All');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('All');
-  const [propertyFilter, setPropertyFilter] = useState<string>('All');
+  // Seed the property filter from ?property={id} so deep links from MyDay land
+  // pre-filtered to the property the user clicked.
+  const [propertyFilter, setPropertyFilter] = useState<string>(
+    () => searchParams.get('property') || 'All',
+  );
   const [showClosed, setShowClosed] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [newItemOpen, setNewItemOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [linkUploadItem, setLinkUploadItem] = useState<OutstandingItem | null>(null);
 
   const loading = items.loading || properties.loading;
@@ -232,6 +239,15 @@ export function OutstandingItems() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setExportOpen(true)}
+            disabled={filtered.length === 0}
+            className="bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5"
+            title="Export an assignee-ready list of pending items"
+          >
+            <Icon name="file" size={14} />
+            Export
+          </button>
+          <button
             onClick={() => setNewItemOpen(true)}
             className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5"
           >
@@ -363,6 +379,19 @@ export function OutstandingItems() {
             setLinkUploadItem(null);
             items.refetch?.();
           }}
+        />
+      )}
+
+      {exportOpen && (
+        <ExportOutstandingItemsModal
+          items={filtered}
+          propertiesById={propertiesById}
+          propertyTitle={
+            propertyFilter !== 'All'
+              ? propertiesById.get(propertyFilter)?.fields.Title
+              : undefined
+          }
+          onClose={() => setExportOpen(false)}
         />
       )}
     </div>

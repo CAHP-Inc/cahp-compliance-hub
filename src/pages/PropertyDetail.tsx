@@ -37,6 +37,7 @@ import { useSession } from '../lib/session';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
+import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
@@ -818,6 +819,7 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
   const navigate = useNavigate();
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [linkUploadItem, setLinkUploadItem] = useState<OutstandingItem | null>(null);
   const { data, loading, error, refetch } = useSharePointList<OutstandingItem>(
     LIST_NAMES.Outstanding,
@@ -879,6 +881,15 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
             />
             Show closed
           </label>
+          <button
+            onClick={() => setExportOpen(true)}
+            disabled={filtered.filter((i) => !isClosed(i.fields.ItemStatus)).length === 0}
+            className="bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+            title="Export a copy-pastable list of open items for an assignee"
+          >
+            <Icon name="file" size={12} />
+            Export
+          </button>
           <button
             onClick={() => setNewItemOpen(true)}
             className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
@@ -1024,6 +1035,14 @@ function PropertyOutstandingTab({ propertyId, propertyTitle }: { propertyId: str
             setLinkUploadItem(null);
             refetch?.();
           }}
+        />
+      )}
+
+      {exportOpen && (
+        <ExportOutstandingItemsModal
+          items={filtered.filter((i) => !isClosed(i.fields.ItemStatus))}
+          propertyTitle={propertyTitle}
+          onClose={() => setExportOpen(false)}
         />
       )}
       {/* propertyTitle ref to avoid TS unused warning if banner removed later */}

@@ -9,6 +9,10 @@ import type { ItemCategory } from './sharepoint';
  *  - 'owner'     — tagged to the property's owner entity
  *  - 'property'  — tagged directly to the property
  *
+ * The active list is editable via Settings → Checklist Templates and lives in
+ * localStorage. We seed from DOR_FILING_CHECKLIST below the first time it's
+ * read, so a fresh browser sees the same defaults as before.
+ *
  * Priority is High by default because these are filing-blocking docs.
  */
 
@@ -19,6 +23,9 @@ export interface FilingChecklistItem {
   category: ItemCategory;
   scope: FilingChecklistScope;
   notes?: string;
+  /** Optional override of the SharePoint library this item maps to.
+   *  When unset, the FilingChecklistGenerator falls back to its category→library map. */
+  library?: string;
 }
 
 export const DOR_FILING_CHECKLIST: FilingChecklistItem[] = [
@@ -100,3 +107,52 @@ export const DOR_FILING_CHECKLIST: FilingChecklistItem[] = [
     notes: "Property-specific IRS determination, if one exists for this filing.",
   },
 ];
+
+// =============================================================================
+// Local override store — Settings → Checklist Templates edits land here.
+//
+// localStorage keeps changes per-browser. For shared editing across teammates
+// the user can export the JSON from Settings and import it elsewhere; we can
+// move this to a SharePoint list when multi-user sync becomes important.
+// =============================================================================
+
+const STORAGE_KEY = 'cahp.checklistTemplates.v1';
+
+/** Read the active checklist — user-overridden if present, else hardcoded defaults. */
+export function getFilingChecklist(): FilingChecklistItem[] {
+  if (typeof localStorage === 'undefined') return DOR_FILING_CHECKLIST;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DOR_FILING_CHECKLIST;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DOR_FILING_CHECKLIST;
+    // Light schema validation — skip rows missing required fields rather than throwing.
+    return parsed.filter(
+      (item): item is FilingChecklistItem =>
+        item &&
+        typeof item.title === 'string' &&
+        typeof item.category === 'string' &&
+        typeof item.scope === 'string',
+    );
+  } catch {
+    return DOR_FILING_CHECKLIST;
+  }
+}
+
+/** Persist a custom checklist. Pass an empty array to keep an explicitly-empty list. */
+export function saveFilingChecklist(items: FilingChecklistItem[]): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+/** Clear the override and revert to the hardcoded defaults. */
+export function resetFilingChecklist(): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+/** True if the user has saved any custom overrides (vs. running on defaults). */
+export function hasCustomFilingChecklist(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(STORAGE_KEY) !== null;
+}

@@ -14,7 +14,7 @@ import {
 } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY } from './UploadDocumentModal';
 import type { PropertyLinkedLibrary } from './UploadDocumentModal';
-import { DOR_FILING_CHECKLIST } from '../lib/filing-checklist';
+import { getFilingChecklist } from '../lib/filing-checklist';
 import type { FilingChecklistItem } from '../lib/filing-checklist';
 import { Icon } from './ui/Icon';
 
@@ -120,11 +120,17 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
     );
   }, [propertyId, ownership.data]);
 
-  // Build preview by walking the template and looking for matches
+  // Build preview by walking the template and looking for matches.
+  // The active list comes from Settings → Checklist Templates (localStorage)
+  // with the hardcoded DOR list as the default.
+  const activeChecklist = useMemo(() => getFilingChecklist(), []);
   const preview = useMemo(() => {
     const items: PreviewItem[] = [];
-    DOR_FILING_CHECKLIST.forEach((template) => {
-      const targetLibrary = CATEGORY_TO_LIBRARY[template.category];
+    activeChecklist.forEach((template) => {
+      // Per-item library override wins over the category default.
+      const targetLibrary =
+        (template.library as PropertyLinkedLibrary | undefined) ??
+        CATEGORY_TO_LIBRARY[template.category];
       let matched = false;
       let matchedDoc: { filename: string; url: string; library: string } | undefined;
 
@@ -183,7 +189,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
     });
     return items;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, propertyOwnerIds]);
+  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, propertyOwnerIds, activeChecklist]);
 
   const matchedCount = preview.filter((p) => p.matched).length;
   const unmatchedCount = preview.filter((p) => !p.matched).length;

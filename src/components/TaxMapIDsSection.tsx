@@ -13,6 +13,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
 import { formatDateOnly } from '../lib/dates';
+import { DeedModal } from './DeedsSection';
 
 interface TaxMapIDsSectionProps {
   propertyId: string;
@@ -535,6 +536,21 @@ function LinkDeedToParcelModal({
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creatingDeed, setCreatingDeed] = useState(false);
+
+  // Live set of deeds currently linked to this parcel — derived from refetched
+  // junction data. The `existingDeedIds` prop only seeds initial state; once
+  // the user uploads a new deed in-flow we recompute from `links.data` so the
+  // save-time diff doesn't blow away the link that the DeedModal just created.
+  const liveLinkedDeedIds = useMemo(() => {
+    const s = new Set<string>();
+    (links.data ?? []).forEach((l) => {
+      if (String(l.fields.TaxMapIDLookupId ?? '') === String(parcelId)) {
+        s.add(String(l.fields.DeedLookupId ?? ''));
+      }
+    });
+    return s;
+  }, [links.data, parcelId]);
 
   const sortedDeeds = useMemo(() => {
     const all = [...(deeds.data ?? [])].sort((a, b) =>
@@ -562,8 +578,10 @@ function LinkDeedToParcelModal({
     setSaving(true);
     setError(null);
     try {
-      const toAdd = [...selected].filter((id) => !existingDeedIds.has(id));
-      const toRemove = [...existingDeedIds].filter((id) => !selected.has(id));
+      // Diff against the LIVE set (not the stale prop) so links created
+      // mid-flow by the inline DeedModal aren't deleted on save.
+      const toAdd = [...selected].filter((id) => !liveLinkedDeedIds.has(id));
+      const toRemove = [...liveLinkedDeedIds].filter((id) => !selected.has(id));
       // Find junction rows touching this parcel
       const parcelLinks = (links.data ?? []).filter(
         (l) => String(l.fields.TaxMapIDLookupId ?? '') === String(parcelId)
@@ -620,17 +638,16 @@ function LinkDeedToParcelModal({
               {search ? 'No deeds match your search.' : (
                 <>
                   <p className="mb-3">No deed PDFs uploaded yet.</p>
-                  <a
-                    href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setCreatingDeed(true)}
                     className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
                   >
                     <Icon name="plus" size={14} />
-                    Upload to Property Deeds library →
-                  </a>
+                    Upload a new deed
+                  </button>
                   <p className="mt-3 text-xs text-gray-500">
-                    Upload your deed PDF in SharePoint, then refresh this page — the file will appear here to link.
+                    Drag-drop the PDF, fill in book/page + date recorded, and we'll link it to this parcel automatically.
                   </p>
                 </>
               )}
@@ -676,18 +693,17 @@ function LinkDeedToParcelModal({
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-600">
-              {selected.size} selected · {existingDeedIds.size} currently linked
+              {selected.size} selected · {liveLinkedDeedIds.size} currently linked
             </span>
-            <a
-              href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setCreatingDeed(true)}
               className="text-xs text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 inline-flex items-center gap-1"
-              title="Upload a new PDF to the Property Deeds library, then refresh"
+              title="Upload a new deed PDF and link it to this parcel"
             >
               <Icon name="plus" size={10} />
-              Upload new PDF →
-            </a>
+              Upload new PDF
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -714,6 +730,22 @@ function LinkDeedToParcelModal({
           </div>
         </div>
       </div>
+
+      {creatingDeed && (
+        <DeedModal
+          preCheckedParcelIds={new Set([parcelId])}
+          onClose={() => setCreatingDeed(false)}
+          onSaved={(newDeedId) => {
+            // Refetch so the new deed appears in the list and its junction row is visible
+            deeds.refetch?.();
+            links.refetch?.();
+            // Auto-check the freshly uploaded deed so it stays linked after the user hits Save Links
+            if (newDeedId) {
+              setSelected((prev) => new Set([...prev, newDeedId]));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
