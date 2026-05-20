@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, DragEvent } from 'react';
 import {
   useSharePointList,
   createListItem,
   updateListItem,
   deleteListItem,
+  uploadDocument,
   LIST_NAMES,
   type Deed,
   type DeedParcelLink,
@@ -29,6 +30,7 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
 
   const [editingDeedId, setEditingDeedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   // Index parcels by id for fast lookup
   const parcelsById = useMemo(() => {
@@ -107,18 +109,14 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
           <h3 className="text-sm font-semibold text-teal-900">Deeds</h3>
           <p className="text-xs text-gray-600 mt-0.5">{subtitle}</p>
         </div>
-        {ownerId && (
-          <a
-            href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
-            title="Upload a new deed PDF to the Property Deeds library, then come back here to fill in metadata."
-          >
-            <Icon name="plus" size={12} />
-            Upload Deed PDF →
-          </a>
-        )}
+        <button
+          onClick={() => setCreating(true)}
+          className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5"
+          title="Upload a deed PDF, set its metadata, and link it to parcels — all in one step."
+        >
+          <Icon name="plus" size={12} />
+          Add Deed
+        </button>
       </div>
 
       {filteredDeeds.length === 0 ? (
@@ -126,18 +124,7 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
           {ownerId ? (
             <>
               <p className="mb-2">No deeds yet for this entity.</p>
-              <p className="text-xs">
-                Upload a deed PDF to the{' '}
-                <a
-                  href="https://vanrockre.sharepoint.com/sites/CAHPComplianceHub/Property%20Deeds/Forms/AllItems.aspx"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-teal-700 hover:text-teal-900 underline"
-                >
-                  Property Deeds library
-                </a>
-                , then refresh this page to fill in metadata and link parcels.
-              </p>
+              <p className="text-xs">Click <strong>Add Deed</strong> above to upload a PDF and record book/page, date recorded, and the parcels it conveys.</p>
             </>
           ) : 'No deeds touch this property yet.'}
         </div>
@@ -226,6 +213,19 @@ export function DeedsSection({ ownerId, ownerTitle, propertyId, propertyTitle }:
           }}
         />
       )}
+
+      {creating && (
+        <DeedModal
+          granteeOwnerId={ownerId ?? ''}
+          granteeOwnerTitle={ownerTitle ?? ''}
+          preCheckedParcelIds={propertyParcelIds ?? undefined}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            deeds.refetch?.();
+            links.refetch?.();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -280,6 +280,13 @@ export function DeedModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // File upload state — only used in create mode (no existing deedId)
+  const isCreating = !deedId;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Lookup title of selected grantee for display
   const selectedGranteeTitle =
@@ -348,6 +355,23 @@ export function DeedModal({
   /** Clear every selection. */
   const clearAllParcels = () => setSelectedParcelIds(new Set());
 
+  const handleFileSelect = (selectedFile: File) => {
+    setFile(selectedFile);
+    setError(null);
+    // If the user hasn't filled in a label yet, seed it from the filename (sans extension)
+    if (!title.trim()) {
+      const stem = selectedFile.name.replace(/\.[^.]+$/, '');
+      setTitle(stem);
+    }
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) handleFileSelect(dropped);
+  };
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError('Deed label is required.');
@@ -361,34 +385,48 @@ export function DeedModal({
       setError('Select at least one tax map ID this deed covers.');
       return;
     }
+    if (isCreating && !file) {
+      setError('Pick the deed PDF to upload.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      // Build deed payload (library item metadata)
-      const deedPayload: Record<string, unknown> = {
-        Title: title.trim(),
-        GranteeOwnerLookupId: Number(granteeOwnerId),
-        BookPage: bookPage.trim() || undefined,
-        DateRecorded: toDateOnlyISO(dateRecorded),
-      };
+      let savedDeedId: string;
 
-      // Library items are created by uploading a PDF to SharePoint, never
-      // by app-side metadata create. If we don't have an existing deedId,
-      // this is a bug — the modal shouldn't allow save in that case.
-      if (!deedId) {
-        setError('To create a new deed, first upload the PDF to the Property Deeds library in SharePoint, then come back and edit its metadata.');
-        setSaving(false);
-        return;
+      if (isCreating) {
+        // Upload the PDF to the Property Deeds library, setting metadata in
+        // the same flow so the listItem is fully populated on creation.
+        const uploadResult = await uploadDocument({
+          libraryName: LIST_NAMES.Deeds,
+          filename: file!.name,
+          file: file!,
+          metadata: {
+            Title: title.trim(),
+            GranteeOwnerLookupId: Number(granteeOwnerId),
+            BookPage: bookPage.trim() || undefined,
+            DateRecorded: toDateOnlyISO(dateRecorded),
+          },
+          onProgress: setUploadProgress,
+        });
+        savedDeedId = uploadResult.itemId;
+      } else {
+        // Edit existing — just patch metadata
+        await updateListItem(LIST_NAMES.Deeds, deedId!, {
+          Title: title.trim(),
+          GranteeOwnerLookupId: Number(granteeOwnerId),
+          BookPage: bookPage.trim() || undefined,
+          DateRecorded: toDateOnlyISO(dateRecorded),
+        });
+        savedDeedId = deedId!;
       }
-      await updateListItem(LIST_NAMES.Deeds, deedId, deedPayload);
-      const savedDeedId = deedId;
 
-      // Diff junction rows: add new, remove unselected
+      // Diff junction rows: add new, remove unselected.
+      // For create mode, previouslyLinked is empty so everything in selectedParcelIds is added.
       const previouslyLinked = existingLinkedParcelIds ?? new Set<string>();
       const toAdd = [...selectedParcelIds].filter((id) => !previouslyLinked.has(id));
       const toRemove = [...previouslyLinked].filter((id) => !selectedParcelIds.has(id));
 
-      // Find existing junction rows for this deed (to know which to delete)
       const existingJunctionRows = (allLinks.data ?? []).filter(
         (l) => String(l.fields.DeedLookupId ?? '') === String(savedDeedId)
       );
@@ -468,6 +506,77 @@ export function DeedModal({
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {isCreating && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
+                Deed PDF *
+              </label>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => !saving && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+                  dragOver
+                    ? 'border-teal-500 bg-teal-50'
+                    : file
+                      ? 'border-success bg-green-50'
+                      : 'border-gray-300 hover:border-teal-400 hover:bg-gray-50'
+                } ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileSelect(f);
+                  }}
+                  disabled={saving}
+                />
+                {file ? (
+                  <div className="text-sm">
+                    <Icon name="check" size={20} className="text-success mx-auto mb-1" />
+                    <div className="font-medium text-gray-900 break-all">{file.name}</div>
+                    <div className="text-xs text-gray-500 mt-0.5 font-mono-data">
+                      {formatFileSize(file.size)}
+                      {file.size > 4 * 1024 * 1024 && (
+                        <span className="ml-2 text-teal-700">· chunked upload</span>
+                      )}
+                    </div>
+                    {!saving && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                        className="text-xs text-teal-700 hover:text-teal-900 mt-1 underline"
+                      >
+                        Choose a different file
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500">
+                    <Icon name="folder" size={20} className="text-gray-400 mx-auto mb-1" />
+                    <p className="font-medium text-gray-700">Drop the deed PDF here, or click to browse</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Goes into the Property Deeds library with all the fields below tagged on it.</p>
+                  </div>
+                )}
+              </div>
+              {saving && uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-[11px] text-gray-600 mb-1">
+                    <span>Uploading…</span>
+                    <span className="font-mono-data">{uploadProgress}%</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-teal-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {!fixedGranteeOwnerId && (
             <Row label="Grantee Entity *">
               <select
@@ -665,16 +774,20 @@ export function DeedModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || deleting || !title.trim() || !granteeOwnerId || selectedParcelIds.size === 0}
+              disabled={
+                saving || deleting ||
+                !title.trim() || !granteeOwnerId || selectedParcelIds.size === 0 ||
+                (isCreating && !file)
+              }
               className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
             >
               {saving ? (
                 <>
                   <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />
-                  Saving…
+                  {isCreating ? 'Uploading…' : 'Saving…'}
                 </>
               ) : (
-                deedId ? 'Save' : 'Add Deed'
+                isCreating ? 'Upload + Save' : 'Save'
               )}
             </button>
           </div>
@@ -695,4 +808,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       {children}
     </div>
   );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
