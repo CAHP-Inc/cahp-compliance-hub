@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
+  createListItem,
   updateListItem,
   deleteListItem,
   LIST_NAMES,
@@ -13,6 +14,8 @@ import {
   type CommType,
   type CommDirection,
   type CommStatus,
+  type CommunicationPropertyLink,
+  type CommunicationOwnerLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import {
@@ -50,25 +53,103 @@ export function OwnerCommunicationDetail() {
   );
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const propertyLinks = useSharePointList<CommunicationPropertyLink>(LIST_NAMES.CommunicationPropertyLinks, { top: 2000 });
+  const ownerLinks = useSharePointList<CommunicationOwnerLink>(LIST_NAMES.CommunicationOwnerLinks, { top: 2000 });
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<OwnerCommunicationFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Multi-linkage state — initialized from junction rows + legacy single fields
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<string>>(new Set());
+  const [propertySearch, setPropertySearch] = useState('');
+  const [ownerSearch, setOwnerSearch] = useState('');
+
+  // Build the current linked sets from junction + legacy primary
+  const currentLinkedPropertyIds = useMemo(() => {
+    if (!comm) return new Set<string>();
+    const set = new Set<string>();
+    (propertyLinks.data ?? []).forEach((l) => {
+      if (String(l.fields.CommLookupId ?? '') === String(comm.id) && l.fields.PropertyLookupId) {
+        set.add(String(l.fields.PropertyLookupId));
+      }
+    });
+    if (comm.fields.CommPropertyLookupId) set.add(String(comm.fields.CommPropertyLookupId));
+    return set;
+  }, [comm, propertyLinks.data]);
+
+  const currentLinkedOwnerIds = useMemo(() => {
+    if (!comm) return new Set<string>();
+    const set = new Set<string>();
+    (ownerLinks.data ?? []).forEach((l) => {
+      if (String(l.fields.CommLookupId ?? '') === String(comm.id) && l.fields.OwnerLookupId) {
+        set.add(String(l.fields.OwnerLookupId));
+      }
+    });
+    if (comm.fields.CommOwnerLookupId) set.add(String(comm.fields.CommOwnerLookupId));
+    return set;
+  }, [comm, ownerLinks.data]);
+
   useEffect(() => {
-    if (comm && !editing) setDraft({ ...comm.fields });
-  }, [comm?.id, comm?.lastModifiedDateTime, editing]);
+    if (comm && !editing) {
+      setDraft({ ...comm.fields });
+      setSelectedPropertyIds(new Set(currentLinkedPropertyIds));
+      setSelectedOwnerIds(new Set(currentLinkedOwnerIds));
+    }
+  }, [comm?.id, comm?.lastModifiedDateTime, editing, currentLinkedPropertyIds, currentLinkedOwnerIds]);
 
-  const property = useMemo(() => {
-    if (!comm || !properties.data || !comm.fields.CommPropertyLookupId) return null;
-    return properties.data.find((p) => String(p.id) === String(comm.fields.CommPropertyLookupId)) ?? null;
-  }, [comm, properties.data]);
+  const linkedProperties = useMemo(() => {
+    if (!properties.data) return [];
+    return Array.from(currentLinkedPropertyIds)
+      .map((id) => properties.data!.find((p) => String(p.id) === id))
+      .filter((p): p is Property => !!p);
+  }, [currentLinkedPropertyIds, properties.data]);
 
-  const owner = useMemo(() => {
-    if (!comm || !owners.data || !comm.fields.CommOwnerLookupId) return null;
-    return owners.data.find((o) => String(o.id) === String(comm.fields.CommOwnerLookupId)) ?? null;
-  }, [comm, owners.data]);
+  const linkedOwners = useMemo(() => {
+    if (!owners.data) return [];
+    return Array.from(currentLinkedOwnerIds)
+      .map((id) => owners.data!.find((o) => String(o.id) === id))
+      .filter((o): o is Owner => !!o);
+  }, [currentLinkedOwnerIds, owners.data]);
+
+  const sortedProperties = useMemo(
+    () =>
+      [...(properties.data ?? [])].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')),
+    [properties.data],
+  );
+  const sortedOwners = useMemo(
+    () =>
+      [...(owners.data ?? [])].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')),
+    [owners.data],
+  );
+  const filteredEditProperties = useMemo(() => {
+    const q = propertySearch.trim().toLowerCase();
+    if (!q) return sortedProperties;
+    return sortedProperties.filter((p) => (p.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedProperties, propertySearch]);
+  const filteredEditOwners = useMemo(() => {
+    const q = ownerSearch.trim().toLowerCase();
+    if (!q) return sortedOwners;
+    return sortedOwners.filter((o) => (o.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedOwners, ownerSearch]);
+
+  const togglePropertyId = (id: string) =>
+    setSelectedPropertyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleOwnerId = (id: string) =>
+    setSelectedOwnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   if (loading) {
     return (
@@ -119,6 +200,13 @@ export function OwnerCommunicationDetail() {
     setSaving(true);
     setSaveError(null);
     try {
+      // Keep the legacy primary lookup in sync with the first selected linkage,
+      // so SharePoint default views still surface a meaningful value.
+      const propIds = Array.from(selectedPropertyIds);
+      const ownerIds = Array.from(selectedOwnerIds);
+      const primaryProp = propIds[0] ?? null;
+      const primaryOwner = ownerIds[0] ?? null;
+
       const changed: Record<string, unknown> = {};
       Object.keys(draft).forEach((key) => {
         const k = key as keyof OwnerCommunicationFields;
@@ -126,12 +214,63 @@ export function OwnerCommunicationDetail() {
           changed[k] = draft[k] === '' ? null : draft[k];
         }
       });
-      if (Object.keys(changed).length === 0) {
-        setEditing(false);
-        return;
+      // Force the primary lookup columns to reflect the new selection
+      if (String(comm.fields.CommPropertyLookupId ?? '') !== String(primaryProp ?? '')) {
+        changed.CommPropertyLookupId = primaryProp;
       }
-      await updateListItem(LIST_NAMES.Communications, comm.id, changed);
+      if (String(comm.fields.CommOwnerLookupId ?? '') !== String(primaryOwner ?? '')) {
+        changed.CommOwnerLookupId = primaryOwner;
+      }
+
+      if (Object.keys(changed).length > 0) {
+        await updateListItem(LIST_NAMES.Communications, comm.id, changed);
+      }
+
+      // Diff junction rows
+      const myPropertyLinks = (propertyLinks.data ?? []).filter(
+        (l) => String(l.fields.CommLookupId ?? '') === String(comm.id),
+      );
+      const myOwnerLinks = (ownerLinks.data ?? []).filter(
+        (l) => String(l.fields.CommLookupId ?? '') === String(comm.id),
+      );
+      const existingPropIds = new Set(
+        myPropertyLinks.map((l) => String(l.fields.PropertyLookupId ?? '')).filter(Boolean),
+      );
+      const existingOwnerIds = new Set(
+        myOwnerLinks.map((l) => String(l.fields.OwnerLookupId ?? '')).filter(Boolean),
+      );
+
+      const propsToAdd = propIds.filter((id) => !existingPropIds.has(id));
+      const propsToRemove = [...existingPropIds].filter((id) => !selectedPropertyIds.has(id));
+      const ownersToAdd = ownerIds.filter((id) => !existingOwnerIds.has(id));
+      const ownersToRemove = [...existingOwnerIds].filter((id) => !selectedOwnerIds.has(id));
+
+      for (const pid of propsToAdd) {
+        await createListItem(LIST_NAMES.CommunicationPropertyLinks, {
+          Title: `Comm ${comm.id} ↔ Property ${pid}`,
+          CommLookupId: Number(comm.id),
+          PropertyLookupId: Number(pid),
+        });
+      }
+      for (const pid of propsToRemove) {
+        const row = myPropertyLinks.find((l) => String(l.fields.PropertyLookupId ?? '') === pid);
+        if (row) await deleteListItem(LIST_NAMES.CommunicationPropertyLinks, row.id);
+      }
+      for (const oid of ownersToAdd) {
+        await createListItem(LIST_NAMES.CommunicationOwnerLinks, {
+          Title: `Comm ${comm.id} ↔ Owner ${oid}`,
+          CommLookupId: Number(comm.id),
+          OwnerLookupId: Number(oid),
+        });
+      }
+      for (const oid of ownersToRemove) {
+        const row = myOwnerLinks.find((l) => String(l.fields.OwnerLookupId ?? '') === oid);
+        if (row) await deleteListItem(LIST_NAMES.CommunicationOwnerLinks, row.id);
+      }
+
       await refetch();
+      propertyLinks.refetch?.();
+      ownerLinks.refetch?.();
       setEditing(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
@@ -187,20 +326,16 @@ export function OwnerCommunicationDetail() {
           </div>
           <p className="text-sm text-gray-500">
             {comm.fields.CommDate && new Date(comm.fields.CommDate).toLocaleDateString()}
-            {property && (
+            {linkedProperties.length > 0 && (
               <>
                 {' · '}
-                <Link to={`/properties/${property.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                  {property.fields.Title}
-                </Link>
+                {linkedProperties.length === 1 ? 'property' : `${linkedProperties.length} properties`}
               </>
             )}
-            {owner && (
+            {linkedOwners.length > 0 && (
               <>
                 {' · '}
-                <Link to={`/owners/${owner.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                  {owner.fields.Title}
-                </Link>
+                {linkedOwners.length === 1 ? 'owner' : `${linkedOwners.length} owners`}
               </>
             )}
           </p>
@@ -298,24 +433,116 @@ export function OwnerCommunicationDetail() {
             editing={editing}
             onChange={(v) => handleFieldChange('CommParticipants', v as string)}
           />
+
           <div className="flex items-start gap-3">
-            <dt className="text-sm text-gray-500 w-44 flex-shrink-0">Property</dt>
+            <dt className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">
+              Properties{editing && <span className="block text-[10px] font-normal normal-case">{selectedPropertyIds.size} selected</span>}
+            </dt>
             <dd className="text-sm flex-1">
-              {property ? (
-                <Link to={`/properties/${property.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                  {property.fields.Title}
-                </Link>
-              ) : <span className="text-gray-300">—</span>}
+              {!editing ? (
+                linkedProperties.length === 0 ? (
+                  <span className="text-gray-300">—</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {linkedProperties.map((p) => (
+                      <Link
+                        key={p.id}
+                        to={`/properties/${p.id}`}
+                        className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 hover:bg-teal-100 text-[12px] font-medium"
+                      >
+                        {p.fields.Title}
+                      </Link>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    value={propertySearch}
+                    onChange={(e) => setPropertySearch(e.target.value)}
+                    placeholder="Search properties…"
+                    disabled={saving}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 mb-1"
+                  />
+                  <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+                    {filteredEditProperties.length === 0 ? (
+                      <div className="px-2 py-2 text-[11px] text-gray-500 italic">No matches.</div>
+                    ) : (
+                      filteredEditProperties.map((p) => (
+                        <label key={p.id} className="flex items-center gap-2 px-2 py-1 hover:bg-teal-50 cursor-pointer text-xs">
+                          <input
+                            type="checkbox"
+                            checked={selectedPropertyIds.has(String(p.id))}
+                            onChange={() => togglePropertyId(String(p.id))}
+                            disabled={saving}
+                          />
+                          <span className="flex-1 truncate">{p.fields.Title}</span>
+                          {p.fields.cahpState && (
+                            <span className="text-[10px] text-gray-500 flex-shrink-0">{p.fields.cahpState}</span>
+                          )}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </dd>
           </div>
+
           <div className="flex items-start gap-3">
-            <dt className="text-sm text-gray-500 w-44 flex-shrink-0">Owner</dt>
+            <dt className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">
+              Owner Entities{editing && <span className="block text-[10px] font-normal normal-case">{selectedOwnerIds.size} selected</span>}
+            </dt>
             <dd className="text-sm flex-1">
-              {owner ? (
-                <Link to={`/owners/${owner.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                  {owner.fields.Title}
-                </Link>
-              ) : <span className="text-gray-300">—</span>}
+              {!editing ? (
+                linkedOwners.length === 0 ? (
+                  <span className="text-gray-300">—</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {linkedOwners.map((o) => (
+                      <Link
+                        key={o.id}
+                        to={`/owners/${o.id}`}
+                        className="px-1.5 py-0.5 rounded bg-gold-50 text-gold-900 hover:bg-gold-100 text-[12px] font-medium"
+                      >
+                        {o.fields.Title}
+                      </Link>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    value={ownerSearch}
+                    onChange={(e) => setOwnerSearch(e.target.value)}
+                    placeholder="Search owner entities…"
+                    disabled={saving}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 mb-1"
+                  />
+                  <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+                    {filteredEditOwners.length === 0 ? (
+                      <div className="px-2 py-2 text-[11px] text-gray-500 italic">No matches.</div>
+                    ) : (
+                      filteredEditOwners.map((o) => (
+                        <label key={o.id} className="flex items-center gap-2 px-2 py-1 hover:bg-teal-50 cursor-pointer text-xs">
+                          <input
+                            type="checkbox"
+                            checked={selectedOwnerIds.has(String(o.id))}
+                            onChange={() => toggleOwnerId(String(o.id))}
+                            disabled={saving}
+                          />
+                          <span className="flex-1 truncate">{o.fields.Title}</span>
+                          {o.fields.OwnerType && (
+                            <span className="text-[10px] text-gray-500 flex-shrink-0">{o.fields.OwnerType}</span>
+                          )}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </dd>
           </div>
         </Section>

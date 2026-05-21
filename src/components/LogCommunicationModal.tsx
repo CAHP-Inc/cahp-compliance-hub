@@ -36,8 +36,15 @@ export function LogCommunicationModal({
   const [commType, setCommType] = useState<CommType>('Email');
   const [direction, setDirection] = useState<CommDirection>('Inbound');
   const [commDate, setCommDate] = useState(new Date().toISOString().slice(0, 10));
-  const [propertyId, setPropertyId] = useState(defaultPropertyId ?? '');
-  const [ownerId, setOwnerId] = useState(defaultOwnerId ?? '');
+  // Multi-select: a communication can span many properties / owners
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(
+    new Set(defaultPropertyId ? [defaultPropertyId] : []),
+  );
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<string>>(
+    new Set(defaultOwnerId ? [defaultOwnerId] : []),
+  );
+  const [propertySearch, setPropertySearch] = useState('');
+  const [ownerSearch, setOwnerSearch] = useState('');
   const [participants, setParticipants] = useState('');
   const [responseDue, setResponseDue] = useState('');
   const [notes, setNotes] = useState('');
@@ -57,6 +64,34 @@ export function LogCommunicationModal({
     return [...owners.data].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
   }, [owners.data]);
 
+  const filteredProperties = useMemo(() => {
+    const q = propertySearch.trim().toLowerCase();
+    if (!q) return sortedProperties;
+    return sortedProperties.filter((p) => (p.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedProperties, propertySearch]);
+
+  const filteredOwners = useMemo(() => {
+    const q = ownerSearch.trim().toLowerCase();
+    if (!q) return sortedOwners;
+    return sortedOwners.filter((o) => (o.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedOwners, ownerSearch]);
+
+  const toggleProperty = (id: string) =>
+    setSelectedPropertyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleOwner = (id: string) =>
+    setSelectedOwnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const handleSubmit = async () => {
     setValidationError(null);
     if (!subject.trim()) {
@@ -67,8 +102,8 @@ export function LogCommunicationModal({
       setValidationError('Date is required.');
       return;
     }
-    if (!propertyId && !ownerId) {
-      setValidationError('Link to at least a property or an owner.');
+    if (selectedPropertyIds.size === 0 && selectedOwnerIds.size === 0) {
+      setValidationError('Link to at least one property or owner.');
       return;
     }
 
@@ -76,8 +111,13 @@ export function LogCommunicationModal({
     setError(null);
     setCascadeLog([]);
 
+    const propertyIds = Array.from(selectedPropertyIds);
+    const ownerIdsList = Array.from(selectedOwnerIds);
+
     try {
       // ──────────────── CASCADE STEP 1: create Communication record ────────────────
+      // Keep the legacy single-lookup columns populated with the "primary" link
+      // (first selected) so SharePoint default views stay meaningful.
       const commFields: Record<string, unknown> = {
         Title: subject,
         CommType: commType,
@@ -85,32 +125,74 @@ export function LogCommunicationModal({
         CommDate: new Date(commDate).toISOString(),
         CommStatus: 'Open' as CommStatus,
       };
-      if (propertyId) commFields.CommPropertyLookupId = propertyId;
-      if (ownerId) commFields.CommOwnerLookupId = ownerId;
+      if (propertyIds[0]) commFields.CommPropertyLookupId = propertyIds[0];
+      if (ownerIdsList[0]) commFields.CommOwnerLookupId = ownerIdsList[0];
       if (participants) commFields.CommParticipants = participants;
       if (responseDue) commFields.CommResponseDue = new Date(responseDue).toISOString();
       if (notes) commFields.CommNotes = notes;
 
       const comm = await createListItem<{ id: string }>(LIST_NAMES.Communications, commFields);
-      setCascadeLog((prev) => [...prev, `✓ Communication record #${comm.id} created`]);
+      setCascadeLog((prev) => [
+        ...prev,
+        `✓ Communication record #${comm.id} created (${propertyIds.length} propert${propertyIds.length === 1 ? 'y' : 'ies'}, ${ownerIdsList.length} owner${ownerIdsList.length === 1 ? '' : 's'})`,
+      ]);
 
-      // ──────────────── CASCADE STEP 2: auto-create Outstanding Item if follow-up set ────────────────
-      if (responseDue && propertyId) {
+      // ──────────────── CASCADE STEP 2: write junction rows for every linkage ────────────────
+      for (const pid of propertyIds) {
         try {
-          await createListItem(LIST_NAMES.Outstanding, {
-            Title: `Follow up: ${subject}`,
-            PropertyLookupId: propertyId,
-            ItemCategory: 'Other',
-            ItemStatus: 'Not Started',
-            DateRequested: new Date(commDate).toISOString(),
-            DueDate: new Date(responseDue).toISOString(),
-            Priority: 'Medium',
-            ItemNotes: `Auto-created from Owner Communication #${comm.id} (${commType}, ${direction}). Follow up by ${new Date(responseDue).toLocaleDateString()}.`,
+          await createListItem(LIST_NAMES.CommunicationPropertyLinks, {
+            Title: `Comm ${comm.id} ↔ Property ${pid}`,
+            CommLookupId: Number(comm.id),
+            PropertyLookupId: Number(pid),
           });
-          setCascadeLog((prev) => [...prev, `✓ Outstanding Item created (due ${new Date(responseDue).toLocaleDateString()})`]);
         } catch (e) {
           // eslint-disable-next-line no-console
-          console.warn('Outstanding Item creation failed:', e);
+          console.warn(`Failed to link comm to property ${pid}:`, e);
+        }
+      }
+      for (const oid of ownerIdsList) {
+        try {
+          await createListItem(LIST_NAMES.CommunicationOwnerLinks, {
+            Title: `Comm ${comm.id} ↔ Owner ${oid}`,
+            CommLookupId: Number(comm.id),
+            OwnerLookupId: Number(oid),
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn(`Failed to link comm to owner ${oid}:`, e);
+        }
+      }
+
+      // ──────────────── CASCADE STEP 3: auto-create one Outstanding Item per linked property ────────────────
+      // Follow-up due dates apply to every property the comm touches, so each
+      // gets its own outstanding item — that way it surfaces correctly on each
+      // property's Outstanding tab and on My Day.
+      if (responseDue && propertyIds.length > 0) {
+        let createdItems = 0;
+        for (const pid of propertyIds) {
+          try {
+            await createListItem(LIST_NAMES.Outstanding, {
+              Title: `Follow up: ${subject}`,
+              PropertyLookupId: pid,
+              ItemCategory: 'Other',
+              ItemStatus: 'Not Started',
+              DateRequested: new Date(commDate).toISOString(),
+              DueDate: new Date(responseDue).toISOString(),
+              Priority: 'Medium',
+              ItemNotes: `Auto-created from Owner Communication #${comm.id} (${commType}, ${direction}). Follow up by ${new Date(responseDue).toLocaleDateString()}.`,
+            });
+            createdItems++;
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`Outstanding Item creation failed for property ${pid}:`, e);
+          }
+        }
+        if (createdItems > 0) {
+          setCascadeLog((prev) => [
+            ...prev,
+            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${new Date(responseDue).toLocaleDateString()})`,
+          ]);
+        } else {
           setCascadeLog((prev) => [...prev, `⚠ Outstanding Item creation failed (comm record still saved)`]);
         }
       }
@@ -139,7 +221,8 @@ export function LogCommunicationModal({
   const inputClass =
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
 
-  const willCreateItem = Boolean(responseDue && propertyId);
+  const willCreateItem = Boolean(responseDue && selectedPropertyIds.size > 0);
+  const willCreateItemCount = willCreateItem ? selectedPropertyIds.size : 0;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -195,30 +278,72 @@ export function LogCommunicationModal({
               <p className="text-[11px] text-gray-400 mt-0.5">If set + property linked, auto-creates Outstanding Item.</p>
             </Field>
 
-            <Field label="Property">
-              <select
-                value={propertyId}
-                onChange={(e) => setPropertyId(e.target.value)}
-                className={`${inputClass} bg-white`}
-                disabled={saving}
-              >
-                <option value="">— optional —</option>
-                {sortedProperties.map((p) => (<option key={p.id} value={p.id}>{p.fields.Title}</option>))}
-              </select>
-            </Field>
-
-            <Field label="Owner">
-              <select
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
-                className={`${inputClass} bg-white`}
-                disabled={saving}
-              >
-                <option value="">— optional —</option>
-                {sortedOwners.map((o) => (<option key={o.id} value={o.id}>{o.fields.Title}</option>))}
-              </select>
-            </Field>
           </div>
+
+          <Field label={`Properties (${selectedPropertyIds.size} selected)`}>
+            <input
+              type="text"
+              value={propertySearch}
+              onChange={(e) => setPropertySearch(e.target.value)}
+              placeholder="Search properties…"
+              disabled={saving}
+              className={inputClass + ' mb-1'}
+            />
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+              {filteredProperties.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-gray-500 italic">No properties match.</div>
+              ) : (
+                filteredProperties.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedPropertyIds.has(String(p.id))}
+                      onChange={() => toggleProperty(String(p.id))}
+                      disabled={saving}
+                    />
+                    <span className="flex-1 truncate">{p.fields.Title}</span>
+                    {p.fields.cahpState && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">{p.fields.cahpState}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Check every property this communication touches. One follow-up Outstanding Item is created per property.
+            </p>
+          </Field>
+
+          <Field label={`Owner Entities (${selectedOwnerIds.size} selected)`}>
+            <input
+              type="text"
+              value={ownerSearch}
+              onChange={(e) => setOwnerSearch(e.target.value)}
+              placeholder="Search owner entities…"
+              disabled={saving}
+              className={inputClass + ' mb-1'}
+            />
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+              {filteredOwners.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-gray-500 italic">No owners match.</div>
+              ) : (
+                filteredOwners.map((o) => (
+                  <label key={o.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedOwnerIds.has(String(o.id))}
+                      onChange={() => toggleOwner(String(o.id))}
+                      disabled={saving}
+                    />
+                    <span className="flex-1 truncate">{o.fields.Title}</span>
+                    {o.fields.OwnerType && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">{o.fields.OwnerType}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+          </Field>
 
           <Field label="Subject" required>
             <input
@@ -262,8 +387,14 @@ export function LogCommunicationModal({
           <ul className="text-xs text-teal-900 space-y-0.5">
             <li>✓ <strong>Communication record</strong> created (status Open)</li>
             <li className={willCreateItem ? '' : 'text-gray-500 line-through'}>
-              {willCreateItem ? '✓' : '○'} <strong>Outstanding Item</strong> auto-created
-              {!willCreateItem && ' (response due + property both required)'}
+              {willCreateItem ? '✓' : '○'}{' '}
+              <strong>
+                {willCreateItem
+                  ? `${willCreateItemCount} Outstanding Item${willCreateItemCount === 1 ? '' : 's'}`
+                  : 'Outstanding Item'}
+              </strong>{' '}
+              auto-created
+              {!willCreateItem && ' (response due + at least one property required)'}
             </li>
             <li>✓ Audit log entries written</li>
           </ul>

@@ -8,6 +8,8 @@ import {
   type Owner,
   type CommType,
   type CommStatus,
+  type CommunicationPropertyLink,
+  type CommunicationOwnerLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { LogCommunicationModal } from '../components/LogCommunicationModal';
@@ -30,6 +32,8 @@ export function OwnerCommunicationsPage() {
   const comms = useSharePointList<OwnerCommunication>(LIST_NAMES.Communications, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const propertyLinks = useSharePointList<CommunicationPropertyLink>(LIST_NAMES.CommunicationPropertyLinks, { top: 2000 });
+  const ownerLinks = useSharePointList<CommunicationOwnerLink>(LIST_NAMES.CommunicationOwnerLinks, { top: 2000 });
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<CommType | 'All'>('All');
@@ -49,19 +53,61 @@ export function OwnerCommunicationsPage() {
     return new Map(owners.data.map((o) => [String(o.id), o]));
   }, [owners.data]);
 
+  // commId → linked entities. Includes the legacy single CommPropertyLookupId
+  // / CommOwnerLookupId so existing rows still surface their primary link.
+  const propertyTitlesByComm = useMemo(() => {
+    const map = new Map<string, { id: string; title: string }[]>();
+    const add = (cId: string, pId: string) => {
+      const title = propertiesById.get(pId)?.fields.Title;
+      if (!title) return;
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.some((e) => e.id === pId)) list.push({ id: pId, title });
+    };
+    (propertyLinks.data ?? []).forEach((l) => {
+      if (l.fields.CommLookupId && l.fields.PropertyLookupId) {
+        add(String(l.fields.CommLookupId), String(l.fields.PropertyLookupId));
+      }
+    });
+    (comms.data ?? []).forEach((c) => {
+      if (c.fields.CommPropertyLookupId) {
+        add(String(c.id), String(c.fields.CommPropertyLookupId));
+      }
+    });
+    return map;
+  }, [propertyLinks.data, comms.data, propertiesById]);
+
+  const ownerTitlesByComm = useMemo(() => {
+    const map = new Map<string, { id: string; title: string }[]>();
+    const add = (cId: string, oId: string) => {
+      const title = ownersById.get(oId)?.fields.Title;
+      if (!title) return;
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.some((e) => e.id === oId)) list.push({ id: oId, title });
+    };
+    (ownerLinks.data ?? []).forEach((l) => {
+      if (l.fields.CommLookupId && l.fields.OwnerLookupId) {
+        add(String(l.fields.CommLookupId), String(l.fields.OwnerLookupId));
+      }
+    });
+    (comms.data ?? []).forEach((c) => {
+      if (c.fields.CommOwnerLookupId) {
+        add(String(c.id), String(c.fields.CommOwnerLookupId));
+      }
+    });
+    return map;
+  }, [ownerLinks.data, comms.data, ownersById]);
+
   const filtered = useMemo(() => {
     if (!comms.data) return [];
     return comms.data
       .filter((c) => {
         const f = c.fields;
         if (search) {
-          const propName = f.CommPropertyLookupId
-            ? propertiesById.get(String(f.CommPropertyLookupId))?.fields.Title ?? ''
-            : '';
-          const ownerName = f.CommOwnerLookupId
-            ? ownersById.get(String(f.CommOwnerLookupId))?.fields.Title ?? ''
-            : '';
-          const hay = `${f.Title ?? ''} ${propName} ${ownerName} ${f.CommParticipants ?? ''} ${f.CommNotes ?? ''}`.toLowerCase();
+          const propTitles = (propertyTitlesByComm.get(String(c.id)) ?? []).map((p) => p.title).join(' ');
+          const ownerTitles = (ownerTitlesByComm.get(String(c.id)) ?? []).map((o) => o.title).join(' ');
+          const hay = `${f.Title ?? ''} ${propTitles} ${ownerTitles} ${f.CommParticipants ?? ''} ${f.CommNotes ?? ''}`.toLowerCase();
           if (!hay.includes(search.toLowerCase())) return false;
         }
         if (typeFilter !== 'All' && f.CommType !== typeFilter) return false;
@@ -73,7 +119,7 @@ export function OwnerCommunicationsPage() {
         const db = b.fields.CommDate ? new Date(b.fields.CommDate).getTime() : 0;
         return db - da;
       });
-  }, [comms.data, search, typeFilter, statusFilter, propertiesById, ownersById]);
+  }, [comms.data, search, typeFilter, statusFilter, propertyTitlesByComm, ownerTitlesByComm]);
 
   const stats = useMemo(() => {
     if (!comms.data) return null;
@@ -231,12 +277,8 @@ export function OwnerCommunicationsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((c) => {
-                const property = c.fields.CommPropertyLookupId
-                  ? propertiesById.get(String(c.fields.CommPropertyLookupId))
-                  : null;
-                const owner = c.fields.CommOwnerLookupId
-                  ? ownersById.get(String(c.fields.CommOwnerLookupId))
-                  : null;
+                const linkedProps = propertyTitlesByComm.get(String(c.id)) ?? [];
+                const linkedOwners = ownerTitlesByComm.get(String(c.id)) ?? [];
                 const responseDue = c.fields.CommResponseDue ? new Date(c.fields.CommResponseDue) : null;
                 const isOverdue =
                   responseDue && responseDue.getTime() < Date.now() && c.fields.CommStatus !== 'Closed';
@@ -258,10 +300,37 @@ export function OwnerCommunicationsPage() {
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{c.fields.Title}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">
-                      {property && <div>{property.fields.Title}</div>}
-                      {owner && <div className="text-gray-500">{owner.fields.Title}</div>}
-                      {!property && !owner && <span className="text-gray-400 italic">unlinked</span>}
+                    <td className="px-4 py-3 text-xs">
+                      {linkedProps.length === 0 && linkedOwners.length === 0 ? (
+                        <span className="text-gray-400 italic">unlinked</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {linkedProps.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {linkedProps.slice(0, 4).map((p) => (
+                                <span key={p.id} className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 text-[11px] font-medium">
+                                  {p.title}
+                                </span>
+                              ))}
+                              {linkedProps.length > 4 && (
+                                <span className="text-[11px] text-gray-500">+{linkedProps.length - 4} more</span>
+                              )}
+                            </div>
+                          )}
+                          {linkedOwners.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {linkedOwners.slice(0, 3).map((o) => (
+                                <span key={o.id} className="px-1.5 py-0.5 rounded bg-gold-50 text-gold-900 text-[11px] font-medium">
+                                  {o.title}
+                                </span>
+                              ))}
+                              {linkedOwners.length > 3 && (
+                                <span className="text-[11px] text-gray-500">+{linkedOwners.length - 3} more</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">
                       {c.fields.CommParticipants || '—'}
