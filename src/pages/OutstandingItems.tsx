@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useSharePointList,
@@ -14,6 +14,7 @@ import { formatDateOnly, parseDateOnly } from '../lib/dates';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
+import { AssigneePicker } from '../components/AssigneePicker';
 
 // =============================================================================
 // Status / category styles
@@ -200,6 +201,24 @@ export function OutstandingItems() {
     }
   };
 
+  // Inline assignee update from the list view (saved on blur or Enter)
+  const handleAssigneeChange = async (itemId: string, newAssignee: string) => {
+    setUpdatingId(itemId);
+    try {
+      const trimmed = newAssignee.trim();
+      await updateListItem(LIST_NAMES.Outstanding, itemId, {
+        AssignedTo: trimmed || (null as unknown as undefined),
+      });
+      await items.refetch?.();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Assignee update failed:', e);
+      alert(`Assignee update failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div>
@@ -358,6 +377,8 @@ export function OutstandingItems() {
           propertiesById={propertiesById}
           onRowClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
           onLinkUpload={(item) => setLinkUploadItem(item)}
+          onAssigneeChange={handleAssigneeChange}
+          updatingId={updatingId}
         />
       )}
 
@@ -561,11 +582,15 @@ function ListView({
   propertiesById,
   onRowClick,
   onLinkUpload,
+  onAssigneeChange,
+  updatingId,
 }: {
   items: OutstandingItem[];
   propertiesById: Map<string, Property>;
   onRowClick: (id: string) => void;
   onLinkUpload: (item: OutstandingItem) => void;
+  onAssigneeChange: (itemId: string, newAssignee: string) => void;
+  updatingId: string | null;
 }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
@@ -576,6 +601,7 @@ function ListView({
             <th className="px-4 py-3 text-left">Property</th>
             <th className="px-4 py-3 text-left">Status</th>
             <th className="px-4 py-3 text-left">Priority</th>
+            <th className="px-4 py-3 text-left">Assignee</th>
             <th className="px-4 py-3 text-left">Due Date</th>
             <th className="px-4 py-3 text-left">Category</th>
             <th className="px-4 py-3 text-left">Document</th>
@@ -625,6 +651,16 @@ function ListView({
                       {item.fields.Priority}
                     </span>
                   ) : '—'}
+                </td>
+                <td
+                  className="px-4 py-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <InlineAssigneeCell
+                    value={item.fields.AssignedTo}
+                    saving={updatingId === item.id}
+                    onCommit={(v) => onAssigneeChange(item.id, v)}
+                  />
                 </td>
                 <td
                   className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
@@ -692,6 +728,61 @@ function KPI({
     <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
       <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
       <div className={`text-3xl font-bold mt-1 ${accentClass}`}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Inline assignee editor for the list view.
+ *
+ * Tracks a local draft so AssigneePicker's per-keystroke onChange doesn't hammer
+ * the API. Saves on blur or Enter when the draft differs from the committed
+ * value. Re-syncs the draft if the prop changes externally (e.g., after refetch).
+ */
+function InlineAssigneeCell({
+  value,
+  saving,
+  onCommit,
+}: {
+  value: string | undefined;
+  saving: boolean;
+  onCommit: (newValue: string) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? '');
+  useEffect(() => {
+    setDraft(value ?? '');
+  }, [value]);
+
+  const commit = () => {
+    if (draft.trim() === (value ?? '').trim()) return;
+    onCommit(draft);
+  };
+
+  return (
+    <div className="relative min-w-[140px]">
+      <AssigneePicker
+        value={draft}
+        onChange={(v) => setDraft(v)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).blur();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(value ?? '');
+            (e.currentTarget as HTMLInputElement).blur();
+          }
+        }}
+        disabled={saving}
+        placeholder="Unassigned"
+        className="w-full pl-2 pr-6 py-1 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:border-teal-500 hover:border-gray-300 disabled:bg-gray-50"
+      />
+      {saving && (
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">
+          <div className="w-2.5 h-2.5 rounded-full border-2 border-teal-500 border-r-transparent animate-spin" />
+        </div>
+      )}
     </div>
   );
 }

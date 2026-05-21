@@ -20,12 +20,16 @@ import { useSharePointList, LIST_NAMES, type Contact } from '../lib/sharepoint';
 export function AssigneePicker({
   value,
   onChange,
+  onBlur,
+  onKeyDown,
   disabled,
   placeholder = 'Who is responsible? (start typing or pick from list)',
   className = '',
 }: {
   value: string | undefined;
   onChange: (v: string) => void;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -40,6 +44,8 @@ export function AssigneePicker({
         list={id}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
         disabled={disabled}
         placeholder={placeholder}
         className={className || 'w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500'}
