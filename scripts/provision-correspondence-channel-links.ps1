@@ -149,13 +149,13 @@ foreach ($c in ($existingCorr ?? @())) {
     $cId = $c.Id
     $propRef = $c["Property"]
     if (-not ($propRef -and $propRef.LookupId)) { continue }
-    $pId = $propRef.LookupId
+    $propId = $propRef.LookupId
 
     $alreadyLinked = $false
     foreach ($row in ($existingLinks ?? @())) {
         $rowCorr = $row["Corr"]
         $rowProp = $row["Property"]
-        if ($rowCorr -and $rowProp -and $rowCorr.LookupId -eq $cId -and $rowProp.LookupId -eq $pId) {
+        if ($rowCorr -and $rowProp -and $rowCorr.LookupId -eq $cId -and $rowProp.LookupId -eq $propId) {
             $alreadyLinked = $true
             break
         }
@@ -165,9 +165,9 @@ foreach ($c in ($existingCorr ?? @())) {
         continue
     }
     Add-PnPListItem -List $JunctionTitle -Values @{
-        Title = "Corr $cId <-> Property $pId"
+        Title = "Corr $cId <-> Property $propId"
         Corr = $cId
-        Property = $pId
+        Property = $propId
     } | Out-Null
     $migrated++
 }

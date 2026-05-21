@@ -186,12 +186,12 @@ foreach ($c in ($existingComms ?? @())) {
     $ownerRef = $c["CommOwner"]
 
     if ($propRef -and $propRef.LookupId) {
-        $pId = $propRef.LookupId
+        $propId = $propRef.LookupId
         $alreadyLinked = $false
         foreach ($row in ($existingPropLinks ?? @())) {
             $rowComm = $row["Comm"]
             $rowProp = $row["Property"]
-            if ($rowComm -and $rowProp -and $rowComm.LookupId -eq $commId -and $rowProp.LookupId -eq $pId) {
+            if ($rowComm -and $rowProp -and $rowComm.LookupId -eq $commId -and $rowProp.LookupId -eq $propId) {
                 $alreadyLinked = $true
                 break
             }
@@ -200,9 +200,9 @@ foreach ($c in ($existingComms ?? @())) {
             $skipped++
         } else {
             Add-PnPListItem -List $PropLinksTitle -Values @{
-                Title = "Comm $commId <-> Property $pId"
+                Title = "Comm $commId <-> Property $propId"
                 Comm = $commId
-                Property = $pId
+                Property = $propId
             } | Out-Null
             $migratedProps++
         }
