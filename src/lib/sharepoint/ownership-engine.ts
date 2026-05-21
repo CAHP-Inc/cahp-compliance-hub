@@ -180,6 +180,57 @@ export function countPropertiesForOwner(
 }
 
 /**
+ * Returns the set of ALL owner IDs that sit upstream of a given property —
+ * direct owners of the property, parents of those owners, and so on up to
+ * the natural-person / nonprofit terminals.
+ *
+ * Use case: document linking. An outstanding item for a property tagged to
+ * CAHP NC LLC may need to pull a document tagged to the parent nonprofit
+ * (Carolina Affordable Housing Project Inc) — the chain knows about the
+ * relationship; we shouldn't rely on name- or state-based heuristics.
+ *
+ * Cycle-safe: tracks visited owner IDs so a malformed loop in the chain
+ * doesn't recurse forever.
+ */
+export function getUpstreamOwnerIds(
+  propertyId: string,
+  allOwnership: Ownership[],
+): Set<string> {
+  const upstream = new Set<string>();
+  const queue: string[] = [];
+
+  // Seed: direct owners of the property
+  for (const o of allOwnership) {
+    if (
+      String(o.fields.LinkedPropertyLookupId) === String(propertyId) &&
+      o.fields.OwnerLookupId
+    ) {
+      const id = String(o.fields.OwnerLookupId);
+      if (!upstream.has(id)) {
+        upstream.add(id);
+        queue.push(id);
+      }
+    }
+  }
+
+  // BFS up the chain: for each owner, find rows where ParentOwner == that owner,
+  // and the row's OwnerLookupId is who owns it (one step upstream).
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const o of allOwnership) {
+      if (String(o.fields.ParentOwnerLookupId) !== current) continue;
+      if (!o.fields.OwnerLookupId) continue;
+      const parent = String(o.fields.OwnerLookupId);
+      if (upstream.has(parent)) continue;
+      upstream.add(parent);
+      queue.push(parent);
+    }
+  }
+
+  return upstream;
+}
+
+/**
  * Returns the set of property IDs this owner has a direct OR indirect beneficial
  * interest in.
  *

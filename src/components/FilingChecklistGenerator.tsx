@@ -4,6 +4,7 @@ import {
   useSharePointItem,
   createListItem,
   LIST_NAMES,
+  getUpstreamOwnerIds,
   type Owner,
   type Ownership,
   type Submittal,
@@ -90,24 +91,29 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const [createOnlyUnmatched, setCreateOnlyUnmatched] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Find CAHP entity IDs — state-aware (exclude opposite-state entities)
+  // Identify CAHP-scope owners: every entity upstream of this property in the
+  // ownership chain (direct LLC, parent nonprofit, etc.), plus any CAHP-named
+  // entity that hasn't been wired into the chain yet. This replaces the older
+  // state-based heuristic which incorrectly hid the SC parent nonprofit from
+  // NC properties (and vice versa).
+  const upstreamOwnerIds = useMemo(() => {
+    if (!propertyId || !ownership.data) return new Set<string>();
+    return getUpstreamOwnerIds(propertyId, ownership.data);
+  }, [propertyId, ownership.data]);
+
   const cahpOwnerIds = useMemo(() => {
     if (!owners.data) return new Set<string>();
-    return new Set(
-      owners.data
-        .filter((o) => {
-          const t = (o.fields.Title ?? '').toLowerCase();
-          const isCahp = t.includes('cahp') || t.includes('carolina affordable housing project');
-          if (!isCahp) return false;
-          if (propertyState && o.fields.OwnerState) {
-            if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
-            if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
-          }
-          return true;
-        })
-        .map((o) => String(o.id))
-    );
-  }, [owners.data, propertyState]);
+    const ids = new Set<string>(upstreamOwnerIds);
+    // Belt-and-suspenders: also include any CAHP-named entity even if it's
+    // not yet linked through Ownership Structure rows. State filter dropped.
+    for (const o of owners.data) {
+      const t = (o.fields.Title ?? '').toLowerCase();
+      if (t.includes('cahp') || t.includes('carolina affordable housing project')) {
+        ids.add(String(o.id));
+      }
+    }
+    return ids;
+  }, [owners.data, upstreamOwnerIds]);
 
   // Find property's direct-owner entity IDs (LLCs that own this property)
   const propertyOwnerIds = useMemo(() => {

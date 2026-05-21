@@ -4,7 +4,9 @@ import {
   useSharePointItem,
   updateListItem,
   LIST_NAMES,
+  getUpstreamOwnerIds,
   type Owner,
+  type Ownership,
   type Property,
   type OutstandingItem,
   type ItemStatus,
@@ -34,7 +36,16 @@ interface AvailableDoc {
   filename: string;
   webUrl: string;
   uploadDate?: string;
-  scope: 'this-property' | 'cahp-entity' | 'owner';
+  /**
+   * Where this document came from relative to the outstanding item:
+   *  - 'this-property' : tagged directly to the item's property
+   *  - 'upstream-owner': tagged to any owner anywhere in the property's
+   *                      ownership chain (direct LLC, parent nonprofit, etc.)
+   *  - 'cahp-entity'   : in the dedicated CAHP Entity Documents library
+   *  - 'owner'         : tagged to some other (unrelated) owner — shown as a
+   *                      catch-all for cross-property reference docs
+   */
+  scope: 'this-property' | 'upstream-owner' | 'cahp-entity' | 'owner';
   scopeLabel: string;
 }
 
@@ -77,29 +88,26 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
   const propertyId = item.fields.PropertyLookupId ? String(item.fields.PropertyLookupId) : null;
   const itemCategory = item.fields.ItemCategory;
   const suggestedLibrary = itemCategory ? CATEGORY_TO_LIBRARY[itemCategory] : undefined;
-  // Fetch property to know its state — drives CAHP entity filtering
-  const propertyItem = useSharePointItem<Property>(LIST_NAMES.Properties, propertyId ?? undefined);
-  const propertyState = propertyItem.data?.fields.cahpState;
+  // Fetch the property only to validate that propertyId resolves to a real record;
+  // the upstream-owner walk handles CAHP entity filtering without needing state.
+  useSharePointItem<Property>(LIST_NAMES.Properties, propertyId ?? undefined);
 
-  // Identify CAHP entities for filtering — state-aware
+  // Resolve every owner upstream of this property via the ownership chain.
+  // No state heuristic — we just walk the actual relationships, so a
+  // property's NC subsidiary AND its SC parent nonprofit both qualify.
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
-  const cahpOwnerIds = useMemo(() => {
-    if (!owners.data) return new Set<string>();
-    return new Set(
-      owners.data
-        .filter((o) => {
-          const t = (o.fields.Title ?? '').toLowerCase();
-          const isCahp = t.includes('cahp') || t.includes('carolina affordable housing project');
-          if (!isCahp) return false;
-          if (propertyState && o.fields.OwnerState) {
-            if (propertyState === 'SC' && o.fields.OwnerState === 'NC') return false;
-            if (propertyState === 'NC' && o.fields.OwnerState === 'SC') return false;
-          }
-          return true;
-        })
-        .map((o) => String(o.id))
-    );
-  }, [owners.data, propertyState]);
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const upstreamOwnerIds = useMemo(() => {
+    if (!propertyId || !ownership.data) return new Set<string>();
+    return getUpstreamOwnerIds(propertyId, ownership.data);
+  }, [propertyId, ownership.data]);
+  // Also keep a CAHP-name detector for the dedicated CAHP Entity Documents
+  // library — that library holds *shared reference* material and isn't keyed
+  // to any specific property, so we still surface untagged docs from it.
+  const isCahpEntityName = (title: string | undefined) => {
+    const t = (title ?? '').toLowerCase();
+    return t.includes('cahp') || t.includes('carolina affordable housing project');
+  };
 
   // Fetch all 8 libraries
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
@@ -114,27 +122,38 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
   // Also fetch the dedicated CAHP Entity Documents library
   const cahpLib = useSharePointList<DocItemRaw>(CAHP_ENTITY_LIBRARY, { top: 500 });
 
-  const loading = libraries.some((l) => l.loading) || owners.loading || cahpLib.loading;
+  const loading = libraries.some((l) => l.loading) || owners.loading || ownership.loading || cahpLib.loading;
 
   // Aggregate documents relevant to this item:
   // - tagged to this property
-  // - tagged to any CAHP entity (reference docs)
-  // - in the dedicated CAHP Entity Documents library
+  // - tagged to any owner upstream of this property in the ownership chain
+  //   (direct LLC + every parent / nonprofit above it)
+  // - in the dedicated CAHP Entity Documents library (shared reference docs)
   const availableDocs = useMemo(() => {
     const docs: AvailableDoc[] = [];
+    const ownerNameById = new Map<string, string>();
+    (owners.data ?? []).forEach((o) => {
+      if (o.fields.Title) ownerNameById.set(String(o.id), o.fields.Title);
+    });
 
-    // 1. CAHP Entity Documents library — filtered by OwnerLookupId (untagged = shared)
+    // 1. CAHP Entity Documents library — show untagged shared docs +
+    //    any docs tagged to an upstream owner OR a CAHP-named entity.
     if (cahpLib.data) {
       cahpLib.data.forEach((doc) => {
         if (!doc.webUrl) return;
         const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
-        // Skip if tagged to an out-of-scope entity (e.g. NC LLC doc on SC property)
-        if (ownerTag && !cahpOwnerIds.has(ownerTag)) return;
-        // Resolve scope label from the tagged owner (or "CAHP Entity" if untagged/shared)
+        let scope: AvailableDoc['scope'] = 'cahp-entity';
         let scopeLabel = 'CAHP Entity';
         if (ownerTag) {
-          const ownerName = owners.data?.find((o) => String(o.id) === ownerTag)?.fields.Title;
-          if (ownerName) scopeLabel = ownerName;
+          if (upstreamOwnerIds.has(ownerTag)) {
+            scope = 'upstream-owner';
+            scopeLabel = ownerNameById.get(ownerTag) ?? 'Upstream owner';
+          } else {
+            // Not an upstream owner — only include if it looks like a CAHP entity
+            const isCahp = isCahpEntityName(ownerNameById.get(ownerTag));
+            if (!isCahp) return;
+            scopeLabel = ownerNameById.get(ownerTag) ?? 'CAHP Entity';
+          }
         } else {
           scopeLabel = 'CAHP Entity (shared)';
         }
@@ -144,7 +163,7 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
           filename: doc.fields.FileLeafRef || doc.fields.Title || '(unnamed)',
           webUrl: doc.webUrl,
           uploadDate: doc.fields.Modified || doc.lastModifiedDateTime,
-          scope: 'cahp-entity',
+          scope,
           scopeLabel,
         });
       });
@@ -164,14 +183,17 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
         if (propertyId && propTag === propertyId) {
           scope = 'this-property';
           scopeLabel = 'This Property';
-        } else if (ownerTag && cahpOwnerIds.has(ownerTag)) {
+        } else if (ownerTag && upstreamOwnerIds.has(ownerTag)) {
+          scope = 'upstream-owner';
+          scopeLabel = ownerNameById.get(ownerTag) ?? 'Upstream owner';
+        } else if (ownerTag && isCahpEntityName(ownerNameById.get(ownerTag))) {
+          // Catch CAHP-named entities even if they're not in this property's chain
+          // (helps when ownership rows haven't been fully wired up yet).
           scope = 'cahp-entity';
-          const ownerName = owners.data?.find((o) => String(o.id) === ownerTag)?.fields.Title;
-          scopeLabel = ownerName ?? 'CAHP Entity';
+          scopeLabel = ownerNameById.get(ownerTag) ?? 'CAHP Entity';
         } else if (ownerTag) {
           scope = 'owner';
-          const ownerName = owners.data?.find((o) => String(o.id) === ownerTag)?.fields.Title;
-          scopeLabel = ownerName ?? 'Owner';
+          scopeLabel = ownerNameById.get(ownerTag) ?? 'Owner';
         } else {
           return; // untagged — don't surface in link picker
         }
@@ -189,15 +211,16 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
       });
     });
     return docs.sort((a, b) => {
-      // This property first, then CAHP, then owner; within group, newest first
-      const scopeOrder = { 'this-property': 0, 'cahp-entity': 1, owner: 2 };
+      // This property first, then upstream chain, then CAHP shared, then other owners;
+      // within each group, newest first.
+      const scopeOrder = { 'this-property': 0, 'upstream-owner': 1, 'cahp-entity': 2, owner: 3 };
       if (a.scope !== b.scope) return scopeOrder[a.scope] - scopeOrder[b.scope];
       const da = a.uploadDate ? new Date(a.uploadDate).getTime() : 0;
       const db = b.uploadDate ? new Date(b.uploadDate).getTime() : 0;
       return db - da;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, owners.data]);
+  }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, upstreamOwnerIds, owners.data]);
 
   const filtered = useMemo(() => {
     let docs = availableDocs;
@@ -353,6 +376,7 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
                   {filtered.map((doc) => {
                     const scopeBadgeClass =
                       doc.scope === 'this-property' ? 'bg-teal-100 text-teal-800' :
+                      doc.scope === 'upstream-owner' ? 'bg-blue-100 text-blue-800' :
                       doc.scope === 'cahp-entity' ? 'bg-gold-100 text-gold-900' :
                       'bg-gray-100 text-gray-700';
                     return (
