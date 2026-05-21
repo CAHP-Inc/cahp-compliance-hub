@@ -11,6 +11,7 @@ import { Owners } from './pages/Owners';
 import { OwnerDetail } from './pages/OwnerDetail';
 import { OwnerNew } from './pages/OwnerNew';
 import { CAHPEntity } from './pages/CAHPEntity';
+import { Contacts } from './pages/Contacts';
 import { Submittals } from './pages/Submittals';
 import { SubmittalDetail } from './pages/SubmittalDetail';
 import { CorrespondencePage } from './pages/CorrespondencePage';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/owners/new" element={<OwnerNew />} />
             <Route path="/owners/:id" element={<OwnerDetail />} />
             <Route path="/cahp-entity" element={<CAHPEntity />} />
+            <Route path="/contacts" element={<Contacts />} />
             <Route path="/ownership" element={<Ownership />} />
             <Route path="/ownership/new" element={<OwnershipNew />} />
             <Route path="/ownership/:id" element={<OwnershipDetail />} />

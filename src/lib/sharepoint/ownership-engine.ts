@@ -180,6 +180,61 @@ export function countPropertiesForOwner(
 }
 
 /**
+ * Returns the set of property IDs this owner has a direct OR indirect beneficial
+ * interest in.
+ *
+ * Direct = rows where OwnerLookupId == ownerId AND LinkedPropertyLookupId is set.
+ * Indirect = walk DOWN through child entities (rows where ParentOwnerLookupId
+ * points at the current owner) and collect their property holdings, recursively.
+ *
+ * Use case: "show me everything Deepak owns" — surfaces every property even
+ * when Deepak only holds them through nested LLCs.
+ */
+export function getPropertyIdsForOwner(
+  ownerId: string,
+  allOwnership: Ownership[],
+): Set<string> {
+  const propertiesFound = new Set<string>();
+  const visited = new Set<string>([String(ownerId)]);
+
+  // Direct holdings
+  for (const o of allOwnership) {
+    if (
+      String(o.fields.OwnerLookupId) === String(ownerId) &&
+      o.fields.LinkedPropertyLookupId
+    ) {
+      propertiesFound.add(String(o.fields.LinkedPropertyLookupId));
+    }
+  }
+
+  // Indirect: walk down the entity tree
+  function walkDown(currentOwnerId: string) {
+    const childRelations = allOwnership.filter(
+      (o) => String(o.fields.ParentOwnerLookupId) === String(currentOwnerId),
+    );
+    for (const rel of childRelations) {
+      const childOwnerId = rel.fields.OwnerLookupId;
+      if (!childOwnerId || visited.has(String(childOwnerId))) continue;
+      visited.add(String(childOwnerId));
+
+      for (const o of allOwnership) {
+        if (
+          String(o.fields.OwnerLookupId) === String(childOwnerId) &&
+          o.fields.LinkedPropertyLookupId
+        ) {
+          propertiesFound.add(String(o.fields.LinkedPropertyLookupId));
+        }
+      }
+
+      walkDown(String(childOwnerId));
+    }
+  }
+  walkDown(String(ownerId));
+
+  return propertiesFound;
+}
+
+/**
  * Counts the LLCs (or other entities) that an owner has direct interest in.
  * Used on Owner Detail to show "owns interest in N LLCs."
  */

@@ -18,6 +18,7 @@ export type ModuleId =
   | 'properties'
   | 'owners'
   | 'cahp-entity'
+  | 'contacts'
   | 'submittals'
   | 'correspondence'
   | 'comms'
@@ -48,7 +49,7 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermission> = {
     description: 'Full access to every module and action.',
     color: 'bg-gold-500 text-teal-900',
     views: [
-      'myday', 'portfolio', 'properties', 'owners', 'cahp-entity',
+      'myday', 'portfolio', 'properties', 'owners', 'cahp-entity', 'contacts',
       'submittals', 'correspondence', 'comms', 'outstanding',
       'compliance', 'billing', 'documents', 'untagged',
       'reports', 'audit', 'settings',
@@ -61,7 +62,7 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermission> = {
     description: 'Edit operational data. No Settings, no Billing detail, no destructive actions.',
     color: 'bg-teal-700 text-white',
     views: [
-      'myday', 'portfolio', 'properties', 'owners', 'cahp-entity',
+      'myday', 'portfolio', 'properties', 'owners', 'cahp-entity', 'contacts',
       'submittals', 'correspondence', 'comms', 'outstanding',
       'compliance', 'documents', 'untagged',
       'reports', 'audit',
@@ -71,6 +72,7 @@ export const ROLE_PERMISSIONS: Record<Role, RolePermission> = {
       properties: ['view', 'create', 'edit', 'upload'],
       owners: ['view', 'create', 'edit'],
       'cahp-entity': ['view', 'edit'],
+      contacts: ['view', 'create', 'edit'],
       submittals: ['view', 'create', 'edit'],
       correspondence: ['view', 'create', 'edit'],
       comms: ['view', 'create', 'edit'],

@@ -1,12 +1,21 @@
 import { useId } from 'react';
 import { TEAM_MEMBERS } from '../lib/roleMap';
+import { useSharePointList, LIST_NAMES, type Contact } from '../lib/sharepoint';
 
 /**
- * Assignee picker — an input with autocomplete suggestions drawn from the team
- * member roster, but accepting free text (vendors, owners, external counsel, etc.).
+ * Assignee picker — a text input with autocomplete drawn from:
+ *   1. Hardcoded TEAM_MEMBERS (signed-in app users)
+ *   2. Contacts list (external people we ping — property owners, attorneys, vendors)
  *
- * Stores the display name as a string. Doesn't enforce that the value matches
- * a known team member — it's a hint, not a constraint.
+ * Stores a free-text string; doesn't enforce that the value matches a known
+ * person. That keeps backward compatibility with legacy items and supports
+ * ad-hoc assignees (vendors with no Contact record yet, etc.).
+ *
+ * Convention: the dropdown shows the display name as the option value and
+ * the email as the visible label, so picking an option fills the input with
+ * the name. This keeps "Waiting on this owner" filters working — the
+ * OwnerDetail page matches AssignedTo against any linked Contact's
+ * name OR email, case-insensitive.
  */
 export function AssigneePicker({
   value,
@@ -22,6 +31,8 @@ export function AssigneePicker({
   className?: string;
 }) {
   const id = useId();
+  const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+
   return (
     <>
       <input
@@ -35,10 +46,22 @@ export function AssigneePicker({
       />
       <datalist id={id}>
         {TEAM_MEMBERS.map((m) => (
-          <option key={m.email} value={m.name}>
-            {m.email}
+          <option key={`team-${m.email}`} value={m.name}>
+            {m.email} (team)
           </option>
         ))}
+        {(contacts.data ?? []).map((c) => {
+          const name = c.fields.Title ?? '';
+          if (!name) return null;
+          const labelParts: string[] = [];
+          if (c.fields.ContactEmail) labelParts.push(c.fields.ContactEmail);
+          if (c.fields.ContactRole) labelParts.push(c.fields.ContactRole);
+          return (
+            <option key={`contact-${c.id}`} value={name}>
+              {labelParts.join(' · ') || 'contact'}
+            </option>
+          );
+        })}
         <option value="Owner" />
         <option value="DOR" />
         <option value="Vendor" />

@@ -29,6 +29,7 @@ import {
   computeBeneficialOwnership,
   type OwnershipNode,
   type BeneficialOwner,
+  type Contact,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { DispositionModal } from '../components/DispositionModal';
@@ -38,6 +39,7 @@ import { LogLetterModal } from '../components/LogLetterModal';
 import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
+import { ContactPicker } from '../components/ContactPicker';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
@@ -460,6 +462,14 @@ function OverviewTab({
         <EditableField label="Owner Group" value={display.cahpOwnerGroup} editing={editing} type="choice" choices={CHOICES.cahpOwnerGroup} onChange={(v) => onChange('cahpOwnerGroup', v as PropertyFields['cahpOwnerGroup'])} />
       </Section>
 
+      <Section title="Owner Contact" fullWidth>
+        <OwnerContactField
+          value={display.PropertyOwnerContactLookupId}
+          editing={editing}
+          onChange={(v) => onChange('PropertyOwnerContactLookupId', v)}
+        />
+      </Section>
+
       <Section title="Notes" fullWidth>
         <EditableField
           label="Property Notes" value={display.PropertyNotes} editing={editing}
@@ -467,6 +477,60 @@ function OverviewTab({
           onChange={(v) => onChange('PropertyNotes', v as string)}
         />
       </Section>
+    </div>
+  );
+}
+
+/**
+ * Owner Contact field for the Property Overview.
+ * - Always shows the currently linked contact (read-only display) below the picker.
+ * - When the page is in edit mode, the ContactPicker is interactive so you can
+ *   pick another contact OR create a new one inline.
+ */
+function OwnerContactField({
+  value,
+  editing,
+  onChange,
+}: {
+  value: string | undefined;
+  editing: boolean;
+  onChange: (v: string | undefined) => void;
+}) {
+  const contactsList = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+  const selected = value
+    ? contactsList.data?.find((c) => String(c.id) === String(value))
+    : undefined;
+
+  if (editing) {
+    return (
+      <div>
+        <ContactPicker
+          value={value}
+          onChange={(v) => onChange(v)}
+        />
+        <p className="text-[11px] text-gray-500 mt-1">
+          The primary person to ping about this property. Pick an existing contact or use <strong>Add new contact</strong> in the dropdown.
+        </p>
+      </div>
+    );
+  }
+
+  // Read-only display
+  if (!selected) {
+    return <p className="text-sm text-gray-500 italic">No contact set. Click Edit to add one.</p>;
+  }
+  return (
+    <div className="text-sm">
+      <div className="font-medium text-gray-900">{selected.fields.Title}</div>
+      <div className="text-xs text-gray-600 mt-0.5 space-x-2">
+        {selected.fields.ContactEmail && (
+          <a href={`mailto:${selected.fields.ContactEmail}`} className="text-teal-700 hover:text-teal-900 underline">
+            {selected.fields.ContactEmail}
+          </a>
+        )}
+        {selected.fields.ContactPhone && <span className="font-mono-data">· {selected.fields.ContactPhone}</span>}
+        {selected.fields.ContactRole && <span>· {selected.fields.ContactRole}</span>}
+      </div>
     </div>
   );
 }

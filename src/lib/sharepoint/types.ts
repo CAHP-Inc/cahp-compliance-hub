@@ -104,6 +104,8 @@ export interface PropertyFields {
   PropertyNotes?: string;
   PropertyStatus?: PropertyStatus;
   RemovedReason?: string;
+  // Owner contact — Lookup → Contacts list. Set on the Property Overview tab via picker.
+  PropertyOwnerContactLookupId?: string;
 }
 
 export type Property = SharePointListItem<PropertyFields>;
@@ -547,6 +549,7 @@ export const LIST_NAMES = {
   Communications: 'Owner Communications',
   Notifications: 'Notifications',
   DocumentMetadata: 'Document Metadata',
+  Contacts: 'Contacts',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
@@ -593,3 +596,33 @@ export interface DeedParcelLinkFields {
 }
 
 export type DeedParcelLink = SharePointListItem<DeedParcelLinkFields>;
+
+// =============================================================================
+// LIST: Contacts — people we ping (property owners, attorneys, vendors)
+//
+// Separate from Owners (entity records). A Contact CAN be linked to an Owner
+// (e.g., Deepak Maheshwari → Marwar Ventures LLC), but doesn't have to be.
+// Contacts feed the AssigneePicker dropdown alongside team members so items
+// can be assigned to external folks without bespoke text matching.
+// =============================================================================
+
+export type ContactRole =
+  | 'Property Owner'
+  | 'Sponsor'
+  | 'Attorney'
+  | 'Accountant'
+  | 'Property Manager'
+  | 'Vendor'
+  | 'Lender'
+  | 'Other';
+
+export interface ContactFields {
+  Title?: string;                         // Display name (e.g., "Deepak Maheshwari")
+  ContactEmail?: string;                  // Primary contact email — used for assignee matching
+  ContactPhone?: string;
+  ContactRole?: ContactRole;
+  ContactOwnerLookupId?: string;          // Optional → Owners (which entity this person represents)
+  ContactNotes?: string;
+}
+
+export type Contact = SharePointListItem<ContactFields>;

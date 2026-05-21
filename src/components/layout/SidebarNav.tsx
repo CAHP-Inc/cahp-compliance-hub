@@ -33,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'properties', label: 'Properties', icon: 'home', path: '/properties' },
       { id: 'owners', label: 'Owners', icon: 'star', path: '/owners' },
       { id: 'cahp-entity', label: 'CAHP Entity', icon: 'star', path: '/cahp-entity' },
+      { id: 'contacts', label: 'Contacts', icon: 'mail', path: '/contacts' },
     ],
   },
   {

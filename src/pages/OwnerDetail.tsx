@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
@@ -10,16 +10,21 @@ import {
   countPropertiesForOwner,
   countMembersOf,
   countLLCsOwnedBy,
+  getPropertyIdsForOwner,
   type Owner,
   type OwnerFields,
   type Ownership,
   type Property,
   type OwnerType,
+  type OutstandingItem,
+  type Contact,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
+import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
+import { formatDateOnly } from '../lib/dates';
 import {
   BreadcrumbBar,
   Section,
@@ -490,6 +495,14 @@ export function OwnerDetail() {
         )}
       </div>
 
+      {/* Outstanding items across every property this owner has an interest in */}
+      <OwnerOutstandingItemsSection
+        ownerId={String(owner.id)}
+        ownerTitle={owner.fields.Title}
+        ownership={ownership.data ?? []}
+        properties={properties.data ?? []}
+      />
+
       {/* Owner-scoped documents — formation docs, EIN, Articles, COE, Cert of Auth, etc. */}
       <EntityDocumentsSection
         ownerIds={[String(owner.id)]}
@@ -526,6 +539,248 @@ function maskTaxID(taxId: string | undefined): string {
   if (!taxId) return '';
   if (taxId.length <= 4) return '••••';
   return '••••••' + taxId.slice(-4);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outstanding Items for this owner — spans every property the owner holds
+// (direct or through nested LLCs). Has a filter to narrow to items assigned
+// to this owner (by name OR contact email) and an Export button that hands
+// off to the shared reminder modal so you can copy/paste a ping to them.
+// ─────────────────────────────────────────────────────────────────────────────
+type OwnerItemsFilter = 'all' | 'assignedToOwner' | 'unassigned';
+
+function OwnerOutstandingItemsSection({
+  ownerId,
+  ownerTitle,
+  ownership,
+  properties,
+}: {
+  ownerId: string;
+  ownerTitle: string | undefined;
+  ownership: Ownership[];
+  properties: Property[];
+}) {
+  const items = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
+  const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+  const [filter, setFilter] = useState<OwnerItemsFilter>('all');
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // Resolve every property ID this owner has a beneficial interest in
+  const ownedPropertyIds = useMemo(
+    () => getPropertyIdsForOwner(ownerId, ownership),
+    [ownerId, ownership],
+  );
+
+  const propertiesById = useMemo(() => {
+    const m = new Map<string, Property>();
+    for (const p of properties) m.set(String(p.id), p);
+    return m;
+  }, [properties]);
+
+  const ownedProperties = useMemo(
+    () => Array.from(ownedPropertyIds).map((id) => propertiesById.get(id)).filter((p): p is Property => !!p),
+    [ownedPropertyIds, propertiesById],
+  );
+
+  const isClosed = (s: string | undefined) =>
+    s === 'Done' || s === 'Received' || s === 'Not Applicable';
+
+  // Match AssignedTo against any Contact whose ContactOwnerLookupId == this owner.
+  // Compare both the contact's name and email so items assigned either way match.
+  const linkedContactKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const c of contacts.data ?? []) {
+      if (String(c.fields.ContactOwnerLookupId ?? '') !== String(ownerId)) continue;
+      const name = (c.fields.Title ?? '').trim().toLowerCase();
+      const email = (c.fields.ContactEmail ?? '').trim().toLowerCase();
+      if (name) keys.add(name);
+      if (email) keys.add(email);
+    }
+    // Backward-compat: also match against the Owner entity's own name (legacy items)
+    const ownerName = (ownerTitle ?? '').trim().toLowerCase();
+    if (ownerName) keys.add(ownerName);
+    return keys;
+  }, [contacts.data, ownerId, ownerTitle]);
+
+  const isAssignedToThisOwner = (assignedTo: string | undefined) => {
+    const a = (assignedTo ?? '').trim().toLowerCase();
+    if (!a) return false;
+    return linkedContactKeys.has(a);
+  };
+
+  // Filter the list against the owned-property set + status + assignee filter
+  const filteredItems = useMemo(() => {
+    const all = items.data ?? [];
+    return all
+      .filter((i) => {
+        const pid = i.fields.PropertyLookupId ? String(i.fields.PropertyLookupId) : '';
+        if (!ownedPropertyIds.has(pid)) return false;
+        if (isClosed(i.fields.ItemStatus)) return false;
+        if (filter === 'assignedToOwner' && !isAssignedToThisOwner(i.fields.AssignedTo)) return false;
+        if (filter === 'unassigned' && (i.fields.AssignedTo ?? '').trim() !== '') return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aOverdue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() < Date.now() : false;
+        const bOverdue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() < Date.now() : false;
+        if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+        const aDue = a.fields.DueDate ? new Date(a.fields.DueDate).getTime() : Infinity;
+        const bDue = b.fields.DueDate ? new Date(b.fields.DueDate).getTime() : Infinity;
+        return aDue - bDue;
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.data, ownedPropertyIds, filter, linkedContactKeys]);
+
+  // Group filtered items by property for the rendered list
+  const itemsByProperty = useMemo(() => {
+    const groups = new Map<string, { property: Property | undefined; items: OutstandingItem[] }>();
+    for (const item of filteredItems) {
+      const pid = item.fields.PropertyLookupId ? String(item.fields.PropertyLookupId) : '';
+      if (!groups.has(pid)) {
+        groups.set(pid, { property: propertiesById.get(pid), items: [] });
+      }
+      groups.get(pid)!.items.push(item);
+    }
+    return Array.from(groups.values()).sort((a, b) =>
+      (a.property?.fields.Title ?? '').localeCompare(b.property?.fields.Title ?? ''),
+    );
+  }, [filteredItems, propertiesById]);
+
+  const assignedCount = useMemo(
+    () => (items.data ?? []).filter((i) => {
+      const pid = i.fields.PropertyLookupId ? String(i.fields.PropertyLookupId) : '';
+      return ownedPropertyIds.has(pid) && !isClosed(i.fields.ItemStatus) && isAssignedToThisOwner(i.fields.AssignedTo);
+    }).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items.data, ownedPropertyIds, linkedContactKeys],
+  );
+
+  const totalOpenAcrossProperties = useMemo(
+    () => (items.data ?? []).filter((i) => {
+      const pid = i.fields.PropertyLookupId ? String(i.fields.PropertyLookupId) : '';
+      return ownedPropertyIds.has(pid) && !isClosed(i.fields.ItemStatus);
+    }).length,
+    [items.data, ownedPropertyIds],
+  );
+
+  return (
+    <div className="bg-white border-l-4 border-amber-500 border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 bg-amber-50 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-teal-900">
+            Outstanding Items {ownerTitle && <span className="text-gray-500 font-normal">— {ownerTitle}</span>}
+          </h3>
+          <p className="text-xs text-gray-600 mt-0.5">
+            Across <strong>{ownedProperties.length}</strong> propert{ownedProperties.length === 1 ? 'y' : 'ies'} this owner holds
+            {' · '}<strong>{totalOpenAcrossProperties}</strong> open total
+            {assignedCount > 0 && <> · <strong>{assignedCount}</strong> waiting on this owner</>}
+          </p>
+        </div>
+        <button
+          onClick={() => setExportOpen(true)}
+          disabled={filteredItems.length === 0}
+          className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 flex-shrink-0"
+          title="Export the current filtered list as a copy-pastable reminder"
+        >
+          <Icon name="file" size={12} />
+          Export reminder
+        </button>
+      </div>
+
+      <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Filter:</span>
+        {([
+          { id: 'all',              label: `All open (${totalOpenAcrossProperties})` },
+          { id: 'assignedToOwner',  label: `Waiting on this owner (${assignedCount})` },
+          { id: 'unassigned',       label: 'Unassigned' },
+        ] as const).map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => setFilter(opt.id)}
+            className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+              filter === opt.id
+                ? 'bg-teal-700 text-white'
+                : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {ownedProperties.length === 0 ? (
+        <div className="px-4 py-6 text-center text-sm text-gray-500 italic">
+          This owner doesn't hold any properties yet.
+        </div>
+      ) : itemsByProperty.length === 0 ? (
+        <div className="px-4 py-6 text-center text-sm text-gray-500 italic">
+          No items match this filter.
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {itemsByProperty.map((group) => (
+            <div key={group.property?.id ?? 'unknown'}>
+              <div className="px-4 py-2 bg-gray-50 flex items-center justify-between gap-2">
+                <Link
+                  to={group.property ? `/properties/${group.property.id}` : '#'}
+                  className="text-xs font-semibold text-teal-700 hover:text-teal-900"
+                >
+                  {group.property?.fields.Title ?? '(unknown property)'}
+                </Link>
+                <span className="text-[11px] text-gray-500 font-mono-data">
+                  {group.items.length} open
+                </span>
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {group.items.map((item) => {
+                  const due = item.fields.DueDate ? new Date(item.fields.DueDate) : null;
+                  const isOverdue = !!due && due.getTime() < Date.now();
+                  return (
+                    <li key={item.id}>
+                      <Link
+                        to={`/outstanding-items/${item.id}`}
+                        className="px-4 py-2 flex items-center gap-3 hover:bg-gray-50 text-xs"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900 truncate">
+                            {isOverdue && <span className="text-error mr-1">⚠</span>}
+                            {item.fields.Title}
+                          </div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">
+                            {item.fields.ItemCategory ?? 'Other'}
+                            {item.fields.AssignedTo && <span> · {item.fields.AssignedTo}</span>}
+                            {item.fields.ItemStatus && <span> · {item.fields.ItemStatus}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          {due ? (
+                            <span className={`font-mono-data ${isOverdue ? 'text-error font-bold' : 'text-gray-700'}`}>
+                              {formatDateOnly(item.fields.DueDate)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">no due date</span>
+                          )}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {exportOpen && (
+        <ExportOutstandingItemsModal
+          items={filteredItems}
+          propertiesById={propertiesById}
+          propertyTitle={undefined /* spans multiple properties — let the modal show all */}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
+    </div>
+  );
 }
 
 // =============================================================================
