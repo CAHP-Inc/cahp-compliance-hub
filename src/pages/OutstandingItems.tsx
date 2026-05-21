@@ -93,6 +93,17 @@ export function OutstandingItems() {
   const [exportOpen, setExportOpen] = useState(false);
   const [linkUploadItem, setLinkUploadItem] = useState<OutstandingItem | null>(null);
 
+  // Bulk selection — set of item IDs the user has checked in the list view.
+  // Cleared whenever any filter changes so we don't act on hidden rows.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState<'dueDate' | 'assignee' | 'status' | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ ok: number; failures: { id: string; title: string; error: string }[] } | null>(null);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, showClosed]);
+
   const loading = items.loading || properties.loading;
   const error = items.error || properties.error;
 
@@ -172,6 +183,66 @@ export function OutstandingItems() {
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  /**
+   * Bulk update — applies the same field change to every selected item.
+   * Uses Promise.allSettled in batches of 5 to stay under SharePoint's
+   * throttling thresholds while still moving quickly. Tracks progress and
+   * surfaces partial failures so the user can retry just the ones that broke.
+   */
+  const handleBulkUpdate = async (mode: 'dueDate' | 'assignee' | 'status', value: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const itemsById = new Map<string, OutstandingItem>();
+    (items.data ?? []).forEach((i) => itemsById.set(String(i.id), i));
+
+    let patch: Record<string, unknown> = {};
+    if (mode === 'dueDate') {
+      patch = { DueDate: value ? toDateOnlyISO(value) : (null as unknown as undefined) };
+    } else if (mode === 'assignee') {
+      const trimmed = value.trim();
+      patch = { AssignedTo: trimmed || (null as unknown as undefined) };
+    } else if (mode === 'status') {
+      patch = { ItemStatus: value };
+      if (value === 'Done' || value === 'Received') {
+        patch.DateReceivedItem = new Date().toISOString();
+      }
+    }
+
+    setBulkProgress({ done: 0, total: ids.length });
+    setBulkResult(null);
+
+    const failures: { id: string; title: string; error: string }[] = [];
+    let okCount = 0;
+    let done = 0;
+    const BATCH = 5;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i + BATCH);
+      const settled = await Promise.allSettled(
+        batch.map((id) => updateListItem(LIST_NAMES.Outstanding, id, patch)),
+      );
+      settled.forEach((r, idx) => {
+        const id = batch[idx];
+        if (r.status === 'fulfilled') {
+          okCount++;
+        } else {
+          failures.push({
+            id,
+            title: itemsById.get(id)?.fields.Title ?? `Item #${id}`,
+            error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+          });
+        }
+      });
+      done += batch.length;
+      setBulkProgress({ done, total: ids.length });
+    }
+
+    await items.refetch?.();
+    setBulkResult({ ok: okCount, failures });
+    setBulkProgress(null);
+    // Clear selections that succeeded; keep failed IDs selected so user can retry
+    setSelectedIds(new Set(failures.map((f) => f.id)));
   };
 
   // Inline due-date update from the list view. Takes a YYYY-MM-DD string
@@ -356,6 +427,42 @@ export function OutstandingItems() {
               </button>
             </div>
           )}
+          {selectedIds.size > 0 && (
+            <BulkActionBar
+              count={selectedIds.size}
+              onClear={() => setSelectedIds(new Set())}
+              onBulk={(mode) => setBulkMode(mode)}
+            />
+          )}
+          {bulkResult && (
+            <div className={`rounded-md p-2.5 mb-3 text-xs flex items-start justify-between gap-2 ${
+              bulkResult.failures.length === 0 ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'
+            }`}>
+              <div>
+                <div className={bulkResult.failures.length === 0 ? 'text-green-900 font-medium' : 'text-amber-900 font-medium'}>
+                  {bulkResult.ok} updated{bulkResult.failures.length > 0 ? ` · ${bulkResult.failures.length} failed` : ''}
+                </div>
+                {bulkResult.failures.length > 0 && (
+                  <ul className="mt-1 list-disc list-inside text-amber-800 text-[11px]">
+                    {bulkResult.failures.slice(0, 5).map((f) => (
+                      <li key={f.id} title={f.error}>{f.title}</li>
+                    ))}
+                    {bulkResult.failures.length > 5 && (
+                      <li>and {bulkResult.failures.length - 5} more — failed items stay selected; try again</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+              <button
+                onClick={() => setBulkResult(null)}
+                className={`font-medium px-2 py-0.5 rounded hover:bg-white/40 ${
+                  bulkResult.failures.length === 0 ? 'text-green-700' : 'text-amber-700'
+                }`}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <ListView
             items={filtered}
             propertiesById={propertiesById}
@@ -364,6 +471,21 @@ export function OutstandingItems() {
             onAssigneeChange={handleAssigneeChange}
             onDueDateChange={handleDueDateChange}
             updatingId={updatingId}
+            selectedIds={selectedIds}
+            onToggleSelected={(id) =>
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+            onToggleAll={(ids) =>
+              setSelectedIds((prev) => {
+                const allSelected = ids.every((id) => prev.has(id));
+                return allSelected ? new Set() : new Set(ids);
+              })
+            }
           />
         </>
       ) : (
@@ -411,6 +533,22 @@ export function OutstandingItems() {
           onClose={() => setExportOpen(false)}
         />
       )}
+
+      {bulkMode && (
+        <BulkUpdateModal
+          mode={bulkMode}
+          count={selectedIds.size}
+          progress={bulkProgress}
+          onApply={async (value) => {
+            await handleBulkUpdate(bulkMode, value);
+            setBulkMode(null);
+          }}
+          onClose={() => {
+            if (bulkProgress) return; // don't close mid-apply
+            setBulkMode(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -427,6 +565,9 @@ function ListView({
   onAssigneeChange,
   onDueDateChange,
   updatingId,
+  selectedIds,
+  onToggleSelected,
+  onToggleAll,
 }: {
   items: OutstandingItem[];
   propertiesById: Map<string, Property>;
@@ -435,12 +576,29 @@ function ListView({
   onAssigneeChange: (itemId: string, newAssignee: string) => void;
   onDueDateChange: (itemId: string, newDueDate: string) => void;
   updatingId: string | null;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
+  onToggleAll: (ids: string[]) => void;
 }) {
+  const allIds = items.map((i) => i.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const someSelected = !allSelected && allIds.some((id) => selectedIds.has(id));
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
           <tr>
+            <th className="px-3 py-3 w-8">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                onChange={() => onToggleAll(allIds)}
+                title={allSelected ? 'Clear selection' : 'Select all visible'}
+              />
+            </th>
             <th className="px-4 py-3 text-left">Title</th>
             <th className="px-4 py-3 text-left">Property</th>
             <th className="px-4 py-3 text-left">Status</th>
@@ -458,11 +616,22 @@ function ListView({
               : null;
             const overdue = isOverdue(item);
             const hasDoc = Boolean(item.fields.RelatedDocUrl);
+            const isSelected = selectedIds.has(item.id);
             return (
               <tr
                 key={item.id}
-                className={`hover:bg-gray-50 transition-colors ${overdue ? 'bg-red-50' : ''}`}
+                className={`hover:bg-gray-50 transition-colors ${overdue ? 'bg-red-50' : ''} ${isSelected ? 'bg-teal-50/40' : ''}`}
               >
+                <td
+                  className="px-3 py-3 w-8"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleSelected(item.id)}
+                  />
+                </td>
                 <td
                   className="px-4 py-3 font-medium text-gray-900 cursor-pointer"
                   onClick={() => onRowClick(item.id)}
@@ -956,6 +1125,178 @@ function InlineDueDateCell({
           <div className="w-2.5 h-2.5 rounded-full border-2 border-teal-500 border-r-transparent animate-spin" />
         </div>
       )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Bulk update — action bar + single-field modal
+// =============================================================================
+
+function BulkActionBar({
+  count,
+  onClear,
+  onBulk,
+}: {
+  count: number;
+  onClear: () => void;
+  onBulk: (mode: 'dueDate' | 'assignee' | 'status') => void;
+}) {
+  return (
+    <div className="sticky top-0 z-20 bg-teal-700 text-white rounded-md shadow-card mb-3 px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+      <div className="text-sm font-medium">
+        {count} item{count === 1 ? '' : 's'} selected
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => onBulk('dueDate')}
+          className="bg-white/15 hover:bg-white/25 text-white px-2.5 py-1 rounded text-xs font-medium inline-flex items-center gap-1.5"
+        >
+          <Icon name="calendar" size={12} />
+          Set Due Date
+        </button>
+        <button
+          onClick={() => onBulk('assignee')}
+          className="bg-white/15 hover:bg-white/25 text-white px-2.5 py-1 rounded text-xs font-medium inline-flex items-center gap-1.5"
+        >
+          <Icon name="check" size={12} />
+          Set Assignee
+        </button>
+        <button
+          onClick={() => onBulk('status')}
+          className="bg-white/15 hover:bg-white/25 text-white px-2.5 py-1 rounded text-xs font-medium inline-flex items-center gap-1.5"
+        >
+          <Icon name="inbox" size={12} />
+          Set Status
+        </button>
+        <button
+          onClick={onClear}
+          className="text-white/80 hover:text-white px-2 py-1 rounded text-xs font-medium"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const BULK_STATUS_OPTIONS: ('Not Started' | 'In Progress' | 'Blocked' | 'Done')[] = [
+  'Not Started', 'In Progress', 'Blocked', 'Done',
+];
+
+function BulkUpdateModal({
+  mode,
+  count,
+  progress,
+  onApply,
+  onClose,
+}: {
+  mode: 'dueDate' | 'assignee' | 'status';
+  count: number;
+  progress: { done: number; total: number } | null;
+  onApply: (value: string) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState<string>('');
+  const applying = progress !== null;
+
+  const title =
+    mode === 'dueDate' ? 'Set Due Date'
+    : mode === 'assignee' ? 'Set Assignee'
+    : 'Set Status';
+
+  const description =
+    mode === 'dueDate'
+      ? 'Applies the same due date to every selected item. Leave blank to clear the field.'
+      : mode === 'assignee'
+        ? 'Applies the same assignee to every selected item. Leave blank to mark them unassigned.'
+        : 'Moves every selected item to the chosen status. Items moved to Done get a received-date stamp automatically.';
+
+  // Status needs an explicit pick before the Apply button activates
+  const canApply = mode === 'status' ? value !== '' : true;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !applying) onClose();
+      }}
+    >
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        <div className="px-5 py-3 border-b border-gray-200">
+          <h2 className="text-base font-bold text-teal-700">{title}</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            <strong>{count}</strong> item{count === 1 ? '' : 's'} selected · {description}
+          </p>
+        </div>
+        <div className="px-5 py-4">
+          {mode === 'dueDate' && (
+            <input
+              type="date"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={applying}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500"
+              autoFocus
+            />
+          )}
+          {mode === 'assignee' && (
+            <AssigneePicker
+              value={value}
+              onChange={setValue}
+              disabled={applying}
+              placeholder="Pick or type a name (blank = unassigned)"
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500"
+            />
+          )}
+          {mode === 'status' && (
+            <select
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={applying}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:border-teal-500"
+              autoFocus
+            >
+              <option value="">— Choose a status —</option>
+              {BULK_STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          )}
+
+          {applying && progress && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-[11px] text-gray-600 mb-1">
+                <span>Updating…</span>
+                <span className="font-mono-data">{progress.done} / {progress.total}</span>
+              </div>
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-teal-500 transition-all"
+                  style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-lg flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={applying}
+            className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 rounded-md disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onApply(value)}
+            disabled={applying || !canApply}
+            className="bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+          >
+            {applying && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
+            {applying ? 'Updating…' : `Apply to ${count}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
