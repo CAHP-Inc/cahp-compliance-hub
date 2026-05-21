@@ -61,15 +61,6 @@ export type AMIProgram = '20/50' | '40/60' | '50/80' | '60/80' | 'Mixed' | 'None
 
 export type CAHPLanguageStatus = 'Yes' | 'No' | 'In Progress' | 'Needs Revision';
 
-export type OwnerGroup =
-  | 'VanRock Holdings'
-  | 'Red Cedar'
-  | 'AmRock'
-  | 'Troy Hampton'
-  | 'Deepak'
-  | 'Damon Lilly'
-  | 'Other';
-
 export type VerificationStatus =
   | 'Inherited - Unverified'
   | 'Verified'
@@ -93,7 +84,6 @@ export interface PropertyFields {
   AMIProgram?: AMIProgram;
   CAHPLanguageAdded?: CAHPLanguageStatus;
   cahpCounty?: string;
-  cahpOwnerGroup?: OwnerGroup;
   cahpState?: CahpState;
   cahpVerificationStatus?: VerificationStatus;
   DORAccountID?: string;

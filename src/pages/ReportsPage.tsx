@@ -660,7 +660,6 @@ async function bundleAuditPack(
     Units: p.fields.UnitCount ?? '',
     'AMI Program': p.fields.AMIProgram ?? '',
     'Property Status': p.fields.PropertyStatus ?? '',
-    'Owner Group': p.fields.cahpOwnerGroup ?? '',
     'CAHP Language Added': p.fields.CAHPLanguageAdded ?? '',
     'LURA Executed': p.fields.LURAExecuted ?? '',
     'Verification Status': p.fields.cahpVerificationStatus ?? '',

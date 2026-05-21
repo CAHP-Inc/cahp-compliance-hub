@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -29,6 +29,14 @@ export function Properties() {
   });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+  const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+
+  // contactId → contact, for quick lookup when rendering the Owner Contact column
+  const contactsById = useMemo(() => {
+    const m = new Map<string, Contact>();
+    (contacts.data ?? []).forEach((c) => m.set(String(c.id), c));
+    return m;
+  }, [contacts.data]);
 
   /**
    * Parcels per property — used to indicate multi-parcel filings.
@@ -94,6 +102,8 @@ export function Properties() {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<CahpState | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
+  // Owner contact filter — value is the Contact's listItem ID (string) or 'All' / 'None'.
+  const [contactFilter, setContactFilter] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'name' | 'filingStatus'>('name');
 
   /**
@@ -137,6 +147,14 @@ export function Properties() {
       }
       if (stateFilter !== 'All' && f.cahpState !== stateFilter) return false;
       if (statusFilter !== 'All' && f.PropertyStatus !== statusFilter) return false;
+      if (contactFilter !== 'All') {
+        const propContactId = f.PropertyOwnerContactLookupId ? String(f.PropertyOwnerContactLookupId) : '';
+        if (contactFilter === 'None') {
+          if (propContactId) return false;
+        } else if (propContactId !== contactFilter) {
+          return false;
+        }
+      }
       return true;
     });
     // Client-side sort — SharePoint won't sort server-side because Title isn't indexed
@@ -166,7 +184,7 @@ export function Properties() {
       });
     }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter, sortBy, latestSubmittalByProperty]);
+  }, [data, search, stateFilter, statusFilter, contactFilter, sortBy, latestSubmittalByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -228,6 +246,20 @@ export function Properties() {
           onChange={(v) => setStatusFilter(v as PropertyStatus | 'All')}
           options={['All', 'Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold']}
         />
+        <select
+          value={contactFilter}
+          onChange={(e) => setContactFilter(e.target.value)}
+          className="text-xs px-2 py-1.5 border border-gray-200 rounded-md bg-white focus:outline-none focus:border-teal-500"
+          title="Filter by owner contact"
+        >
+          <option value="All">All contacts</option>
+          <option value="None">— No contact set —</option>
+          {[...(contacts.data ?? [])]
+            .sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''))
+            .map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.fields.Title}</option>
+            ))}
+        </select>
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Sort:</span>
           <select
@@ -258,7 +290,7 @@ export function Properties() {
                 <th className="px-4 py-3 text-left">County</th>
                 <th className="px-4 py-3 text-right">Units</th>
                 <th className="px-4 py-3 text-left">AMI</th>
-                <th className="px-4 py-3 text-left">Owner Group</th>
+                <th className="px-4 py-3 text-left">Owner Contact</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Filing Status</th>
               </tr>
@@ -299,7 +331,25 @@ export function Properties() {
                     {p.fields.UnitCount ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
-                  <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.cahpOwnerGroup || '—'}</td>
+                  <td className="px-4 py-3 text-xs">
+                    {(() => {
+                      const cId = p.fields.PropertyOwnerContactLookupId
+                        ? String(p.fields.PropertyOwnerContactLookupId)
+                        : '';
+                      const contact = cId ? contactsById.get(cId) : undefined;
+                      if (!contact) return <span className="text-gray-400">—</span>;
+                      return (
+                        <div className="min-w-0">
+                          <div className="text-gray-900 truncate">{contact.fields.Title}</div>
+                          {contact.fields.ContactEmail && (
+                            <div className="text-[11px] text-gray-500 font-mono-data truncate">
+                              {contact.fields.ContactEmail}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3">
                     {p.fields.PropertyStatus ? (
                       <span

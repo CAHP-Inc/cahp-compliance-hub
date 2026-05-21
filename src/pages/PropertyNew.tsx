@@ -10,7 +10,6 @@ import {
   type CahpState,
   type CahpTaxYear,
   type LURAExecutedStatus,
-  type OwnerGroup,
   type PropertyStatus,
   type VerificationStatus,
   type Owner,
@@ -26,10 +25,6 @@ const CHOICES = {
     'Greenville (SC)', 'Spartanburg (SC)', 'Anderson (SC)', 'Pickens (SC)',
     'Laurens (SC)', 'York (SC)', 'Mecklenburg (NC)', 'Guilford (NC)',
     'Durham (NC)', 'Wake (NC)', 'Forsyth (NC)', 'Buncombe (NC)', 'Other',
-  ] as const,
-  cahpOwnerGroup: [
-    'VanRock Holdings', 'Red Cedar', 'AmRock', 'Troy Hampton',
-    'Deepak', 'Damon Lilly', 'Other',
   ] as const,
   cahpState: ['SC', 'NC'] as const,
   cahpVerificationStatus: [
@@ -81,7 +76,6 @@ export function PropertyNew() {
     PropertyAddress: '',
     cahpState: undefined,
     cahpCounty: undefined,
-    cahpOwnerGroup: undefined,
     DateAddedToCAHP: new Date().toISOString(),
     AMIProgram: undefined,
     CAHPLanguageAdded: undefined,
@@ -340,12 +334,6 @@ export function PropertyNew() {
                 {CHOICES.cahpCounty.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
-            <Field label="Owner Group">
-              <select value={form.cahpOwnerGroup ?? ''} onChange={(e) => handleChange('cahpOwnerGroup', (e.target.value || undefined) as OwnerGroup)} className={`${inputClass} bg-white`}>
-                <option value="">— select —</option>
-                {CHOICES.cahpOwnerGroup.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
           </Section>
         </div>
       )}
@@ -569,7 +557,6 @@ export function PropertyNew() {
                 <ReviewRow label="Address" value={form.PropertyAddress} />
                 <ReviewRow label="State" value={form.cahpState} required mono />
                 <ReviewRow label="County" value={form.cahpCounty} />
-                <ReviewRow label="Owner Group" value={form.cahpOwnerGroup} />
                 <ReviewRow label="AMI Program" value={form.AMIProgram} />
                 <ReviewRow label="Units" value={form.UnitCount?.toString()} mono />
                 <ReviewRow label="Status" value={form.PropertyStatus} />

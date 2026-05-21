@@ -77,10 +77,6 @@ const CHOICES = {
     'Laurens (SC)', 'York (SC)', 'Mecklenburg (NC)', 'Guilford (NC)',
     'Durham (NC)', 'Wake (NC)', 'Forsyth (NC)', 'Buncombe (NC)', 'Other',
   ] as const,
-  cahpOwnerGroup: [
-    'VanRock Holdings', 'Red Cedar', 'AmRock', 'Troy Hampton',
-    'Deepak', 'Damon Lilly', 'Other',
-  ] as const,
   cahpState: ['SC', 'NC'] as const,
   cahpVerificationStatus: [
     'Inherited - Unverified', 'Verified', 'Needs Follow-Up', 'N/A',
@@ -254,7 +250,6 @@ export function PropertyDetail() {
               property.fields.UnitCount ? `${property.fields.UnitCount} units` : null,
               property.fields.AMIProgram && property.fields.AMIProgram !== 'None'
                 ? `${property.fields.AMIProgram} AMI` : null,
-              property.fields.cahpOwnerGroup,
             ].filter(Boolean).join(' · ')}
           </p>
           {property.fields.PropertyEIN && (
@@ -459,7 +454,6 @@ function OverviewTab({
         <EditableField label="State" value={display.cahpState} editing={editing} type="choice" choices={CHOICES.cahpState} mono onChange={(v) => onChange('cahpState', v as PropertyFields['cahpState'])} />
         <EditableField label="County" value={display.cahpCounty} editing={editing} type="choice" choices={CHOICES.cahpCounty} onChange={(v) => onChange('cahpCounty', v as string)} />
         <EditableField label="Units" value={display.UnitCount} editing={editing} type="number" mono onChange={(v) => onChange('UnitCount', v as number)} />
-        <EditableField label="Owner Group" value={display.cahpOwnerGroup} editing={editing} type="choice" choices={CHOICES.cahpOwnerGroup} onChange={(v) => onChange('cahpOwnerGroup', v as PropertyFields['cahpOwnerGroup'])} />
       </Section>
 
       <Section title="Owner Contact" fullWidth>

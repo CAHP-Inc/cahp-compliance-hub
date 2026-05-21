@@ -45,7 +45,6 @@ export function Portfolio() {
     const statusDist = countBy(props, (p) => p.fields.PropertyStatus ?? 'Unset');
     const amiDist = countBy(props, (p) => p.fields.AMIProgram ?? 'Unset');
     const stateDist = countBy(props, (p) => p.fields.cahpState ?? 'Unset');
-    const ownerDist = countBy(props, (p) => p.fields.cahpOwnerGroup ?? 'Unset');
     const verifyDist = countBy(props, (p) => p.fields.cahpVerificationStatus ?? 'Unset');
 
     // Needs attention — properties matching any risk rule
@@ -88,7 +87,6 @@ export function Portfolio() {
       statusDist,
       amiDist,
       stateDist,
-      ownerDist,
       verifyDist,
       needsAttention,
     };
@@ -168,11 +166,6 @@ export function Portfolio() {
         <BreakdownCard
           title="Verification"
           data={analytics.verifyDist}
-          total={analytics.total}
-        />
-        <BreakdownCard
-          title="Owner Group"
-          data={analytics.ownerDist}
           total={analytics.total}
         />
       </div>
