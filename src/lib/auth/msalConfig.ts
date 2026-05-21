@@ -51,7 +51,7 @@ export const msalConfig: Configuration = {
  * via acquireTokenSilent with the same scope set.
  */
 export const loginRequest = {
-  scopes: ['User.Read', 'Sites.Read.All', 'Sites.ReadWrite.All'],
+  scopes: ['User.Read', 'Sites.Read.All', 'Sites.ReadWrite.All', 'Mail.Send'],
 };
 
 /**

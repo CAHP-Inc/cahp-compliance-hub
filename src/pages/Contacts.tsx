@@ -15,6 +15,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { NewContactModal } from '../components/ContactPicker';
+import { ComposeEmailModal } from '../components/ComposeEmailModal';
 
 /**
  * Contacts directory — people we communicate with about properties.
@@ -58,6 +59,8 @@ export function Contacts() {
   const [roleFilter, setRoleFilter] = useState<ContactRole | 'All'>('All');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
+  /** When set, opens the compose modal pre-targeted at this contact. null = closed; "" = open with no pre-target. */
+  const [composeTo, setComposeTo] = useState<string | null>(null);
 
   const ownersById = useMemo(() => {
     const m = new Map<string, Owner>();
@@ -136,13 +139,23 @@ export function Contacts() {
             and to surface what's waiting on each person.
           </p>
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
-        >
-          <Icon name="plus" size={14} />
-          New Contact
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setComposeTo('')}
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+            title="Compose a new email — pick recipients + properties inside"
+          >
+            <Icon name="mail" size={14} />
+            Compose Email
+          </button>
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1.5"
+          >
+            <Icon name="plus" size={14} />
+            New Contact
+          </button>
+        </div>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 p-3 flex items-center gap-3 flex-wrap">
@@ -258,12 +271,24 @@ export function Contacts() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setEditing(c)}
-                        className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {c.fields.ContactEmail && (
+                          <button
+                            onClick={() => setComposeTo(String(c.id))}
+                            className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 inline-flex items-center gap-1"
+                            title={`Email ${c.fields.Title}`}
+                          >
+                            <Icon name="mail" size={11} />
+                            Email
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setEditing(c)}
+                          className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50"
+                        >
+                          Edit
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -296,6 +321,14 @@ export function Contacts() {
             ownerLinks.refetch?.();
             setEditing(null);
           }}
+        />
+      )}
+
+      {composeTo !== null && (
+        <ComposeEmailModal
+          defaultContactIds={composeTo ? [composeTo] : undefined}
+          onClose={() => setComposeTo(null)}
+          onSuccess={() => setComposeTo(null)}
         />
       )}
     </div>

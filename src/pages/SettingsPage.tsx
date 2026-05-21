@@ -14,6 +14,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { ChecklistTemplatesEditor } from '../components/ChecklistTemplatesEditor';
+import { EmailTemplatesEditor } from '../components/EmailTemplatesEditor';
 
 const ROLE_LABELS: Record<Role, string> = {
   'Admin': 'Admin',
@@ -43,7 +44,7 @@ const ACCESS_LIST: { email: string; role: Role; org: string; addedIn: string }[]
 
 export function SettingsPage() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
-  const [tab, setTab] = useState<'profile' | 'access' | 'permissions' | 'checklist' | 'system'>('profile');
+  const [tab, setTab] = useState<'profile' | 'access' | 'permissions' | 'checklist' | 'email' | 'system'>('profile');
 
   // System info data — count of stuff in SharePoint
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 1 });
@@ -68,6 +69,7 @@ export function SettingsPage() {
           { id: 'access', label: 'Access List' },
           { id: 'permissions', label: 'Permissions Matrix' },
           { id: 'checklist', label: 'Checklist Templates' },
+          { id: 'email', label: 'Email Templates' },
           { id: 'system', label: 'System Info' },
         ] as const).map((t) => (
           <button
@@ -223,6 +225,17 @@ export function SettingsPage() {
         ) : (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-900">
             Editing checklist templates requires the Admin role.
+          </div>
+        )
+      )}
+
+      {/* Email Templates tab — subject + body templates for the Compose Email modal */}
+      {tab === 'email' && (
+        isAdmin ? (
+          <EmailTemplatesEditor />
+        ) : (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-900">
+            Editing email templates requires the Admin role.
           </div>
         )
       )}

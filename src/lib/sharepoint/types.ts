@@ -271,6 +271,22 @@ export interface ChecklistTemplateFields {
 export type ChecklistTemplate = SharePointListItem<ChecklistTemplateFields>;
 
 // =============================================================================
+// LIST: Email Templates — shared body + subject templates for outbound mail.
+// Variables supported in subject/body: {{contact}}, {{contact_email}},
+// {{property}}, {{properties}}, {{owner}}, {{date}}, {{user}}, {{user_email}}.
+// =============================================================================
+
+export interface EmailTemplateFields {
+  Title?: string;                             // Template name (shown in the picker)
+  TemplateSubject?: string;                   // Email subject (variables OK)
+  TemplateBody?: string;                      // Email body — plain text (variables OK)
+  TemplateNotes?: string;                     // Internal note about when to use
+  TemplateSortOrder?: number;
+}
+
+export type EmailTemplate = SharePointListItem<EmailTemplateFields>;
+
+// =============================================================================
 // LIST: Billing Tracker
 // =============================================================================
 
@@ -611,6 +627,7 @@ export const LIST_NAMES = {
   CommunicationOwnerLinks: 'Communication Owner Links',
   CorrespondencePropertyLinks: 'Correspondence Property Links',
   ChecklistTemplates: 'Checklist Templates',
+  EmailTemplates: 'Email Templates',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

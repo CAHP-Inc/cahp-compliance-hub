@@ -3,12 +3,16 @@ import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { msalInstance } from '../auth/msalConfig';
 
 /**
- * Scopes required for SharePoint access.
+ * Scopes required for Graph access.
  *
  * These are admin-consented at the tenant level on the CAHP Compliance Hub Azure AD app,
  * so users receive tokens silently without a consent prompt.
+ *
+ * Mail.Send is needed by the in-app email composer (lib/email.ts). It only
+ * lets the app send messages as the signed-in user — no read, no folder
+ * access, no impersonation.
  */
-const SHAREPOINT_SCOPES = ['User.Read', 'Sites.Read.All', 'Sites.ReadWrite.All'];
+const SHAREPOINT_SCOPES = ['User.Read', 'Sites.Read.All', 'Sites.ReadWrite.All', 'Mail.Send'];
 
 /**
  * Cached site ID — resolved once per session from VITE_SHAREPOINT_SITE.
@@ -50,10 +54,14 @@ async function getAccessToken(): Promise<string> {
 }
 
 /**
- * Singleton Graph client. Used internally by the typed helpers below — components
- * should NOT call this directly. Use getListItems / getListItem / createListItem etc.
+ * Singleton Graph client. Used internally by the typed helpers below.
+ *
+ * Most components should use the typed helpers (getListItems, createListItem,
+ * etc.). The `graphClient` is exported only so adjacent Graph-backed
+ * features — like lib/email.ts's sendMail() — can reuse the same auth +
+ * token-refresh plumbing.
  */
-const graphClient = Client.init({
+export const graphClient = Client.init({
   authProvider: (done) => {
     getAccessToken()
       .then((token) => done(null, token))
