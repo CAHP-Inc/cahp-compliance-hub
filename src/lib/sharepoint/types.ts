@@ -550,6 +550,7 @@ export const LIST_NAMES = {
   Notifications: 'Notifications',
   DocumentMetadata: 'Document Metadata',
   Contacts: 'Contacts',
+  ContactOwnerLinks: 'Contact Owner Links',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];
@@ -621,8 +622,31 @@ export interface ContactFields {
   ContactEmail?: string;                  // Primary contact email — used for assignee matching
   ContactPhone?: string;
   ContactRole?: ContactRole;
-  ContactOwnerLookupId?: string;          // Optional → Owners (which entity this person represents)
+  /**
+   * Legacy single-owner linkage. Kept populated as the "primary" owner
+   * for back-compat with existing rows and SharePoint default views, but
+   * the source of truth for all (contact, owner) links is the Contact
+   * Owner Links junction list (one row per relationship). A contact can
+   * represent multiple Owner entities (e.g., Deepak → Marwar Ventures,
+   * Maheshwari Holdings, Deepak Family Trust).
+   */
+  ContactOwnerLookupId?: string;
   ContactNotes?: string;
 }
 
 export type Contact = SharePointListItem<ContactFields>;
+
+// =============================================================================
+// LIST: Contact Owner Links — junction between Contacts and Owners (many-to-many)
+//
+// One row per (contact, owner) association. Lets a single contact represent
+// any number of Owner entities, and lets us walk in both directions.
+// =============================================================================
+
+export interface ContactOwnerLinkFields {
+  Title?: string;                         // Auto-derived ("Contact 12 ↔ Owner 7")
+  ContactLookupId?: string;               // → Contacts
+  OwnerLookupId?: string;                 // → Owners
+}
+
+export type ContactOwnerLink = SharePointListItem<ContactOwnerLinkFields>;

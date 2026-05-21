@@ -2,12 +2,14 @@ import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useSharePointList,
+  createListItem,
   updateListItem,
   deleteListItem,
   LIST_NAMES,
   type Contact,
   type ContactFields,
   type ContactRole,
+  type ContactOwnerLink,
   type Owner,
   type OutstandingItem,
 } from '../lib/sharepoint';
@@ -47,6 +49,7 @@ const ROLE_STYLES: Record<ContactRole, string> = {
 export function Contacts() {
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const ownerLinks = useSharePointList<ContactOwnerLink>(LIST_NAMES.ContactOwnerLinks, { top: 2000 });
   const items = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
 
   const [search, setSearch] = useState('');
@@ -59,6 +62,29 @@ export function Contacts() {
     (owners.data ?? []).forEach((o) => m.set(String(o.id), o));
     return m;
   }, [owners.data]);
+
+  // contactId → list of {ownerId, ownerTitle} pairs (junction + legacy single field)
+  const linkedOwnersByContact = useMemo(() => {
+    const map = new Map<string, { id: string; title: string }[]>();
+    const add = (cId: string, oId: string) => {
+      const title = ownersById.get(oId)?.fields.Title;
+      if (!title) return;
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.some((e) => e.id === oId)) list.push({ id: oId, title });
+    };
+    (ownerLinks.data ?? []).forEach((l) => {
+      if (l.fields.ContactLookupId && l.fields.OwnerLookupId) {
+        add(String(l.fields.ContactLookupId), String(l.fields.OwnerLookupId));
+      }
+    });
+    (contacts.data ?? []).forEach((c) => {
+      if (c.fields.ContactOwnerLookupId) {
+        add(String(c.id), String(c.fields.ContactOwnerLookupId));
+      }
+    });
+    return map;
+  }, [ownerLinks.data, contacts.data, ownersById]);
 
   // Pre-count open items per contact (by name OR email match against AssignedTo)
   const openItemCountByContact = useMemo(() => {
@@ -181,9 +207,7 @@ export function Contacts() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((c) => {
-                const linkedOwner = c.fields.ContactOwnerLookupId
-                  ? ownersById.get(String(c.fields.ContactOwnerLookupId))
-                  : null;
+                const linkedOwners = linkedOwnersByContact.get(String(c.id)) ?? [];
                 const openCount = openItemCountByContact.get(String(c.id)) ?? 0;
                 return (
                   <tr key={c.id} className="hover:bg-gray-50">
@@ -206,12 +230,20 @@ export function Contacts() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs">
-                      {linkedOwner ? (
-                        <Link to={`/owners/${linkedOwner.id}`} className="text-teal-700 hover:text-teal-900 font-medium">
-                          {linkedOwner.fields.Title}
-                        </Link>
-                      ) : (
+                      {linkedOwners.length === 0 ? (
                         <span className="text-gray-400 italic">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {linkedOwners.map((o) => (
+                            <Link
+                              key={o.id}
+                              to={`/owners/${o.id}`}
+                              className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 hover:bg-teal-100 text-[11px] font-medium"
+                            >
+                              {o.title}
+                            </Link>
+                          ))}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -252,9 +284,14 @@ export function Contacts() {
       {editing && (
         <EditContactModal
           contact={editing}
+          initialOwnerIds={
+            (linkedOwnersByContact.get(String(editing.id)) ?? []).map((o) => o.id)
+          }
+          existingLinkRows={ownerLinks.data ?? []}
           onClose={() => setEditing(null)}
           onSaved={() => {
             contacts.refetch?.();
+            ownerLinks.refetch?.();
             setEditing(null);
           }}
         />
@@ -269,10 +306,14 @@ export function Contacts() {
 
 function EditContactModal({
   contact,
+  initialOwnerIds,
+  existingLinkRows,
   onClose,
   onSaved,
 }: {
   contact: Contact;
+  initialOwnerIds: string[];
+  existingLinkRows: ContactOwnerLink[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -281,9 +322,10 @@ function EditContactModal({
   const [email, setEmail] = useState(contact.fields.ContactEmail ?? '');
   const [phone, setPhone] = useState(contact.fields.ContactPhone ?? '');
   const [role, setRole] = useState<ContactRole | ''>(contact.fields.ContactRole ?? '');
-  const [ownerLookupId, setOwnerLookupId] = useState(
-    contact.fields.ContactOwnerLookupId ? String(contact.fields.ContactOwnerLookupId) : '',
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<string>>(
+    new Set(initialOwnerIds),
   );
+  const [ownerSearch, setOwnerSearch] = useState('');
   const [notes, setNotes] = useState(contact.fields.ContactNotes ?? '');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -296,6 +338,21 @@ function EditContactModal({
     [owners.data],
   );
 
+  const filteredOwners = useMemo(() => {
+    const q = ownerSearch.trim().toLowerCase();
+    if (!q) return sortedOwners;
+    return sortedOwners.filter((o) => (o.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedOwners, ownerSearch]);
+
+  const toggleOwner = (ownerId: string) => {
+    setSelectedOwnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ownerId)) next.delete(ownerId);
+      else next.add(ownerId);
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError('Contact name is required.');
@@ -304,15 +361,47 @@ function EditContactModal({
     setSaving(true);
     setError(null);
     try {
+      // Treat the first selected owner as the legacy "primary" (keeps the
+      // single ContactOwner SP column meaningful for default views)
+      const primaryOwnerId = selectedOwnerIds.size > 0
+        ? Array.from(selectedOwnerIds)[0]
+        : null;
+
       const payload: Partial<ContactFields> = {
         Title: title.trim(),
         ContactEmail: email.trim() || null as unknown as undefined,
         ContactPhone: phone.trim() || null as unknown as undefined,
         ContactRole: (role || null) as ContactRole | undefined,
-        ContactOwnerLookupId: ownerLookupId || (null as unknown as undefined),
+        ContactOwnerLookupId: (primaryOwnerId ?? null) as unknown as undefined,
         ContactNotes: notes.trim() || (null as unknown as undefined),
       };
       await updateListItem(LIST_NAMES.Contacts, contact.id, payload as Record<string, unknown>);
+
+      // Diff junction rows: add new, remove unselected
+      const initialSet = new Set(initialOwnerIds);
+      const toAdd = Array.from(selectedOwnerIds).filter((id) => !initialSet.has(id));
+      const toRemove = Array.from(initialSet).filter((id) => !selectedOwnerIds.has(id));
+
+      const myJunctionRows = existingLinkRows.filter(
+        (l) => String(l.fields.ContactLookupId ?? '') === String(contact.id),
+      );
+
+      for (const ownerId of toAdd) {
+        await createListItem(LIST_NAMES.ContactOwnerLinks, {
+          Title: `Contact ${contact.id} ↔ Owner ${ownerId}`,
+          ContactLookupId: Number(contact.id),
+          OwnerLookupId: Number(ownerId),
+        });
+      }
+      for (const ownerId of toRemove) {
+        const row = myJunctionRows.find(
+          (l) => String(l.fields.OwnerLookupId ?? '') === String(ownerId),
+        );
+        if (row) {
+          await deleteListItem(LIST_NAMES.ContactOwnerLinks, row.id);
+        }
+      }
+
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -324,6 +413,13 @@ function EditContactModal({
     if (!confirm(`Delete contact "${contact.fields.Title}"? This does NOT change anything on outstanding items assigned to them — those keep the assignee text as-is.`)) return;
     setDeleting(true);
     try {
+      // Clean up junction rows pointing at this contact first
+      const myJunctionRows = existingLinkRows.filter(
+        (l) => String(l.fields.ContactLookupId ?? '') === String(contact.id),
+      );
+      for (const row of myJunctionRows) {
+        await deleteListItem(LIST_NAMES.ContactOwnerLinks, row.id);
+      }
       await deleteListItem(LIST_NAMES.Contacts, contact.id);
       onSaved();
     } catch (err) {
@@ -363,13 +459,43 @@ function EditContactModal({
               ))}
             </select>
           </Field>
-          <Field label="Linked Owner Entity">
-            <select value={ownerLookupId} onChange={(e) => setOwnerLookupId(e.target.value)} disabled={saving || deleting} className={EDIT_INPUT + ' bg-white'}>
-              <option value="">— None / external —</option>
-              {sortedOwners.map((o) => (
-                <option key={o.id} value={String(o.id)}>{o.fields.Title}</option>
-              ))}
-            </select>
+          <Field label={`Linked Owner Entities (${selectedOwnerIds.size} selected)`}>
+            <input
+              type="text"
+              value={ownerSearch}
+              onChange={(e) => setOwnerSearch(e.target.value)}
+              placeholder="Search owner entities…"
+              disabled={saving || deleting}
+              className={EDIT_INPUT + ' mb-1'}
+            />
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+              {filteredOwners.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-gray-500 italic">
+                  No owner entities match your search.
+                </div>
+              ) : (
+                filteredOwners.map((o) => (
+                  <label
+                    key={o.id}
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 cursor-pointer text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedOwnerIds.has(String(o.id))}
+                      onChange={() => toggleOwner(String(o.id))}
+                      disabled={saving || deleting}
+                    />
+                    <span className="flex-1 min-w-0 truncate">{o.fields.Title}</span>
+                    {o.fields.OwnerType && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">{o.fields.OwnerType}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Check every Owner entity this contact represents.
+            </p>
           </Field>
           <Field label="Notes">
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={saving || deleting} rows={2} className={EDIT_INPUT + ' resize-none'} />

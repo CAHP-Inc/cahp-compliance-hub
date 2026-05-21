@@ -6,6 +6,7 @@ import {
   type Contact,
   type ContactFields,
   type ContactRole,
+  type ContactOwnerLink,
   type Owner,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
@@ -54,6 +55,7 @@ export function ContactPicker({
 }: ContactPickerProps) {
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const ownerLinks = useSharePointList<ContactOwnerLink>(LIST_NAMES.ContactOwnerLinks, { top: 2000 });
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -76,6 +78,36 @@ export function ContactPicker({
     (owners.data ?? []).forEach((o) => m.set(String(o.id), o));
     return m;
   }, [owners.data]);
+
+  // contactId → ordered list of owner names linked to that contact (junction).
+  // Includes the legacy single ContactOwnerLookupId too for backward compat.
+  const ownerNamesByContact = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (ownerLinks.data ?? []).forEach((l) => {
+      const cId = l.fields.ContactLookupId ? String(l.fields.ContactLookupId) : '';
+      const oId = l.fields.OwnerLookupId ? String(l.fields.OwnerLookupId) : '';
+      if (!cId || !oId) return;
+      const name = ownersById.get(oId)?.fields.Title;
+      if (!name) return;
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.includes(name)) list.push(name);
+    });
+    // Layer in legacy single link as a fallback
+    (contacts.data ?? []).forEach((c) => {
+      const legacyId = c.fields.ContactOwnerLookupId
+        ? String(c.fields.ContactOwnerLookupId)
+        : '';
+      if (!legacyId) return;
+      const name = ownersById.get(legacyId)?.fields.Title;
+      if (!name) return;
+      const cId = String(c.id);
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.includes(name)) list.push(name);
+    });
+    return map;
+  }, [ownerLinks.data, ownersById, contacts.data]);
 
   const selected = useMemo(() => {
     if (!value) return undefined;
@@ -114,9 +146,9 @@ export function ContactPicker({
             <div className="text-[11px] text-gray-500 truncate">
               {selected.fields.ContactEmail || '(no email)'}
               {selected.fields.ContactRole && <span className="ml-1">· {selected.fields.ContactRole}</span>}
-              {selected.fields.ContactOwnerLookupId && (
+              {(ownerNamesByContact.get(String(selected.id)) ?? []).length > 0 && (
                 <span className="ml-1">
-                  · {ownersById.get(String(selected.fields.ContactOwnerLookupId))?.fields.Title ?? 'unknown owner'}
+                  · {(ownerNamesByContact.get(String(selected.id)) ?? []).join(', ')}
                 </span>
               )}
             </div>
@@ -154,26 +186,27 @@ export function ContactPicker({
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {filtered.slice(0, 20).map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(String(c.id))}
-                    className="w-full text-left px-3 py-2 hover:bg-teal-50"
-                  >
-                    <div className="text-sm font-medium text-gray-900">{c.fields.Title}</div>
-                    <div className="text-[11px] text-gray-500">
-                      {c.fields.ContactEmail || '(no email)'}
-                      {c.fields.ContactRole && <span className="ml-1">· {c.fields.ContactRole}</span>}
-                      {c.fields.ContactOwnerLookupId && (
-                        <span className="ml-1">
-                          · {ownersById.get(String(c.fields.ContactOwnerLookupId))?.fields.Title ?? 'unknown owner'}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              ))}
+              {filtered.slice(0, 20).map((c) => {
+                const ownerNames = ownerNamesByContact.get(String(c.id)) ?? [];
+                return (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(String(c.id))}
+                      className="w-full text-left px-3 py-2 hover:bg-teal-50"
+                    >
+                      <div className="text-sm font-medium text-gray-900">{c.fields.Title}</div>
+                      <div className="text-[11px] text-gray-500">
+                        {c.fields.ContactEmail || '(no email)'}
+                        {c.fields.ContactRole && <span className="ml-1">· {c.fields.ContactRole}</span>}
+                        {ownerNames.length > 0 && (
+                          <span className="ml-1">· {ownerNames.join(', ')}</span>
+                        )}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
           {!hideCreate && (
@@ -229,7 +262,11 @@ export function NewContactModal({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<ContactRole | ''>('');
-  const [ownerLookupId, setOwnerLookupId] = useState(defaultOwnerId ?? '');
+  // Multi-owner linkage — one contact can represent many Owner entities
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<string>>(
+    new Set(defaultOwnerId ? [defaultOwnerId] : []),
+  );
+  const [ownerSearch, setOwnerSearch] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -241,6 +278,21 @@ export function NewContactModal({
     [owners.data],
   );
 
+  const filteredOwners = useMemo(() => {
+    const q = ownerSearch.trim().toLowerCase();
+    if (!q) return sortedOwners;
+    return sortedOwners.filter((o) => (o.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedOwners, ownerSearch]);
+
+  const toggleOwner = (ownerId: string) => {
+    setSelectedOwnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ownerId)) next.delete(ownerId);
+      else next.add(ownerId);
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError('Contact name is required.');
@@ -249,16 +301,34 @@ export function NewContactModal({
     setSaving(true);
     setError(null);
     try {
+      // Save the primary single-owner field as the FIRST selected owner so the
+      // legacy ContactOwner column on the SharePoint list keeps a meaningful
+      // value (default views, exports). Junction is the source of truth.
+      const primaryOwnerId = selectedOwnerIds.size > 0
+        ? Array.from(selectedOwnerIds)[0]
+        : undefined;
+
       const payload: ContactFields & { Title: string } = {
         Title: title.trim(),
         ContactEmail: email.trim() || undefined,
         ContactPhone: phone.trim() || undefined,
         ContactRole: role || undefined,
-        ContactOwnerLookupId: ownerLookupId ? ownerLookupId : undefined,
+        ContactOwnerLookupId: primaryOwnerId,
         ContactNotes: notes.trim() || undefined,
       };
       const created = await createListItem<Contact>(LIST_NAMES.Contacts, payload as unknown as Record<string, unknown>);
-      onSaved(String(created.id));
+      const newContactId = String(created.id);
+
+      // Create one junction row per selected owner
+      for (const ownerId of selectedOwnerIds) {
+        await createListItem(LIST_NAMES.ContactOwnerLinks, {
+          Title: `Contact ${newContactId} ↔ Owner ${ownerId}`,
+          ContactLookupId: Number(newContactId),
+          OwnerLookupId: Number(ownerId),
+        });
+      }
+
+      onSaved(newContactId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSaving(false);
@@ -326,21 +396,43 @@ export function NewContactModal({
               ))}
             </select>
           </Field>
-          <Field label="Linked Owner Entity">
-            <select
-              value={ownerLookupId}
-              onChange={(e) => setOwnerLookupId(e.target.value)}
+          <Field label={`Linked Owner Entities (${selectedOwnerIds.size} selected)`}>
+            <input
+              type="text"
+              value={ownerSearch}
+              onChange={(e) => setOwnerSearch(e.target.value)}
+              placeholder="Search owner entities…"
               disabled={saving}
-              className={INPUT + ' bg-white'}
-            >
-              <option value="">— None / external —</option>
-              {sortedOwners.map((o) => (
-                <option key={o.id} value={String(o.id)}>{o.fields.Title}</option>
-              ))}
-            </select>
+              className={INPUT + ' mb-1'}
+            />
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+              {filteredOwners.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-gray-500 italic">
+                  No owner entities match your search.
+                </div>
+              ) : (
+                filteredOwners.map((o) => (
+                  <label
+                    key={o.id}
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 cursor-pointer text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedOwnerIds.has(String(o.id))}
+                      onChange={() => toggleOwner(String(o.id))}
+                      disabled={saving}
+                    />
+                    <span className="flex-1 min-w-0 truncate">{o.fields.Title}</span>
+                    {o.fields.OwnerType && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">{o.fields.OwnerType}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
             <p className="text-[11px] text-gray-500 mt-1">
-              If this contact represents an Owner entity in our system, link them here. Tasks waiting on this contact
-              will surface on that Owner's detail page.
+              Check every Owner entity this contact represents. A contact linked to multiple owners shows up
+              under each owner's "Waiting on this owner" filter.
             </p>
           </Field>
           <Field label="Notes">

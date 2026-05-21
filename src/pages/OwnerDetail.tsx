@@ -18,6 +18,7 @@ import {
   type OwnerType,
   type OutstandingItem,
   type Contact,
+  type ContactOwnerLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
@@ -562,6 +563,7 @@ function OwnerOutstandingItemsSection({
 }) {
   const items = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+  const contactOwnerLinks = useSharePointList<ContactOwnerLink>(LIST_NAMES.ContactOwnerLinks, { top: 2000 });
   const [filter, setFilter] = useState<OwnerItemsFilter>('all');
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -585,12 +587,29 @@ function OwnerOutstandingItemsSection({
   const isClosed = (s: string | undefined) =>
     s === 'Done' || s === 'Received' || s === 'Not Applicable';
 
-  // Match AssignedTo against any Contact whose ContactOwnerLookupId == this owner.
-  // Compare both the contact's name and email so items assigned either way match.
+  // Match AssignedTo against any Contact that's linked to this Owner.
+  // Source of truth = ContactOwnerLinks junction (many-to-many); also includes
+  // the legacy single ContactOwnerLookupId field for back-compat. Compare
+  // both the contact's name and email so items assigned either way match.
   const linkedContactKeys = useMemo(() => {
+    const linkedContactIds = new Set<string>();
+    // Junction: collect contact IDs whose row points at this owner
+    for (const link of contactOwnerLinks.data ?? []) {
+      if (String(link.fields.OwnerLookupId ?? '') !== String(ownerId)) continue;
+      if (link.fields.ContactLookupId) {
+        linkedContactIds.add(String(link.fields.ContactLookupId));
+      }
+    }
+    // Legacy single-owner field
+    for (const c of contacts.data ?? []) {
+      if (String(c.fields.ContactOwnerLookupId ?? '') === String(ownerId)) {
+        linkedContactIds.add(String(c.id));
+      }
+    }
+
     const keys = new Set<string>();
     for (const c of contacts.data ?? []) {
-      if (String(c.fields.ContactOwnerLookupId ?? '') !== String(ownerId)) continue;
+      if (!linkedContactIds.has(String(c.id))) continue;
       const name = (c.fields.Title ?? '').trim().toLowerCase();
       const email = (c.fields.ContactEmail ?? '').trim().toLowerCase();
       if (name) keys.add(name);
@@ -600,7 +619,7 @@ function OwnerOutstandingItemsSection({
     const ownerName = (ownerTitle ?? '').trim().toLowerCase();
     if (ownerName) keys.add(ownerName);
     return keys;
-  }, [contacts.data, ownerId, ownerTitle]);
+  }, [contacts.data, contactOwnerLinks.data, ownerId, ownerTitle]);
 
   const isAssignedToThisOwner = (assignedTo: string | undefined) => {
     const a = (assignedTo ?? '').trim().toLowerCase();

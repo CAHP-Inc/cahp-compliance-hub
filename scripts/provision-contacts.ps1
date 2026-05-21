@@ -170,16 +170,144 @@ if (-not (Get-PnPField -List "Properties Registry" -Identity "PropertyOwnerConta
     Write-Host "  → Owner Contact column already exists, skipping" -ForegroundColor DarkGray
 }
 
+# =============================================================================
+# Part 3: Create Contact Owner Links junction list (many-to-many)
+# =============================================================================
+
+Write-Host ""
+Write-Host "→ Creating 'Contact Owner Links' junction list..." -ForegroundColor White
+
+$JunctionTitle = "Contact Owner Links"
+$junctionList = Get-PnPList -Identity $JunctionTitle -ErrorAction SilentlyContinue
+if (-not $junctionList) {
+    New-PnPList -Title $JunctionTitle -Template GenericList -Url "lists/ContactOwnerLinks" | Out-Null
+    Set-PnPList -Identity $JunctionTitle `
+        -Description "Junction list — one row per (Contact, Owner) association. Lets a single Contact represent multiple Owner entities." `
+        -EnableVersioning $true | Out-Null
+    Write-Host "  ✓ Junction list created" -ForegroundColor Green
+} else {
+    Write-Host "  → Junction list already exists; verifying columns" -ForegroundColor Yellow
+}
+
+# Lookup → Contacts
+$contactsListReloaded2 = Get-PnPList -Identity "Contacts" -ErrorAction Stop
+$contactsId2 = $contactsListReloaded2.Id.ToString()
+if (-not (Get-PnPField -List $JunctionTitle -Identity "Contact" -ErrorAction SilentlyContinue)) {
+    $contactXml = @"
+<Field
+  Type='Lookup'
+  DisplayName='Contact'
+  Name='Contact'
+  List='{$contactsId2}'
+  ShowField='Title'
+  Required='FALSE'
+  EnforceUniqueValues='FALSE'
+  Indexed='TRUE'
+/>
+"@
+    Add-PnPFieldFromXml -List $JunctionTitle -FieldXml $contactXml | Out-Null
+    Write-Host "  + Contact [Lookup → Contacts]" -ForegroundColor Cyan
+} else {
+    Write-Host "  → Contact column already exists, skipping" -ForegroundColor DarkGray
+}
+
+# Lookup → Owners
+$ownersListForJunction = Get-PnPList -Identity "Owners" -ErrorAction SilentlyContinue
+if ($ownersListForJunction) {
+    $ownersListId2 = $ownersListForJunction.Id.ToString()
+    if (-not (Get-PnPField -List $JunctionTitle -Identity "Owner" -ErrorAction SilentlyContinue)) {
+        $ownerXml = @"
+<Field
+  Type='Lookup'
+  DisplayName='Owner'
+  Name='Owner'
+  List='{$ownersListId2}'
+  ShowField='Title'
+  Required='FALSE'
+  EnforceUniqueValues='FALSE'
+  Indexed='TRUE'
+/>
+"@
+        Add-PnPFieldFromXml -List $JunctionTitle -FieldXml $ownerXml | Out-Null
+        Write-Host "  + Owner [Lookup → Owners]" -ForegroundColor Cyan
+    } else {
+        Write-Host "  → Owner column already exists, skipping" -ForegroundColor DarkGray
+    }
+} else {
+    Write-Host "  ! Owners list missing — run provision-owners.ps1 first" -ForegroundColor Red
+}
+
+# Add Contact + Owner to default view
+$junctionView = Get-PnPView -List $JunctionTitle -Identity "All Items" -ErrorAction SilentlyContinue
+if ($junctionView) {
+    $viewFields = $junctionView.ViewFields
+    $newFields = $viewFields
+    if ($newFields -notcontains "Contact") { $newFields = $newFields + "Contact" }
+    if ($newFields -notcontains "Owner") { $newFields = $newFields + "Owner" }
+    if ($newFields.Count -ne $viewFields.Count) {
+        Set-PnPView -List $JunctionTitle -Identity "All Items" -Fields $newFields | Out-Null
+    }
+}
+
+# =============================================================================
+# Part 4: One-time migration — copy any existing single Contact.ContactOwner
+# values into the junction list so nothing gets orphaned.
+# =============================================================================
+
+Write-Host ""
+Write-Host "→ Migrating existing single Contact.ContactOwner values into the junction..." -ForegroundColor White
+
+$existingContacts = Get-PnPListItem -List "Contacts" -PageSize 500 -Fields "ID","ContactOwner" -ErrorAction SilentlyContinue
+$existingJunctionRows = Get-PnPListItem -List $JunctionTitle -PageSize 500 -Fields "ID","Contact","Owner" -ErrorAction SilentlyContinue
+$migratedCount = 0
+$skippedCount = 0
+
+foreach ($contact in ($existingContacts ?? @())) {
+    $contactOwner = $contact["ContactOwner"]
+    if (-not $contactOwner) { continue }
+    $ownerId = $null
+    if ($contactOwner.LookupId) {
+        $ownerId = $contactOwner.LookupId
+    } elseif ($contactOwner -is [int]) {
+        $ownerId = $contactOwner
+    }
+    if (-not $ownerId) { continue }
+    $contactId = $contact.Id
+
+    # Skip if a junction row already exists for this (contact, owner)
+    $alreadyLinked = $false
+    foreach ($row in ($existingJunctionRows ?? @())) {
+        $rowContact = $row["Contact"]
+        $rowOwner = $row["Owner"]
+        if ($rowContact -and $rowOwner -and $rowContact.LookupId -eq $contactId -and $rowOwner.LookupId -eq $ownerId) {
+            $alreadyLinked = $true
+            break
+        }
+    }
+    if ($alreadyLinked) {
+        $skippedCount++
+        continue
+    }
+    Add-PnPListItem -List $JunctionTitle -Values @{
+        Title = "Contact $contactId <-> Owner $ownerId"
+        Contact = $contactId
+        Owner = $ownerId
+    } | Out-Null
+    $migratedCount++
+}
+
+Write-Host "  ✓ Migration: $migratedCount new junction row(s) created, $skippedCount already linked" -ForegroundColor Green
+
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host "  Provisioning complete." -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "NEXT:" -ForegroundColor Yellow
-Write-Host "  1. Open the app, go to Contacts in the sidebar, add some contacts." -ForegroundColor Yellow
-Write-Host "  2. On each Property's Overview tab, click Edit and pick the Owner Contact." -ForegroundColor Yellow
-Write-Host "  3. Contacts whose Contact Owner == an Owner entity now show up under that owner's" -ForegroundColor Yellow
-Write-Host "     'Waiting on this owner' filter on the Owner detail page." -ForegroundColor Yellow
+Write-Host "  1. Open the app, go to Contacts in the sidebar, add or edit a contact." -ForegroundColor Yellow
+Write-Host "  2. Each contact can now be linked to multiple Owner entities at once." -ForegroundColor Yellow
+Write-Host "  3. On each Property's Overview tab, click Edit and pick the Owner Contact." -ForegroundColor Yellow
+Write-Host "  4. Contacts linked to an Owner show up under that owner's 'Waiting on this owner' filter." -ForegroundColor Yellow
 Write-Host ""
 
 Disconnect-PnPOnline
