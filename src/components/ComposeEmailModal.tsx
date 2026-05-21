@@ -6,10 +6,13 @@ import {
   type Contact,
   type ContactOwnerLink,
   type EmailTemplate,
+  type OutstandingItem,
   type Property,
 } from '../lib/sharepoint';
+import { formatDateOnly, parseDateOnly } from '../lib/dates';
 import { sendEmail, applyTemplateVars, type EmailRecipient } from '../lib/email';
 import { useSession } from '../lib/session';
+import { TEAM_MEMBERS } from '../lib/roleMap';
 
 /**
  * Compose & send an email from inside the app.
@@ -54,12 +57,22 @@ export function ComposeEmailModal({
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const templates = useSharePointList<EmailTemplate>(LIST_NAMES.EmailTemplates, { top: 500 });
   const contactOwnerLinks = useSharePointList<ContactOwnerLink>(LIST_NAMES.ContactOwnerLinks, { top: 2000 });
+  // For {{open_items}} substitution — Outstanding Items assigned to the
+  // selected contact(s), optionally filtered to the linked properties.
+  const outstandingItems = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
 
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(
     new Set(defaultContactIds ?? []),
   );
   const [adHocRecipients, setAdHocRecipients] = useState(''); // comma-separated emails
   const [contactSearch, setContactSearch] = useState('');
+
+  // CC: a Set of team-member emails (quick-pick checkboxes) + a free-text field
+  // for any other internal/external addresses. Mirrors the To pattern but
+  // doesn't pull from the Contacts list — that's already covered above.
+  const [ccTeamEmails, setCcTeamEmails] = useState<Set<string>>(new Set());
+  const [ccFreeText, setCcFreeText] = useState('');
+  const [showCc, setShowCc] = useState(false);
 
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(
     new Set(defaultPropertyIds ?? []),
@@ -128,7 +141,10 @@ export function ComposeEmailModal({
 
   // Build template context for variable substitution at send time.
   // When multiple contacts/properties are selected, {{contact}} = first,
-  // {{properties}} = joined list.
+  // {{properties}} = joined list. {{open_items}} pulls Outstanding Items
+  // assigned to the selected contacts (matched by name OR email,
+  // case-insensitive), filtered to the linked properties when any are
+  // chosen.
   const templateContext = useMemo(() => {
     const selectedContacts = (contacts.data ?? []).filter((c) =>
       selectedContactIds.has(String(c.id)),
@@ -138,6 +154,57 @@ export function ComposeEmailModal({
     );
     const primaryContact = selectedContacts[0];
     const primaryProp = selectedProps[0];
+
+    // Build the set of AssignedTo match keys for the selected contacts
+    const assigneeKeys = new Set<string>();
+    for (const c of selectedContacts) {
+      const name = (c.fields.Title ?? '').trim().toLowerCase();
+      const email = (c.fields.ContactEmail ?? '').trim().toLowerCase();
+      if (name) assigneeKeys.add(name);
+      if (email) assigneeKeys.add(email);
+    }
+
+    // Only consider properties the email is tagged to; if none selected,
+    // include items across every property the recipients have items on.
+    const propertyFilter = selectedPropertyIds.size > 0 ? selectedPropertyIds : null;
+
+    const isClosed = (s: string | undefined) =>
+      s === 'Done' || s === 'Received' || s === 'Not Applicable';
+
+    const propsById = new Map<string, Property>();
+    (properties.data ?? []).forEach((p) => propsById.set(String(p.id), p));
+
+    const matchingItems = assigneeKeys.size === 0
+      ? []
+      : (outstandingItems.data ?? []).filter((item) => {
+          if (isClosed(item.fields.ItemStatus)) return false;
+          const a = (item.fields.AssignedTo ?? '').trim().toLowerCase();
+          if (!a || !assigneeKeys.has(a)) return false;
+          if (propertyFilter) {
+            const pid = String(item.fields.PropertyLookupId ?? '');
+            if (!propertyFilter.has(pid)) return false;
+          }
+          return true;
+        }).sort((a, b) => {
+          // Oldest due first; no-date items go to the bottom
+          const ad = a.fields.DueDate ? parseDateOnly(a.fields.DueDate)?.getTime() ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+          const bd = b.fields.DueDate ? parseDateOnly(b.fields.DueDate)?.getTime() ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+          return ad - bd;
+        });
+
+    const openItemsList = matchingItems.length === 0
+      ? '(no pending items for this recipient)'
+      : matchingItems
+          .map((item) => {
+            const prop = item.fields.PropertyLookupId
+              ? propsById.get(String(item.fields.PropertyLookupId))?.fields.Title
+              : null;
+            const due = item.fields.DueDate ? ` (due ${formatDateOnly(item.fields.DueDate)})` : '';
+            const propPart = prop ? ` — ${prop}` : '';
+            return `  • ${item.fields.Title ?? 'Untitled'}${propPart}${due}`;
+          })
+          .join('\n');
+
     return {
       contactName: primaryContact?.fields.Title,
       contactEmail: primaryContact?.fields.ContactEmail,
@@ -145,8 +212,17 @@ export function ComposeEmailModal({
       propertiesList: selectedProps.map((p) => p.fields.Title).filter(Boolean).join(', ') || undefined,
       userName: user?.name,
       userEmail: user?.email,
+      openItemsList,
     };
-  }, [contacts.data, properties.data, selectedContactIds, selectedPropertyIds, user?.name, user?.email]);
+  }, [
+    contacts.data,
+    properties.data,
+    outstandingItems.data,
+    selectedContactIds,
+    selectedPropertyIds,
+    user?.name,
+    user?.email,
+  ]);
 
   const resolvedSubject = useMemo(() => applyTemplateVars(subject, templateContext), [subject, templateContext]);
   const resolvedBody = useMemo(() => applyTemplateVars(body, templateContext), [body, templateContext]);
@@ -178,6 +254,39 @@ export function ComposeEmailModal({
     }
     return out;
   }, [recipients]);
+
+  // CC recipients = checked team members + free-text additions
+  const ccRecipients = useMemo<EmailRecipient[]>(() => {
+    const list: EmailRecipient[] = [];
+    const seen = new Set<string>();
+    // De-dupe against the To list so the same person isn't both To and CC
+    for (const r of recipients) seen.add(r.address.toLowerCase());
+    for (const m of TEAM_MEMBERS) {
+      if (!ccTeamEmails.has(m.email)) continue;
+      if (seen.has(m.email.toLowerCase())) continue;
+      seen.add(m.email.toLowerCase());
+      list.push({ address: m.email, name: m.name });
+    }
+    for (const raw of ccFreeText.split(',')) {
+      const addr = raw.trim();
+      if (!addr || seen.has(addr.toLowerCase())) continue;
+      seen.add(addr.toLowerCase());
+      list.push({ address: addr });
+    }
+    return list;
+  }, [ccTeamEmails, ccFreeText, recipients]);
+
+  const ccErrors = useMemo(
+    () => ccRecipients.filter((r) => !EMAIL_RE.test(r.address)).map((r) => r.address),
+    [ccRecipients],
+  );
+
+  const toggleCcTeam = (email: string) =>
+    setCcTeamEmails((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email); else next.add(email);
+      return next;
+    });
 
   // Owners linked to the selected contacts — used for auto-log junction rows
   const linkedOwnerIds = useMemo(() => {
@@ -211,7 +320,11 @@ export function ComposeEmailModal({
       return;
     }
     if (recipientErrors.length > 0) {
-      setError(`Invalid email address${recipientErrors.length === 1 ? '' : 'es'}: ${recipientErrors.join(', ')}`);
+      setError(`Invalid recipient email${recipientErrors.length === 1 ? '' : 's'}: ${recipientErrors.join(', ')}`);
+      return;
+    }
+    if (ccErrors.length > 0) {
+      setError(`Invalid CC email${ccErrors.length === 1 ? '' : 's'}: ${ccErrors.join(', ')}`);
       return;
     }
     if (!resolvedSubject.trim()) {
@@ -224,13 +337,18 @@ export function ComposeEmailModal({
       // 1. Send via Graph
       await sendEmail({
         to: recipients,
+        cc: ccRecipients.length > 0 ? ccRecipients : undefined,
         subject: resolvedSubject,
         bodyText: resolvedBody,
       });
 
       // 2. Auto-log as an Owner Communication
       try {
-        const recipientLine = recipients.map((r) => r.name ? `${r.name} <${r.address}>` : r.address).join(', ');
+        const toLine = recipients.map((r) => r.name ? `${r.name} <${r.address}>` : r.address).join(', ');
+        const ccLine = ccRecipients.length > 0
+          ? ' · CC: ' + ccRecipients.map((r) => r.name ? `${r.name} <${r.address}>` : r.address).join(', ')
+          : '';
+        const recipientLine = `To: ${toLine}${ccLine}`;
         const propIds = Array.from(selectedPropertyIds);
         const ownerIds = Array.from(linkedOwnerIds);
         const commPayload: Record<string, unknown> = {
@@ -352,6 +470,53 @@ export function ComposeEmailModal({
             )}
           </Field>
 
+          {/* CC — team-member quick-pick + free-text fallback */}
+          {!showCc && ccRecipients.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowCc(true)}
+              className="text-xs text-teal-700 hover:text-teal-900 font-medium underline self-start"
+            >
+              + Add CC
+            </button>
+          ) : (
+            <Field label={`CC (${ccRecipients.length})`}>
+              <div className="border border-gray-300 rounded bg-white p-2 space-y-1">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Team members</div>
+                <div className="flex flex-wrap gap-2">
+                  {TEAM_MEMBERS.map((m) => (
+                    <label key={m.email} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ccTeamEmails.has(m.email)}
+                        onChange={() => toggleCcTeam(m.email)}
+                        disabled={sending}
+                      />
+                      <span className="text-gray-800">{m.name}</span>
+                      <span className="text-[10px] text-gray-500 font-mono-data">{m.email}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <input
+                type="text"
+                value={ccFreeText}
+                onChange={(e) => setCcFreeText(e.target.value)}
+                placeholder="Other CC addresses, comma-separated"
+                disabled={sending}
+                className={inputClass + ' mt-1'}
+              />
+              {ccErrors.length > 0 && (
+                <p className="text-[11px] text-error mt-1">
+                  Invalid CC: {ccErrors.join(', ')}
+                </p>
+              )}
+              <p className="text-[11px] text-gray-500 mt-1">
+                CC'd folks are also captured in the auto-logged Owner Communication participants line.
+              </p>
+            </Field>
+          )}
+
           <Field label={`Linked Properties (${selectedPropertyIds.size})`}>
             <input
               type="text"
@@ -458,7 +623,7 @@ export function ComposeEmailModal({
           </button>
           <button
             onClick={handleSend}
-            disabled={sending || recipients.length === 0 || !resolvedSubject.trim() || recipientErrors.length > 0}
+            disabled={sending || recipients.length === 0 || !resolvedSubject.trim() || recipientErrors.length > 0 || ccErrors.length > 0}
             className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 text-white rounded-md text-sm font-medium flex items-center gap-1.5 disabled:cursor-not-allowed"
           >
             {sending && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}

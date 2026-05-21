@@ -34,12 +34,12 @@ const DEFAULT_TEMPLATES: Omit<EditorRow, 'rowId'>[] = [
     subject: 'CAHP: Documents needed for {{property}}',
     body:
       "Hi {{contact}},\n\n" +
-      "I'm following up on the documents we need to complete the CAHP filing for {{property}}.\n\n" +
-      "Could you send the following at your earliest convenience:\n" +
-      "  • [list items here]\n\n" +
-      "Let me know if you have any questions.\n\n" +
+      "I'm following up on the documents we still need to complete the CAHP filing for {{property}}.\n\n" +
+      "Here's what's pending on your end:\n" +
+      "{{open_items}}\n\n" +
+      "Let me know if you have any questions, or send these over at your earliest convenience.\n\n" +
       "Thanks,\n{{user}}",
-    notes: 'Use when you need missing documents from a property owner contact.',
+    notes: 'Auto-fills {{open_items}} with the recipient\'s pending Outstanding Items for the linked properties.',
   },
   {
     title: 'Status Update',
@@ -212,7 +212,9 @@ export function EmailTemplatesEditor() {
         <code className="bg-white px-1 rounded">{'{{owner}}'}</code>,{' '}
         <code className="bg-white px-1 rounded">{'{{date}}'}</code>,{' '}
         <code className="bg-white px-1 rounded">{'{{user}}'}</code>,{' '}
-        <code className="bg-white px-1 rounded">{'{{user_email}}'}</code>.{' '}
+        <code className="bg-white px-1 rounded">{'{{user_email}}'}</code>,{' '}
+        <code className="bg-white px-1 rounded">{'{{open_items}}'}</code>{' '}
+        <span className="text-gray-500">(bulleted list of the recipient's pending Outstanding Items, scoped to the linked properties)</span>.{' '}
         Unknown variables pass through unchanged.
       </div>
 

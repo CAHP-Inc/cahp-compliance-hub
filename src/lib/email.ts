@@ -98,8 +98,9 @@ function toGraphRecipient(r: EmailRecipient): Record<string, unknown> {
 // Variable substitution for templates
 //
 // Supports {{contact}}, {{contact_email}}, {{property}}, {{properties}},
-// {{owner}}, {{date}}, {{user}}, {{user_email}}. Unknown variables pass
-// through unchanged so the user notices and can fix the template.
+// {{owner}}, {{date}}, {{user}}, {{user_email}}, {{open_items}}.
+// Unknown variables pass through unchanged so the user notices and can fix
+// the template.
 // =============================================================================
 
 export interface TemplateContext {
@@ -112,6 +113,13 @@ export interface TemplateContext {
   ownerName?: string;
   userName?: string;
   userEmail?: string;
+  /**
+   * Bulleted list of open Outstanding Items pertinent to the recipient(s) +
+   * linked properties. Computed by the caller (the compose modal) so this
+   * library stays UI-free. Falls back to a "(no pending items)" placeholder
+   * if no items match.
+   */
+  openItemsList?: string;
 }
 
 /**
@@ -131,6 +139,7 @@ export function applyTemplateVars(text: string, ctx: TemplateContext): string {
     date: today,
     user: ctx.userName,
     user_email: ctx.userEmail,
+    open_items: ctx.openItemsList,
   };
   return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (match, key: string) => {
     const value = map[key.toLowerCase()];
