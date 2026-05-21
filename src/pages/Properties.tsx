@@ -325,7 +325,23 @@ export function Properties() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700 text-xs">
-                    {p.fields.cahpCounty?.replace(/\s*\([^)]*\)\s*/g, '') || '—'}
+                    {(() => {
+                      const list = (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+                      if (list.length === 0) return '—';
+                      // Strip the "(SC)"/"(NC)" suffix per county for the column display since
+                      // the State column already shows that info; full label stays on the detail page.
+                      const stripped = list.map((c) => c.replace(/\s*\([^)]*\)\s*/g, ''));
+                      if (stripped.length === 1) return stripped[0];
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {stripped.map((c) => (
+                            <span key={c} className="px-1 py-0.5 rounded bg-teal-50 text-teal-800 text-[10px] font-medium">
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-right font-mono-data">
                     {p.fields.UnitCount ?? '—'}

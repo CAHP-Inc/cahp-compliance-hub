@@ -214,11 +214,21 @@ export type LetterType =
   | 'Refund Notice'
   | 'Other';
 
+/** Channel for DOR correspondence — formal letters vs. ad-hoc comms. */
+export type CorrChannel = 'Letter' | 'Email' | 'Phone' | 'Meeting' | 'Other';
+
 export interface CorrespondenceFields {
   Title: string;                              // Correspondence Subject
   Direction?: CorrespondenceDirection;
   LetterType?: LetterType;
-  PropertyLookupId?: string;                  // → Properties Registry
+  /** Distinguishes formal letters from general DOR communication (email, phone, meeting).
+   *  Existing rows have no value and are treated as 'Letter' for back-compat. */
+  CorrChannel?: CorrChannel;
+  /** Legacy single-property linkage. Source of truth for many-to-many is
+   *  the Correspondence Property Links junction list — a single DOR comm can
+   *  reference many properties (portfolio-wide policy email, etc.) or none
+   *  at all (general inquiry call). */
+  PropertyLookupId?: string;
   CorrSubmittalLookupId?: string;             // → Submittals Tracker (PR-11a)
   DateReceived?: string;
   DateResponded?: string;
@@ -230,6 +240,15 @@ export interface CorrespondenceFields {
 }
 
 export type Correspondence = SharePointListItem<CorrespondenceFields>;
+
+// Junction list: a single DOR correspondence row can link to many properties.
+export interface CorrespondencePropertyLinkFields {
+  Title?: string;
+  CorrLookupId?: string;                      // → DOR Correspondence Log
+  PropertyLookupId?: string;                  // → Properties Registry
+}
+
+export type CorrespondencePropertyLink = SharePointListItem<CorrespondencePropertyLinkFields>;
 
 // =============================================================================
 // LIST: Billing Tracker
@@ -295,8 +314,16 @@ export type CommStatus = 'Open' | 'Closed';
 
 export interface OwnerCommunicationFields {
   Title: string;                              // Subject
-  CommPropertyLookupId?: string;              // → Properties Registry
-  CommOwnerLookupId?: string;                 // → Owners
+  /**
+   * Legacy single-property linkage. Kept populated as the "primary" property
+   * for back-compat with SharePoint default views; the source of truth for
+   * all (communication, property) pairs is the Communication Property Links
+   * junction list (a comm can span up to ~7 properties when an owner manages
+   * a portfolio and the email references all of them).
+   */
+  CommPropertyLookupId?: string;
+  /** Legacy single-owner linkage. Same back-compat note as CommPropertyLookupId. */
+  CommOwnerLookupId?: string;
   CommType?: CommType;
   CommDirection?: CommDirection;
   CommDate?: string;
@@ -307,6 +334,25 @@ export interface OwnerCommunicationFields {
 }
 
 export type OwnerCommunication = SharePointListItem<OwnerCommunicationFields>;
+
+// Junction lists — many-to-many between Communications and Properties / Owners.
+// One row per linkage. Lets a single communication span an entire portfolio.
+
+export interface CommunicationPropertyLinkFields {
+  Title?: string;
+  CommLookupId?: string;                      // → Owner Communications
+  PropertyLookupId?: string;                  // → Properties Registry
+}
+
+export type CommunicationPropertyLink = SharePointListItem<CommunicationPropertyLinkFields>;
+
+export interface CommunicationOwnerLinkFields {
+  Title?: string;
+  CommLookupId?: string;                      // → Owner Communications
+  OwnerLookupId?: string;                     // → Owners
+}
+
+export type CommunicationOwnerLink = SharePointListItem<CommunicationOwnerLinkFields>;
 
 // =============================================================================
 // LIST: Notifications (PR-15a)
@@ -541,6 +587,9 @@ export const LIST_NAMES = {
   DocumentMetadata: 'Document Metadata',
   Contacts: 'Contacts',
   ContactOwnerLinks: 'Contact Owner Links',
+  CommunicationPropertyLinks: 'Communication Property Links',
+  CommunicationOwnerLinks: 'Communication Owner Links',
+  CorrespondencePropertyLinks: 'Correspondence Property Links',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

@@ -63,8 +63,11 @@ export function LogLetterModal({
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
 
-  // Form fields
-  const [propertyId, setPropertyId] = useState<string>(defaultPropertyId ?? '');
+  // Form fields — multi-property; a DOR letter can reference multiple properties
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(
+    new Set(defaultPropertyId ? [defaultPropertyId] : []),
+  );
+  const [propertySearch, setPropertySearch] = useState('');
   const [submittalId, setSubmittalId] = useState<string>(defaultSubmittalId ?? '');
   const [direction, setDirection] = useState<CorrespondenceDirection>('Inbound (from DOR)');
   const [letterType, setLetterType] = useState<LetterType | ''>('');
@@ -84,39 +87,41 @@ export function LogLetterModal({
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Filter submittals to those linked to the chosen property
-  const submittalChoices = useMemo(() => {
-    if (!submittals.data) return [];
-    if (!propertyId) return submittals.data;
-    return submittals.data.filter((s) => String(s.fields.PropertyLookupId) === String(propertyId));
-  }, [submittals.data, propertyId]);
-
   const sortedProperties = useMemo(() => {
     if (!properties.data) return [];
     return [...properties.data].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
   }, [properties.data]);
 
-  const handlePropertyChange = (newPropId: string) => {
-    setPropertyId(newPropId);
-    // If chosen submittal doesn't belong to this property, clear it
-    if (submittalId && submittals.data) {
-      const chosen = submittals.data.find((s) => String(s.id) === String(submittalId));
-      if (chosen && String(chosen.fields.PropertyLookupId) !== String(newPropId)) {
-        setSubmittalId('');
-      }
-    }
-  };
+  const filteredProperties = useMemo(() => {
+    const q = propertySearch.trim().toLowerCase();
+    if (!q) return sortedProperties;
+    return sortedProperties.filter((p) => (p.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedProperties, propertySearch]);
+
+  const toggleProperty = (id: string) =>
+    setSelectedPropertyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Filter submittals to those linked to ANY of the chosen properties
+  const submittalChoices = useMemo(() => {
+    if (!submittals.data) return [];
+    if (selectedPropertyIds.size === 0) return submittals.data;
+    return submittals.data.filter((s) =>
+      selectedPropertyIds.has(String(s.fields.PropertyLookupId ?? '')),
+    );
+  }, [submittals.data, selectedPropertyIds]);
 
   const handleSubmit = async () => {
     setValidationError(null);
 
-    // Validate
+    // Validate. Property is no longer required — letters can cover the whole
+    // portfolio or none at all (a general policy memo, for instance).
     if (!subject.trim()) {
       setValidationError('Subject is required.');
-      return;
-    }
-    if (!propertyId) {
-      setValidationError('Property is required.');
       return;
     }
     if (!letterType) {
@@ -132,15 +137,19 @@ export function LogLetterModal({
     setError(null);
     setCascadeLog([]);
 
+    const propIds = Array.from(selectedPropertyIds);
+    const primaryProp = propIds[0] ?? null;
+
     try {
       // ──────────────── CASCADE STEP 1: create Correspondence record ────────────────
       const correspondenceFields: Record<string, unknown> = {
         Title: subject,
         Direction: direction,
         LetterType: letterType,
-        PropertyLookupId: propertyId,
+        CorrChannel: 'Letter',
         DateReceived: new Date(dateReceived).toISOString(),
       };
+      if (primaryProp) correspondenceFields.PropertyLookupId = primaryProp;
       if (submittalId) correspondenceFields.CorrSubmittalLookupId = submittalId;
       if (summary) correspondenceFields.RequestSummary = summary;
       if (responseDue) correspondenceFields.ResponseDue = new Date(responseDue).toISOString();
@@ -148,30 +157,58 @@ export function LogLetterModal({
       if (state) correspondenceFields.cahpState = state;
 
       const corr = await createListItem<{ id: string }>(LIST_NAMES.Correspondence, correspondenceFields);
-      setCascadeLog((prev) => [...prev, `✓ Correspondence record #${corr.id} created`]);
+      setCascadeLog((prev) => [
+        ...prev,
+        `✓ Correspondence record #${corr.id} created (${propIds.length} propert${propIds.length === 1 ? 'y' : 'ies'})`,
+      ]);
 
-      // ──────────────── CASCADE STEP 2: create Outstanding Item if response deadline set ────────────────
-      if (responseDue && direction === 'Inbound (from DOR)') {
-        const itemCategory: ItemCategory =
-          (letterType && LETTER_TYPE_TO_ITEM_CATEGORY[letterType]) ?? 'Other';
+      // ──────────────── CASCADE STEP 2: write junction rows for every linked property ────────────────
+      for (const pid of propIds) {
         try {
-          await createListItem(LIST_NAMES.Outstanding, {
-            Title: `Respond to DOR: ${subject}`,
-            PropertyLookupId: propertyId,
-            ItemCategory: itemCategory,
-            ItemStatus: 'Requested',
-            DateRequested: new Date(dateReceived).toISOString(),
-            ItemNotes: `Auto-created from DOR Correspondence #${corr.id}. Response due ${new Date(responseDue).toLocaleDateString()}.`,
+          await createListItem(LIST_NAMES.CorrespondencePropertyLinks, {
+            Title: `Corr ${corr.id} ↔ Property ${pid}`,
+            CorrLookupId: Number(corr.id),
+            PropertyLookupId: Number(pid),
           });
-          setCascadeLog((prev) => [...prev, `✓ Outstanding Item created (due ${new Date(responseDue).toLocaleDateString()})`]);
         } catch (e) {
           // eslint-disable-next-line no-console
-          console.warn('Outstanding Item creation failed:', e);
+          console.warn(`Failed to link correspondence to property ${pid}:`, e);
+        }
+      }
+
+      // ──────────────── CASCADE STEP 3: create one Outstanding Item per property if response deadline set ────────────────
+      if (responseDue && direction === 'Inbound (from DOR)' && propIds.length > 0) {
+        const itemCategory: ItemCategory =
+          (letterType && LETTER_TYPE_TO_ITEM_CATEGORY[letterType]) ?? 'Other';
+        let createdItems = 0;
+        for (const pid of propIds) {
+          try {
+            await createListItem(LIST_NAMES.Outstanding, {
+              Title: `Respond to DOR: ${subject}`,
+              PropertyLookupId: pid,
+              ItemCategory: itemCategory,
+              ItemStatus: 'Requested',
+              DateRequested: new Date(dateReceived).toISOString(),
+              DueDate: new Date(responseDue).toISOString(),
+              ItemNotes: `Auto-created from DOR Correspondence #${corr.id}. Response due ${new Date(responseDue).toLocaleDateString()}.`,
+            });
+            createdItems++;
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`Outstanding Item creation failed for property ${pid}:`, e);
+          }
+        }
+        if (createdItems > 0) {
+          setCascadeLog((prev) => [
+            ...prev,
+            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${new Date(responseDue).toLocaleDateString()})`,
+          ]);
+        } else {
           setCascadeLog((prev) => [...prev, `⚠ Outstanding Item creation failed (correspondence still saved)`]);
         }
       }
 
-      // ──────────────── CASCADE STEP 3: update related submittal status if applicable ────────────────
+      // ──────────────── CASCADE STEP 4: update related submittal status if applicable ────────────────
       if (
         submittalId &&
         direction === 'Inbound (from DOR)' &&
@@ -194,14 +231,14 @@ export function LogLetterModal({
         }
       }
 
-      // ──────────────── CASCADE STEP 4: upload document to DOR Correspondence library (PR-11c) ────────────────
+      // ──────────────── CASCADE STEP 5: upload document to DOR Correspondence library (PR-11c) ────────────────
       if (attachment) {
         try {
           await uploadDocument({
             libraryName: 'DOR Correspondence',
             filename: attachment.name,
             file: attachment,
-            metadata: { PropertyLookupId: propertyId },
+            metadata: primaryProp ? { PropertyLookupId: primaryProp } : undefined,
           });
           setCascadeLog((prev) => [...prev, `✓ Document "${attachment.name}" uploaded to DOR Correspondence library`]);
         } catch (e) {
@@ -226,7 +263,10 @@ export function LogLetterModal({
   const inputClass =
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
 
-  const willCreateOutstanding = Boolean(responseDue && direction === 'Inbound (from DOR)');
+  const willCreateOutstanding = Boolean(
+    responseDue && direction === 'Inbound (from DOR)' && selectedPropertyIds.size > 0,
+  );
+  const willCreateOutstandingCount = willCreateOutstanding ? selectedPropertyIds.size : 0;
   const willUpdateSubmittal = Boolean(
     submittalId &&
       direction === 'Inbound (from DOR)' &&
@@ -243,27 +283,47 @@ export function LogLetterModal({
         </p>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Field label="Property" required>
-              <select
-                value={propertyId}
-                onChange={(e) => handlePropertyChange(e.target.value)}
-                className={`${inputClass} bg-white`}
-                disabled={saving}
-              >
-                <option value="">— select property —</option>
-                {sortedProperties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.fields.Title}</option>
-                ))}
-              </select>
-            </Field>
+          <Field label={`Properties (${selectedPropertyIds.size} selected — optional)`}>
+            <input
+              type="text"
+              value={propertySearch}
+              onChange={(e) => setPropertySearch(e.target.value)}
+              placeholder="Search properties…"
+              disabled={saving}
+              className={inputClass + ' mb-1'}
+            />
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+              {filteredProperties.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-gray-500 italic">No properties match.</div>
+              ) : (
+                filteredProperties.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedPropertyIds.has(String(p.id))}
+                      onChange={() => toggleProperty(String(p.id))}
+                      disabled={saving}
+                    />
+                    <span className="flex-1 truncate">{p.fields.Title}</span>
+                    {p.fields.cahpState && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">{p.fields.cahpState}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Leave empty for a portfolio-wide or general letter. Each linked property gets its own Outstanding Item.
+            </p>
+          </Field>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="Related Submittal">
               <select
                 value={submittalId}
                 onChange={(e) => setSubmittalId(e.target.value)}
                 className={`${inputClass} bg-white`}
-                disabled={saving || !propertyId}
+                disabled={saving}
               >
                 <option value="">— optional —</option>
                 {submittalChoices.map((s) => (
@@ -272,8 +332,8 @@ export function LogLetterModal({
                   </option>
                 ))}
               </select>
-              {!propertyId && (
-                <p className="text-[11px] text-gray-400 mt-0.5">Pick a property first to see its submittals.</p>
+              {selectedPropertyIds.size === 0 && (
+                <p className="text-[11px] text-gray-400 mt-0.5">Pick at least one property to filter to its submittals.</p>
               )}
             </Field>
 
@@ -397,8 +457,14 @@ export function LogLetterModal({
           <ul className="text-xs text-teal-900 space-y-0.5">
             <li>✓ <strong>Correspondence record</strong> created in DOR Correspondence Log</li>
             <li className={willCreateOutstanding ? '' : 'text-gray-500 line-through'}>
-              {willCreateOutstanding ? '✓' : '○'} <strong>Outstanding Item</strong> auto-created
-              {!willCreateOutstanding && ' (response due date not set)'}
+              {willCreateOutstanding ? '✓' : '○'}{' '}
+              <strong>
+                {willCreateOutstanding
+                  ? `${willCreateOutstandingCount} Outstanding Item${willCreateOutstandingCount === 1 ? '' : 's'}`
+                  : 'Outstanding Item'}
+              </strong>{' '}
+              auto-created
+              {!willCreateOutstanding && ' (response due + at least one property required)'}
             </li>
             <li className={willUpdateSubmittal ? '' : 'text-gray-500 line-through'}>
               {willUpdateSubmittal ? '✓' : '○'} <strong>Submittal status</strong> → Letter Received - Action Needed

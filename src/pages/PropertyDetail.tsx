@@ -40,6 +40,8 @@ import { UploadDocumentModal } from '../components/UploadDocumentModal';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
 import { ContactPicker } from '../components/ContactPicker';
+import { CountyMultiSelect } from '../components/CountyMultiSelect';
+import { parseCounties } from '../lib/counties';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
@@ -72,11 +74,6 @@ const SUBMITTAL_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
 const CHOICES = {
   AMIProgram: ['20/50', '40/60', '50/80', '60/80', 'Mixed', 'None'] as const,
   CAHPLanguageAdded: ['Yes', 'No', 'In Progress', 'Needs Revision'] as const,
-  cahpCounty: [
-    'Greenville (SC)', 'Spartanburg (SC)', 'Anderson (SC)', 'Pickens (SC)',
-    'Laurens (SC)', 'York (SC)', 'Mecklenburg (NC)', 'Guilford (NC)',
-    'Durham (NC)', 'Wake (NC)', 'Forsyth (NC)', 'Buncombe (NC)', 'Other',
-  ] as const,
   cahpState: ['SC', 'NC'] as const,
   cahpVerificationStatus: [
     'Inherited - Unverified', 'Verified', 'Needs Follow-Up', 'N/A',
@@ -452,7 +449,27 @@ function OverviewTab({
 
       <Section title="Location & Ownership">
         <EditableField label="State" value={display.cahpState} editing={editing} type="choice" choices={CHOICES.cahpState} mono onChange={(v) => onChange('cahpState', v as PropertyFields['cahpState'])} />
-        <EditableField label="County" value={display.cahpCounty} editing={editing} type="choice" choices={CHOICES.cahpCounty} onChange={(v) => onChange('cahpCounty', v as string)} />
+        <div className="flex items-start gap-3">
+          <dt className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">County</dt>
+          <dd className="text-sm flex-1">
+            {editing ? (
+              <CountyMultiSelect
+                value={display.cahpCounty}
+                onChange={(v) => onChange('cahpCounty', v as string)}
+              />
+            ) : (() => {
+              const counties = parseCounties(display.cahpCounty);
+              if (counties.length === 0) return <span className="text-gray-300">—</span>;
+              return (
+                <div className="flex flex-wrap gap-1">
+                  {counties.map((c) => (
+                    <span key={c} className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 text-[12px] font-medium">{c}</span>
+                  ))}
+                </div>
+              );
+            })()}
+          </dd>
+        </div>
         <EditableField label="Units" value={display.UnitCount} editing={editing} type="number" mono onChange={(v) => onChange('UnitCount', v as number)} />
       </Section>
 

@@ -7,9 +7,12 @@ import {
   type Property,
   type LetterType,
   type CorrespondenceDirection,
+  type CorrespondencePropertyLink,
+  type CorrChannel,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { LogLetterModal } from '../components/LogLetterModal';
+import { LogDORCommModal } from '../components/LogDORCommModal';
 
 const LETTER_TYPE_STYLES: Record<LetterType, string> = {
   'Initial Acknowledgment': 'bg-blue-100 text-blue-800',
@@ -27,15 +30,26 @@ const DIRECTION_STYLES: Record<CorrespondenceDirection, string> = {
   'Outbound (to DOR)': 'bg-blue-100 text-blue-800',
 };
 
+const CHANNEL_STYLES: Record<CorrChannel, string> = {
+  Letter:  'bg-indigo-100 text-indigo-800',
+  Email:   'bg-blue-100 text-blue-800',
+  Phone:   'bg-purple-100 text-purple-800',
+  Meeting: 'bg-teal-100 text-teal-800',
+  Other:   'bg-gray-100 text-gray-700',
+};
+
 export function CorrespondencePage() {
   const navigate = useNavigate();
   const correspondence = useSharePointList<Correspondence>(LIST_NAMES.Correspondence, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const propertyLinks = useSharePointList<CorrespondencePropertyLink>(LIST_NAMES.CorrespondencePropertyLinks, { top: 2000 });
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<LetterType | 'All'>('All');
   const [directionFilter, setDirectionFilter] = useState<CorrespondenceDirection | 'All'>('All');
-  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [channelFilter, setChannelFilter] = useState<CorrChannel | 'All'>('All');
+  const [logLetterOpen, setLogLetterOpen] = useState(false);
+  const [logCommOpen, setLogCommOpen] = useState(false);
 
   const loading = correspondence.loading || properties.loading;
   const error = correspondence.error || properties.error;
@@ -45,20 +59,46 @@ export function CorrespondencePage() {
     return new Map(properties.data.map((p) => [String(p.id), p]));
   }, [properties.data]);
 
+  // corrId → list of {id, title} pairs (junction + legacy single PropertyLookupId)
+  const propertyTitlesByCorr = useMemo(() => {
+    const map = new Map<string, { id: string; title: string }[]>();
+    const add = (cId: string, pId: string) => {
+      const title = propertiesById.get(pId)?.fields.Title;
+      if (!title) return;
+      if (!map.has(cId)) map.set(cId, []);
+      const list = map.get(cId)!;
+      if (!list.some((e) => e.id === pId)) list.push({ id: pId, title });
+    };
+    (propertyLinks.data ?? []).forEach((l) => {
+      if (l.fields.CorrLookupId && l.fields.PropertyLookupId) {
+        add(String(l.fields.CorrLookupId), String(l.fields.PropertyLookupId));
+      }
+    });
+    (correspondence.data ?? []).forEach((c) => {
+      if (c.fields.PropertyLookupId) {
+        add(String(c.id), String(c.fields.PropertyLookupId));
+      }
+    });
+    return map;
+  }, [propertyLinks.data, correspondence.data, propertiesById]);
+
   const filtered = useMemo(() => {
     if (!correspondence.data) return [];
     return correspondence.data
       .filter((c) => {
         const f = c.fields;
         if (search) {
-          const propName = f.PropertyLookupId
-            ? propertiesById.get(String(f.PropertyLookupId))?.fields.Title ?? ''
-            : '';
-          const hay = `${f.Title ?? ''} ${propName} ${f.RequestSummary ?? ''}`.toLowerCase();
+          const propTitles = (propertyTitlesByCorr.get(String(c.id)) ?? []).map((p) => p.title).join(' ');
+          const hay = `${f.Title ?? ''} ${propTitles} ${f.RequestSummary ?? ''}`.toLowerCase();
           if (!hay.includes(search.toLowerCase())) return false;
         }
         if (typeFilter !== 'All' && f.LetterType !== typeFilter) return false;
         if (directionFilter !== 'All' && f.Direction !== directionFilter) return false;
+        if (channelFilter !== 'All') {
+          // Default missing channel to 'Letter' so legacy rows still match when filtering
+          const channel = (f.CorrChannel ?? 'Letter') as CorrChannel;
+          if (channel !== channelFilter) return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -66,7 +106,7 @@ export function CorrespondencePage() {
         const db = b.fields.DateReceived ? new Date(b.fields.DateReceived).getTime() : 0;
         return db - da;
       });
-  }, [correspondence.data, search, typeFilter, directionFilter, propertiesById]);
+  }, [correspondence.data, search, typeFilter, directionFilter, channelFilter, propertyTitlesByCorr]);
 
   const stats = useMemo(() => {
     if (!correspondence.data) return null;
@@ -121,27 +161,34 @@ export function CorrespondencePage() {
 
   if (!correspondence.data || !stats) return null;
 
-  const handleLogSuccess = () => {
-    setLogModalOpen(false);
-    correspondence.refetch?.();
-  };
-
   return (
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-teal-700">DOR Correspondence</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Every formal letter to and from SC/NC Department of Revenue. Logging a letter cascades to the related submittal, an Outstanding Item with deadline, and a filed document.
+            Formal letters AND general communications (calls, emails, meetings) with SC/NC Department of Revenue.
+            Formal letters cascade to Outstanding Items + submittal status; general comms are notes-only.
           </p>
         </div>
-        <button
-          onClick={() => setLogModalOpen(true)}
-          className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors flex-shrink-0"
-        >
-          <Icon name="plus" size={16} />
-          Log Letter
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setLogCommOpen(true)}
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md font-medium flex items-center gap-2 transition-colors text-sm"
+            title="Log a phone call, email, or meeting with DOR"
+          >
+            <Icon name="plus" size={14} />
+            Log Comm
+          </button>
+          <button
+            onClick={() => setLogLetterOpen(true)}
+            className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
+            title="Log a formal DOR letter (with cascading Outstanding Items)"
+          >
+            <Icon name="plus" size={16} />
+            Log Letter
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -183,6 +230,18 @@ export function CorrespondencePage() {
           <option value="Inbound (from DOR)">Inbound (from DOR)</option>
           <option value="Outbound (to DOR)">Outbound (to DOR)</option>
         </select>
+        <select
+          value={channelFilter}
+          onChange={(e) => setChannelFilter(e.target.value as CorrChannel | 'All')}
+          className="px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-teal-500 bg-white"
+        >
+          <option value="All">All channels</option>
+          <option value="Letter">Letter</option>
+          <option value="Email">Email</option>
+          <option value="Phone">Phone</option>
+          <option value="Meeting">Meeting</option>
+          <option value="Other">Other</option>
+        </select>
         {filtered.length !== correspondence.data.length && (
           <span className="text-xs text-gray-500 px-1">{filtered.length} of {correspondence.data.length}</span>
         )}
@@ -196,13 +255,22 @@ export function CorrespondencePage() {
             Click <strong>Log Letter</strong> to record your first DOR communication. The system will create the
             correspondence record, an Outstanding Item if you set a response deadline, and update the related submittal.
           </p>
-          <button
-            onClick={() => setLogModalOpen(true)}
-            className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium inline-flex items-center gap-2 transition-colors"
-          >
-            <Icon name="plus" size={16} />
-            Log First Letter
-          </button>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <button
+              onClick={() => setLogCommOpen(true)}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md font-medium inline-flex items-center gap-2"
+            >
+              <Icon name="plus" size={16} />
+              Log Communication
+            </button>
+            <button
+              onClick={() => setLogLetterOpen(true)}
+              className="bg-teal-700 hover:bg-teal-900 text-white px-4 py-2 rounded-md font-medium inline-flex items-center gap-2 transition-colors"
+            >
+              <Icon name="plus" size={16} />
+              Log First Letter
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
@@ -210,8 +278,9 @@ export function CorrespondencePage() {
             <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
               <tr>
                 <th className="px-4 py-3 text-left">Date</th>
+                <th className="px-4 py-3 text-left">Channel</th>
                 <th className="px-4 py-3 text-left">Subject</th>
-                <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left">Properties</th>
                 <th className="px-4 py-3 text-left">Type</th>
                 <th className="px-4 py-3 text-left">Direction</th>
                 <th className="px-4 py-3 text-left">Response Due</th>
@@ -219,11 +288,10 @@ export function CorrespondencePage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((c) => {
-                const property = c.fields.PropertyLookupId
-                  ? propertiesById.get(String(c.fields.PropertyLookupId))
-                  : null;
+                const linkedProps = propertyTitlesByCorr.get(String(c.id)) ?? [];
                 const responseDue = c.fields.ResponseDue ? new Date(c.fields.ResponseDue) : null;
                 const isOverdue = responseDue && responseDue.getTime() < Date.now() && !c.fields.DateResponded;
+                const channel = (c.fields.CorrChannel ?? 'Letter') as CorrChannel;
                 return (
                   <tr
                     key={c.id}
@@ -233,16 +301,34 @@ export function CorrespondencePage() {
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
                       {c.fields.DateReceived ? new Date(c.fields.DateReceived).toLocaleDateString() : '—'}
                     </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${CHANNEL_STYLES[channel]}`}>
+                        {channel}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{c.fields.Title}</td>
-                    <td className="px-4 py-3 text-gray-700 text-xs">
-                      {property?.fields.Title ?? <span className="text-gray-400 italic">unlinked</span>}
+                    <td className="px-4 py-3 text-xs">
+                      {linkedProps.length === 0 ? (
+                        <span className="text-gray-400 italic">unlinked</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {linkedProps.slice(0, 4).map((p) => (
+                            <span key={p.id} className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 text-[11px] font-medium">
+                              {p.title}
+                            </span>
+                          ))}
+                          {linkedProps.length > 4 && (
+                            <span className="text-[11px] text-gray-500">+{linkedProps.length - 4} more</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {c.fields.LetterType ? (
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${LETTER_TYPE_STYLES[c.fields.LetterType]}`}>
                           {c.fields.LetterType}
                         </span>
-                      ) : '—'}
+                      ) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {c.fields.Direction ? (
@@ -264,10 +350,26 @@ export function CorrespondencePage() {
       )}
 
       {/* Log Letter modal */}
-      {logModalOpen && (
+      {logLetterOpen && (
         <LogLetterModal
-          onClose={() => setLogModalOpen(false)}
-          onSuccess={handleLogSuccess}
+          onClose={() => setLogLetterOpen(false)}
+          onSuccess={() => {
+            setLogLetterOpen(false);
+            correspondence.refetch?.();
+            propertyLinks.refetch?.();
+          }}
+        />
+      )}
+
+      {/* Log General DOR Communication modal */}
+      {logCommOpen && (
+        <LogDORCommModal
+          onClose={() => setLogCommOpen(false)}
+          onSuccess={() => {
+            setLogCommOpen(false);
+            correspondence.refetch?.();
+            propertyLinks.refetch?.();
+          }}
         />
       )}
     </div>

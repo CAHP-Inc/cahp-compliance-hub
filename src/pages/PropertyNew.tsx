@@ -17,15 +17,11 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { BreadcrumbBar, Section, SaveErrorBanner } from '../components/detail';
+import { CountyMultiSelect } from '../components/CountyMultiSelect';
 
 const CHOICES = {
   AMIProgram: ['20/50', '40/60', '50/80', '60/80', 'Mixed', 'None'] as const,
   CAHPLanguageAdded: ['Yes', 'No', 'In Progress', 'Needs Revision'] as const,
-  cahpCounty: [
-    'Greenville (SC)', 'Spartanburg (SC)', 'Anderson (SC)', 'Pickens (SC)',
-    'Laurens (SC)', 'York (SC)', 'Mecklenburg (NC)', 'Guilford (NC)',
-    'Durham (NC)', 'Wake (NC)', 'Forsyth (NC)', 'Buncombe (NC)', 'Other',
-  ] as const,
   cahpState: ['SC', 'NC'] as const,
   cahpVerificationStatus: [
     'Inherited - Unverified', 'Verified', 'Needs Follow-Up', 'N/A',
@@ -329,10 +325,10 @@ export function PropertyNew() {
               </select>
             </Field>
             <Field label="County">
-              <select value={form.cahpCounty ?? ''} onChange={(e) => handleChange('cahpCounty', e.target.value || undefined)} className={`${inputClass} bg-white`}>
-                <option value="">— select —</option>
-                {CHOICES.cahpCounty.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <CountyMultiSelect
+                value={form.cahpCounty}
+                onChange={(v) => handleChange('cahpCounty', v || undefined)}
+              />
             </Field>
           </Section>
         </div>

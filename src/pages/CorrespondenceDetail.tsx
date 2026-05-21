@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
+  createListItem,
   updateListItem,
   deleteListItem,
   LIST_NAMES,
@@ -14,6 +15,8 @@ import {
   type CorrespondenceDirection,
   type CahpTaxYear,
   type CahpState,
+  type CorrChannel,
+  type CorrespondencePropertyLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import {
@@ -36,6 +39,7 @@ const LETTER_TYPES: LetterType[] = [
 ];
 
 const DIRECTIONS: CorrespondenceDirection[] = ['Inbound (from DOR)', 'Outbound (to DOR)'];
+const CHANNELS: CorrChannel[] = ['Letter', 'Email', 'Phone', 'Meeting', 'Other'];
 const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
 const STATES: CahpState[] = ['SC', 'NC'];
 
@@ -49,20 +53,60 @@ export function CorrespondenceDetail() {
   );
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const propertyLinks = useSharePointList<CorrespondencePropertyLink>(LIST_NAMES.CorrespondencePropertyLinks, { top: 2000 });
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<CorrespondenceFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (corr && !editing) setDraft({ ...corr.fields });
-  }, [corr?.id, corr?.lastModifiedDateTime, editing]);
+  // Multi-property linkage state
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+  const [propertySearch, setPropertySearch] = useState('');
 
-  const property = useMemo(() => {
-    if (!corr || !properties.data || !corr.fields.PropertyLookupId) return null;
-    return properties.data.find((p) => String(p.id) === String(corr.fields.PropertyLookupId)) ?? null;
-  }, [corr, properties.data]);
+  const currentLinkedPropertyIds = useMemo(() => {
+    if (!corr) return new Set<string>();
+    const set = new Set<string>();
+    (propertyLinks.data ?? []).forEach((l) => {
+      if (String(l.fields.CorrLookupId ?? '') === String(corr.id) && l.fields.PropertyLookupId) {
+        set.add(String(l.fields.PropertyLookupId));
+      }
+    });
+    if (corr.fields.PropertyLookupId) set.add(String(corr.fields.PropertyLookupId));
+    return set;
+  }, [corr, propertyLinks.data]);
+
+  useEffect(() => {
+    if (corr && !editing) {
+      setDraft({ ...corr.fields });
+      setSelectedPropertyIds(new Set(currentLinkedPropertyIds));
+    }
+  }, [corr?.id, corr?.lastModifiedDateTime, editing, currentLinkedPropertyIds]);
+
+  const linkedProperties = useMemo(() => {
+    if (!properties.data) return [];
+    return Array.from(currentLinkedPropertyIds)
+      .map((id) => properties.data!.find((p) => String(p.id) === id))
+      .filter((p): p is Property => !!p);
+  }, [currentLinkedPropertyIds, properties.data]);
+
+  const sortedProperties = useMemo(
+    () => [...(properties.data ?? [])].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')),
+    [properties.data],
+  );
+  const filteredEditProperties = useMemo(() => {
+    const q = propertySearch.trim().toLowerCase();
+    if (!q) return sortedProperties;
+    return sortedProperties.filter((p) => (p.fields.Title ?? '').toLowerCase().includes(q));
+  }, [sortedProperties, propertySearch]);
+
+  const togglePropertyId = (id: string) =>
+    setSelectedPropertyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const submittal = useMemo(() => {
     if (!corr || !submittals.data || !corr.fields.CorrSubmittalLookupId) return null;
@@ -118,6 +162,9 @@ export function CorrespondenceDetail() {
     setSaving(true);
     setSaveError(null);
     try {
+      const propIds = Array.from(selectedPropertyIds);
+      const primaryProp = propIds[0] ?? null;
+
       const changed: Record<string, unknown> = {};
       Object.keys(draft).forEach((key) => {
         const k = key as keyof CorrespondenceFields;
@@ -125,12 +172,39 @@ export function CorrespondenceDetail() {
           changed[k] = draft[k] === '' ? null : draft[k];
         }
       });
-      if (Object.keys(changed).length === 0) {
-        setEditing(false);
-        return;
+      // Sync legacy primary lookup with the first selected property
+      if (String(corr.fields.PropertyLookupId ?? '') !== String(primaryProp ?? '')) {
+        changed.PropertyLookupId = primaryProp;
       }
-      await updateListItem(LIST_NAMES.Correspondence, corr.id, changed);
+
+      if (Object.keys(changed).length > 0) {
+        await updateListItem(LIST_NAMES.Correspondence, corr.id, changed);
+      }
+
+      // Diff junction rows
+      const myLinks = (propertyLinks.data ?? []).filter(
+        (l) => String(l.fields.CorrLookupId ?? '') === String(corr.id),
+      );
+      const existingIds = new Set(
+        myLinks.map((l) => String(l.fields.PropertyLookupId ?? '')).filter(Boolean),
+      );
+      const toAdd = propIds.filter((id) => !existingIds.has(id));
+      const toRemove = [...existingIds].filter((id) => !selectedPropertyIds.has(id));
+
+      for (const pid of toAdd) {
+        await createListItem(LIST_NAMES.CorrespondencePropertyLinks, {
+          Title: `Corr ${corr.id} ↔ Property ${pid}`,
+          CorrLookupId: Number(corr.id),
+          PropertyLookupId: Number(pid),
+        });
+      }
+      for (const pid of toRemove) {
+        const row = myLinks.find((l) => String(l.fields.PropertyLookupId ?? '') === pid);
+        if (row) await deleteListItem(LIST_NAMES.CorrespondencePropertyLinks, row.id);
+      }
+
       await refetch();
+      propertyLinks.refetch?.();
       setEditing(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
@@ -160,12 +234,14 @@ export function CorrespondenceDetail() {
         <div>
           <h1 className="text-2xl font-bold text-teal-700">{corr.fields.Title}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {property ? (
-              <Link to={`/properties/${property.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                {property.fields.Title}
+            {linkedProperties.length === 0 ? (
+              <span className="italic text-gray-400">unlinked</span>
+            ) : linkedProperties.length === 1 ? (
+              <Link to={`/properties/${linkedProperties[0].id}`} className="text-teal-700 hover:text-teal-900 underline">
+                {linkedProperties[0].fields.Title}
               </Link>
             ) : (
-              <span className="italic text-gray-400">unlinked property</span>
+              <span>{linkedProperties.length} properties</span>
             )}
             {submittal && (
               <>
@@ -211,6 +287,14 @@ export function CorrespondenceDetail() {
             editing={editing}
             onChange={(v) => handleFieldChange('Title', v as string)}
             required
+          />
+          <EditableField
+            label="Channel"
+            value={display.CorrChannel ?? 'Letter'}
+            editing={editing}
+            type="choice"
+            choices={CHANNELS}
+            onChange={(v) => handleFieldChange('CorrChannel', v as CorrChannel)}
           />
           <EditableField
             label="Direction"
@@ -273,15 +357,62 @@ export function CorrespondenceDetail() {
             onChange={(v) => handleFieldChange('cahpState', v as CahpState)}
             mono
           />
-          {/* Property and Submittal lookups are read-only at the detail level — change those via the parent record */}
           <div className="flex items-start gap-3">
-            <dt className="text-sm text-gray-500 w-44 flex-shrink-0">Property</dt>
+            <dt className="text-sm text-gray-500 w-44 flex-shrink-0 pt-1">
+              Properties{editing && <span className="block text-[10px] font-normal normal-case">{selectedPropertyIds.size} selected</span>}
+            </dt>
             <dd className="text-sm flex-1">
-              {property ? (
-                <Link to={`/properties/${property.id}`} className="text-teal-700 hover:text-teal-900 underline">
-                  {property.fields.Title}
-                </Link>
-              ) : <span className="text-gray-300">—</span>}
+              {!editing ? (
+                linkedProperties.length === 0 ? (
+                  <span className="text-gray-300">—</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {linkedProperties.map((p) => (
+                      <Link
+                        key={p.id}
+                        to={`/properties/${p.id}`}
+                        className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 hover:bg-teal-100 text-[12px] font-medium"
+                      >
+                        {p.fields.Title}
+                      </Link>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    value={propertySearch}
+                    onChange={(e) => setPropertySearch(e.target.value)}
+                    placeholder="Search properties…"
+                    disabled={saving}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500 mb-1"
+                  />
+                  <div className="border border-gray-300 rounded max-h-40 overflow-y-auto bg-white">
+                    {filteredEditProperties.length === 0 ? (
+                      <div className="px-2 py-2 text-[11px] text-gray-500 italic">No matches.</div>
+                    ) : (
+                      filteredEditProperties.map((p) => (
+                        <label key={p.id} className="flex items-center gap-2 px-2 py-1 hover:bg-teal-50 cursor-pointer text-xs">
+                          <input
+                            type="checkbox"
+                            checked={selectedPropertyIds.has(String(p.id))}
+                            onChange={() => togglePropertyId(String(p.id))}
+                            disabled={saving}
+                          />
+                          <span className="flex-1 truncate">{p.fields.Title}</span>
+                          {p.fields.cahpState && (
+                            <span className="text-[10px] text-gray-500 flex-shrink-0">{p.fields.cahpState}</span>
+                          )}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Leave empty for portfolio-wide / general DOR comms.
+                  </p>
+                </div>
+              )}
             </dd>
           </div>
           <div className="flex items-start gap-3">
