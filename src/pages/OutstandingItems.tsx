@@ -10,7 +10,7 @@ import {
   type ItemPriority,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
-import { formatDateOnly, parseDateOnly } from '../lib/dates';
+import { formatDateOnly, parseDateOnly, toDateOnlyISO } from '../lib/dates';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
@@ -38,21 +38,22 @@ const PRIORITY_STYLES: Record<ItemPriority, string> = {
   Low: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-// Map ItemStatus → kanban column. Legacy "Requested" / "Received" map to new columns
-const KANBAN_COLUMNS: { id: ItemStatus; label: string; legacyAliases: ItemStatus[] }[] = [
-  { id: 'Not Started', label: 'Not Started', legacyAliases: ['Requested'] },
-  { id: 'In Progress', label: 'In Progress', legacyAliases: [] },
-  { id: 'Blocked', label: 'Blocked', legacyAliases: [] },
-  { id: 'Done', label: 'Done', legacyAliases: ['Received', 'Not Applicable'] },
-];
-
-function getKanbanColumn(status: ItemStatus | undefined): ItemStatus | null {
-  if (!status) return 'Not Started';
-  for (const col of KANBAN_COLUMNS) {
-    if (col.id === status || col.legacyAliases.includes(status)) return col.id;
-  }
-  return null; // Overdue or unmapped — render in current column with overdue treatment
+/** Normalize legacy statuses to one of the four canonical buckets. */
+function normalizeStatus(status: ItemStatus | undefined): 'Not Started' | 'In Progress' | 'Blocked' | 'Done' {
+  if (!status || status === 'Requested') return 'Not Started';
+  if (status === 'Received' || status === 'Not Applicable') return 'Done';
+  if (status === 'Overdue') return 'In Progress'; // legacy — overdue is a visual, not a column
+  if (status === 'Not Started' || status === 'In Progress' || status === 'Blocked' || status === 'Done') return status;
+  return 'Not Started';
 }
+
+/** Calendar / chip color per status — yellow / blue / red / green. */
+const STATUS_CHIP_COLOR: Record<'Not Started' | 'In Progress' | 'Blocked' | 'Done', string> = {
+  'Not Started': 'bg-yellow-100 text-yellow-800',
+  'In Progress': 'bg-blue-100 text-blue-800',
+  'Blocked': 'bg-red-100 text-red-800',
+  'Done': 'bg-green-100 text-green-800',
+};
 
 function isOverdue(item: OutstandingItem): boolean {
   if (!item.fields.DueDate) return false;
@@ -66,7 +67,7 @@ function isOverdue(item: OutstandingItem): boolean {
 // Page
 // =============================================================================
 
-type ViewMode = 'kanban' | 'list';
+type ViewMode = 'list' | 'calendar';
 
 export function OutstandingItems() {
   const navigate = useNavigate();
@@ -74,7 +75,7 @@ export function OutstandingItems() {
   const items = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
 
-  const [view, setView] = useState<ViewMode>('kanban');
+  const [view, setView] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<ItemPriority | 'All'>('All');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('All');
@@ -83,6 +84,9 @@ export function OutstandingItems() {
   const [propertyFilter, setPropertyFilter] = useState<string>(
     () => searchParams.get('property') || 'All',
   );
+  // Specific-day filter — set by clicking a day on the Calendar view to drill
+  // into the list. Stored as YYYY-MM-DD; empty string = no filter.
+  const [dueDateFilter, setDueDateFilter] = useState<string>('');
   const [showClosed, setShowClosed] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [newItemOpen, setNewItemOpen] = useState(false);
@@ -127,44 +131,14 @@ export function OutstandingItems() {
       if (priorityFilter !== 'All' && f.Priority !== priorityFilter) return false;
       if (assigneeFilter !== 'All' && f.AssignedTo !== assigneeFilter) return false;
       if (propertyFilter !== 'All' && String(f.PropertyLookupId) !== propertyFilter) return false;
+      if (dueDateFilter) {
+        // Match items whose DueDate falls on the selected YYYY-MM-DD (local time)
+        const itemDate = f.DueDate ? String(f.DueDate).slice(0, 10) : '';
+        if (itemDate !== dueDateFilter) return false;
+      }
       return true;
     });
-  }, [items.data, search, priorityFilter, assigneeFilter, propertyFilter, showClosed, propertiesById]);
-
-  // Group by kanban column
-  const byColumn = useMemo(() => {
-    const map: Record<string, OutstandingItem[]> = {
-      'Not Started': [],
-      'In Progress': [],
-      'Blocked': [],
-      'Done': [],
-    };
-    filtered.forEach((item) => {
-      const col = getKanbanColumn(item.fields.ItemStatus);
-      if (col && map[col]) {
-        map[col].push(item);
-      } else {
-        // Fallback: drop unmapped into Not Started
-        map['Not Started'].push(item);
-      }
-    });
-    // Sort each column: overdue first, then by priority, then by due date
-    const priorityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-    Object.keys(map).forEach((k) => {
-      map[k].sort((a, b) => {
-        const aOverdue = isOverdue(a) ? 0 : 1;
-        const bOverdue = isOverdue(b) ? 0 : 1;
-        if (aOverdue !== bOverdue) return aOverdue - bOverdue;
-        const aP = priorityOrder[a.fields.Priority ?? 'Medium'] ?? 2;
-        const bP = priorityOrder[b.fields.Priority ?? 'Medium'] ?? 2;
-        if (aP !== bP) return aP - bP;
-        const aDue = a.fields.DueDate ? parseDateOnly(a.fields.DueDate)?.getTime() ?? Infinity : Infinity;
-        const bDue = b.fields.DueDate ? parseDateOnly(b.fields.DueDate)?.getTime() ?? Infinity : Infinity;
-        return aDue - bDue;
-      });
-    });
-    return map;
-  }, [filtered]);
+  }, [items.data, search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, showClosed, propertiesById]);
 
   const stats = useMemo(() => {
     if (!items.data) return null;
@@ -182,25 +156,6 @@ export function OutstandingItems() {
     };
   }, [items.data]);
 
-  // Quick status update from dropdown on card
-  const handleStatusChange = async (itemId: string, newStatus: ItemStatus) => {
-    setUpdatingId(itemId);
-    try {
-      const patch: Record<string, unknown> = { ItemStatus: newStatus };
-      if (newStatus === 'Done' || newStatus === 'Received') {
-        patch.DateReceivedItem = new Date().toISOString();
-      }
-      await updateListItem(LIST_NAMES.Outstanding, itemId, patch);
-      await items.refetch?.();
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Status update failed:', e);
-      alert(`Status update failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
   // Inline assignee update from the list view (saved on blur or Enter)
   const handleAssigneeChange = async (itemId: string, newAssignee: string) => {
     setUpdatingId(itemId);
@@ -214,6 +169,25 @@ export function OutstandingItems() {
       // eslint-disable-next-line no-console
       console.error('Assignee update failed:', e);
       alert(`Assignee update failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // Inline due-date update from the list view. Takes a YYYY-MM-DD string
+  // from <input type="date"> (empty = clear the date).
+  const handleDueDateChange = async (itemId: string, newDueDate: string) => {
+    setUpdatingId(itemId);
+    try {
+      const iso = newDueDate ? toDateOnlyISO(newDueDate) : null;
+      await updateListItem(LIST_NAMES.Outstanding, itemId, {
+        DueDate: iso as unknown as undefined,
+      });
+      await items.refetch?.();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Due date update failed:', e);
+      alert(`Due date update failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setUpdatingId(null);
     }
@@ -273,13 +247,23 @@ export function OutstandingItems() {
             <Icon name="plus" size={14} />
             New Item
           </button>
-          <button
-            onClick={() => setView(view === 'kanban' ? 'list' : 'kanban')}
-            className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium flex items-center gap-1.5"
-          >
-            <Icon name={view === 'kanban' ? 'inbox' : 'check'} size={14} />
-            {view === 'kanban' ? 'List View' : 'Kanban View'}
-          </button>
+          <div className="inline-flex bg-gray-100 rounded-md p-0.5">
+            {([
+              { id: 'list',     label: 'List',     icon: 'check' as const },
+              { id: 'calendar', label: 'Calendar', icon: 'calendar' as const },
+            ]).map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setView(opt.id as ViewMode)}
+                className={`px-2.5 py-1 text-xs font-medium rounded inline-flex items-center gap-1.5 ${
+                  view === opt.id ? 'bg-white shadow text-teal-700' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Icon name={opt.icon} size={12} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -353,32 +337,44 @@ export function OutstandingItems() {
           <p className="text-base font-semibold text-blue-900 mb-1">No outstanding items yet</p>
           <p className="text-sm text-blue-800">
             Items are auto-created when you create a new property (Property Wizard generates 7 document-collection items)
-            or log a DOR letter with a response deadline. They'll appear here in the kanban.
+            or log a DOR letter with a response deadline. They'll appear here.
           </p>
         </div>
-      ) : view === 'kanban' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {KANBAN_COLUMNS.map((col) => (
-            <KanbanColumn
-              key={col.id}
-              column={col}
-              items={byColumn[col.id] ?? []}
-              propertiesById={propertiesById}
-              onCardClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
-              onStatusChange={handleStatusChange}
-              onLinkUpload={(item) => setLinkUploadItem(item)}
-              updatingId={updatingId}
-            />
-          ))}
-        </div>
+      ) : view === 'list' ? (
+        <>
+          {dueDateFilter && (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-2.5 mb-3 text-xs flex items-center justify-between gap-2">
+              <span className="text-amber-900">
+                Filtered to items due <strong>{formatDateOnly(dueDateFilter)}</strong>
+                {' · '}{filtered.length} match{filtered.length === 1 ? '' : 'es'}
+              </span>
+              <button
+                onClick={() => setDueDateFilter('')}
+                className="text-amber-700 hover:text-amber-900 font-medium px-2 py-0.5 rounded hover:bg-amber-100"
+              >
+                Clear date filter ×
+              </button>
+            </div>
+          )}
+          <ListView
+            items={filtered}
+            propertiesById={propertiesById}
+            onRowClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
+            onLinkUpload={(item) => setLinkUploadItem(item)}
+            onAssigneeChange={handleAssigneeChange}
+            onDueDateChange={handleDueDateChange}
+            updatingId={updatingId}
+          />
+        </>
       ) : (
-        <ListView
+        <CalendarView
           items={filtered}
           propertiesById={propertiesById}
-          onRowClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
-          onLinkUpload={(item) => setLinkUploadItem(item)}
-          onAssigneeChange={handleAssigneeChange}
-          updatingId={updatingId}
+          onItemClick={(itemId) => navigate(`/outstanding-items/${itemId}`)}
+          onDayClick={(dateStr) => {
+            setDueDateFilter(dateStr);
+            setView('list');
+          }}
         />
       )}
 
@@ -420,160 +416,6 @@ export function OutstandingItems() {
 }
 
 // =============================================================================
-// Kanban column + card
-// =============================================================================
-
-function KanbanColumn({
-  column,
-  items,
-  propertiesById,
-  onCardClick,
-  onStatusChange,
-  onLinkUpload,
-  updatingId,
-}: {
-  column: { id: ItemStatus; label: string };
-  items: OutstandingItem[];
-  propertiesById: Map<string, Property>;
-  onCardClick: (id: string) => void;
-  onStatusChange: (id: string, status: ItemStatus) => void;
-  onLinkUpload: (item: OutstandingItem) => void;
-  updatingId: string | null;
-}) {
-  return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-200 bg-white flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{column.label}</h3>
-        <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full font-mono-data">
-          {items.length}
-        </span>
-      </div>
-      <div className="p-2 space-y-2 min-h-[200px] max-h-[700px] overflow-y-auto">
-        {items.length === 0 ? (
-          <p className="text-xs text-gray-400 italic text-center py-6">No items</p>
-        ) : (
-          items.map((item) => (
-            <KanbanCard
-              key={item.id}
-              item={item}
-              property={item.fields.PropertyLookupId ? propertiesById.get(String(item.fields.PropertyLookupId)) : undefined}
-              onClick={() => onCardClick(item.id)}
-              onStatusChange={(status) => onStatusChange(item.id, status)}
-              onLinkUpload={() => onLinkUpload(item)}
-              updating={updatingId === item.id}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function KanbanCard({
-  item,
-  property,
-  onClick,
-  onStatusChange,
-  onLinkUpload,
-  updating,
-}: {
-  item: OutstandingItem;
-  property?: Property;
-  onClick: () => void;
-  onStatusChange: (status: ItemStatus) => void;
-  onLinkUpload: () => void;
-  updating: boolean;
-}) {
-  const overdue = isOverdue(item);
-  const f = item.fields;
-  const hasDoc = Boolean(f.RelatedDocUrl);
-
-  return (
-    <div
-      onClick={onClick}
-      className={`bg-white border rounded-md p-3 shadow-sm hover:shadow-card-hover cursor-pointer transition-shadow ${
-        overdue ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200'
-      } ${updating ? 'opacity-60' : ''}`}
-    >
-      <div className="flex items-start justify-between gap-2 mb-1">
-        <h4 className="text-sm font-medium text-gray-900 line-clamp-2">{f.Title}</h4>
-        {f.Priority && (
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 ${PRIORITY_STYLES[f.Priority]}`}>
-            {f.Priority}
-          </span>
-        )}
-      </div>
-      {property && (
-        <p className="text-xs text-gray-600 truncate mb-1.5">{property.fields.Title}</p>
-      )}
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <div className="text-gray-500 font-mono-data flex items-center gap-1.5 min-w-0">
-          {f.DueDate ? (
-            <span className={overdue ? 'text-error font-semibold' : ''}>
-              {overdue && '⚠ '}
-              {formatDateOnly(f.DueDate)}
-            </span>
-          ) : (
-            <span className="text-gray-400">no due date</span>
-          )}
-          {f.AssignedTo ? (
-            <span className="inline-flex items-center gap-1 bg-teal-50 text-teal-800 px-1.5 py-0.5 rounded-full text-[10px] font-medium truncate">
-              <Icon name="check" size={10} />
-              {f.AssignedTo}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
-              <Icon name="alert" size={10} />
-              Unassigned
-            </span>
-          )}
-        </div>
-      </div>
-      {/* Document linkage line */}
-      <div className="mt-2 pt-2 border-t border-gray-100">
-        {hasDoc ? (
-          <a
-            href={f.RelatedDocUrl!}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-[10px] text-success hover:underline inline-flex items-center gap-1 truncate max-w-full"
-            title={f.RelatedDocFilename}
-          >
-            <Icon name="check" size={10} />
-            <span className="truncate">{f.RelatedDocFilename ?? 'View doc'}</span>
-          </a>
-        ) : (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onLinkUpload();
-            }}
-            className="text-[10px] text-gold-700 hover:text-gold-900 underline inline-flex items-center gap-1"
-          >
-            <Icon name="plus" size={10} />
-            Link / Upload doc
-          </button>
-        )}
-      </div>
-      {/* Status quick-move dropdown */}
-      <select
-        value={f.ItemStatus ?? 'Not Started'}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => onStatusChange(e.target.value as ItemStatus)}
-        disabled={updating}
-        className="mt-2 w-full text-[10px] uppercase tracking-wider font-semibold border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-600 cursor-pointer hover:border-teal-500 focus:outline-none focus:border-teal-500"
-      >
-        <option value="Not Started">Move → Not Started</option>
-        <option value="In Progress">Move → In Progress</option>
-        <option value="Blocked">Move → Blocked</option>
-        <option value="Done">Move → Done</option>
-      </select>
-    </div>
-  );
-}
-
-// =============================================================================
 // List view
 // =============================================================================
 
@@ -583,6 +425,7 @@ function ListView({
   onRowClick,
   onLinkUpload,
   onAssigneeChange,
+  onDueDateChange,
   updatingId,
 }: {
   items: OutstandingItem[];
@@ -590,6 +433,7 @@ function ListView({
   onRowClick: (id: string) => void;
   onLinkUpload: (item: OutstandingItem) => void;
   onAssigneeChange: (itemId: string, newAssignee: string) => void;
+  onDueDateChange: (itemId: string, newDueDate: string) => void;
   updatingId: string | null;
 }) {
   return (
@@ -663,10 +507,15 @@ function ListView({
                   />
                 </td>
                 <td
-                  className={`px-4 py-3 font-mono-data text-xs cursor-pointer ${overdue ? 'text-error font-semibold' : 'text-gray-700'}`}
-                  onClick={() => onRowClick(item.id)}
+                  className="px-4 py-3"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {formatDateOnly(item.fields.DueDate)}
+                  <InlineDueDateCell
+                    value={item.fields.DueDate}
+                    saving={updatingId === item.id}
+                    overdue={overdue}
+                    onCommit={(v) => onDueDateChange(item.id, v)}
+                  />
                 </td>
                 <td
                   className="px-4 py-3 text-xs text-gray-600 cursor-pointer"
@@ -777,6 +626,330 @@ function InlineAssigneeCell({
         disabled={saving}
         placeholder="Unassigned"
         className="w-full pl-2 pr-6 py-1 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:border-teal-500 hover:border-gray-300 disabled:bg-gray-50"
+      />
+      {saving && (
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">
+          <div className="w-2.5 h-2.5 rounded-full border-2 border-teal-500 border-r-transparent animate-spin" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Calendar view — month grid keyed off DueDate, with assignee tally
+// =============================================================================
+
+const UNASSIGNED_KEY = '__unassigned__';
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function startOfWeek(d: Date): Date {
+  // Sunday-anchored
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  out.setDate(out.getDate() - out.getDay());
+  return out;
+}
+
+function formatYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type CalendarMode = 'month' | 'week';
+
+function CalendarView({
+  items,
+  propertiesById,
+  onItemClick,
+  onDayClick,
+}: {
+  items: OutstandingItem[];
+  propertiesById: Map<string, Property>;
+  onItemClick: (id: string) => void;
+  onDayClick: (dateYmd: string) => void;
+}) {
+  const [mode, setMode] = useState<CalendarMode>('month');
+  // `anchor` is any date inside the visible month or week. Navigation shifts
+  // by one month or one week depending on `mode`.
+  const [anchor, setAnchor] = useState<Date>(() => new Date());
+
+  // Bucket items by YYYY-MM-DD local date (drop items with no DueDate)
+  const itemsByDate = useMemo(() => {
+    const map = new Map<string, OutstandingItem[]>();
+    for (const item of items) {
+      const d = parseDateOnly(item.fields.DueDate);
+      if (!d) continue;
+      map.set(formatYmd(d), (map.get(formatYmd(d)) ?? []).concat(item));
+    }
+    return map;
+  }, [items]);
+
+  // Day grid + range bounds depend on mode
+  const { days, rangeStart, rangeEnd, rangeLabel } = useMemo(() => {
+    if (mode === 'week') {
+      const start = startOfWeek(anchor);
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59);
+      const days: Date[] = [];
+      for (let i = 0; i < 7; i++) {
+        days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+      }
+      // Label: "Week of May 18 – 24, 2026" (collapse year if same)
+      const lastDay = days[6];
+      const sameMonth = start.getMonth() === lastDay.getMonth();
+      const label = sameMonth
+        ? `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${lastDay.getDate()}, ${lastDay.getFullYear()}`
+        : `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${lastDay.getFullYear()}`;
+      return { days, rangeStart: start, rangeEnd: end, rangeLabel: `Week of ${label}` };
+    }
+    // month
+    const first = startOfMonth(anchor);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0, 23, 59, 59);
+    const gridStart = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
+    const days: Date[] = [];
+    for (let i = 0; i < 42; i++) {
+      days.push(new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i));
+    }
+    return {
+      days,
+      rangeStart: first,
+      rangeEnd: last,
+      rangeLabel: anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    };
+  }, [mode, anchor]);
+
+  // Per-person tally scoped to the visible range
+  const assigneeTally = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const d = parseDateOnly(item.fields.DueDate);
+      if (!d) continue;
+      if (d < rangeStart || d > rangeEnd) continue;
+      const assignee = (item.fields.AssignedTo ?? '').trim() || UNASSIGNED_KEY;
+      counts.set(assignee, (counts.get(assignee) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => {
+      if (a[0] === UNASSIGNED_KEY) return 1;
+      if (b[0] === UNASSIGNED_KEY) return -1;
+      return b[1] - a[1];
+    });
+  }, [items, rangeStart, rangeEnd]);
+
+  const today = new Date();
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  const goPrev = () => {
+    if (mode === 'week') {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - 7));
+    } else {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1));
+    }
+  };
+  const goNext = () => {
+    if (mode === 'week') {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + 7));
+    } else {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1));
+    }
+  };
+  const goToday = () => setAnchor(new Date());
+
+  // Render one day cell — items shown as one chip per item, color-coded by
+  // status (yellow/blue/red/green). Clicking the day header (or the bare cell
+  // area) drills into the List view filtered to that date.
+  const renderDayCell = (day: Date) => {
+    const inRange = day >= rangeStart && day <= rangeEnd;
+    const key = formatYmd(day);
+    const dayItems = itemsByDate.get(key) ?? [];
+    const isToday = isSameDay(day, today);
+    const visibleLimit = mode === 'week' ? 12 : 4;
+
+    return (
+      <div
+        key={key}
+        className={`border border-gray-100 p-1.5 text-xs flex flex-col ${
+          mode === 'week' ? 'min-h-[260px]' : 'min-h-[100px]'
+        } ${inRange ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}
+      >
+        <button
+          type="button"
+          onClick={() => onDayClick(key)}
+          className="flex items-center justify-between mb-1 hover:bg-gray-50 rounded -mx-1 px-1 py-0.5 text-left"
+          title="Show this day's items in the list view"
+        >
+          <span
+            className={
+              isToday
+                ? 'bg-teal-700 text-white px-1.5 py-0.5 rounded-full text-[10px] font-bold font-mono-data'
+                : 'text-[11px] text-gray-600 font-mono-data'
+            }
+          >
+            {mode === 'week'
+              ? day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              : day.getDate()}
+          </span>
+          {dayItems.length > 0 && (
+            <span className="text-[10px] text-gray-400 font-mono-data">{dayItems.length}</span>
+          )}
+        </button>
+        <div className="flex flex-col gap-0.5 overflow-hidden">
+          {dayItems.slice(0, visibleLimit).map((item) => {
+            const status = normalizeStatus(item.fields.ItemStatus);
+            const propertyTitle = item.fields.PropertyLookupId
+              ? propertiesById.get(String(item.fields.PropertyLookupId))?.fields.Title
+              : undefined;
+            const assignee = (item.fields.AssignedTo ?? '').trim();
+            return (
+              <button
+                key={item.id}
+                onClick={() => onItemClick(item.id)}
+                className={`text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${STATUS_CHIP_COLOR[status]} hover:opacity-80`}
+                title={`${item.fields.Title}${propertyTitle ? ` — ${propertyTitle}` : ''}${assignee ? ` — ${assignee}` : ''} (${status})`}
+              >
+                {assignee ? <span className="font-semibold mr-1">{assignee}:</span> : <span className="font-semibold mr-1 text-gray-700">·</span>}
+                {item.fields.Title}
+              </button>
+            );
+          })}
+          {dayItems.length > visibleLimit && (
+            <button
+              onClick={() => onDayClick(key)}
+              className="text-[10px] text-gray-500 hover:text-teal-700 text-left"
+            >
+              +{dayItems.length - visibleLimit} more →
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card p-3 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goPrev}
+            className="px-2 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50"
+            aria-label={`Previous ${mode}`}
+          >
+            ←
+          </button>
+          <button
+            onClick={goToday}
+            className="px-2.5 py-1 border border-gray-300 rounded text-xs font-medium hover:bg-gray-50"
+          >
+            Today
+          </button>
+          <button
+            onClick={goNext}
+            className="px-2 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50"
+            aria-label={`Next ${mode}`}
+          >
+            →
+          </button>
+          <h2 className="text-base font-semibold text-teal-700 ml-2">{rangeLabel}</h2>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Status color legend */}
+          <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
+            {(['Not Started', 'In Progress', 'Blocked', 'Done'] as const).map((s) => (
+              <span key={s} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${STATUS_CHIP_COLOR[s]}`}>{s}</span>
+            ))}
+          </div>
+          {/* Month / Week segmented toggle */}
+          <div className="inline-flex bg-gray-100 rounded-md p-0.5">
+            {(['month', 'week'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`px-2.5 py-1 text-xs font-medium rounded capitalize ${
+                  mode === m ? 'bg-white shadow text-teal-700' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* By-assignee tally — just the count breakdown, no filter behavior */}
+      {assigneeTally.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card p-3">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Task count by assignee · this {mode}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {assigneeTally.map(([assignee, count]) => (
+              <span
+                key={assignee}
+                className="text-[11px] px-2 py-0.5 rounded font-medium inline-flex items-center gap-1 bg-gray-100 text-gray-800"
+              >
+                <span>{assignee === UNASSIGNED_KEY ? 'Unassigned' : assignee}</span>
+                <span className="font-mono-data text-teal-700">{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Day grid */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+        {mode === 'month' && (
+          <div className="grid grid-cols-7 bg-gray-50 border-b border-gray-200 text-[11px] font-semibold text-gray-600 uppercase tracking-wider">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              <div key={d} className="px-2 py-2 text-center">{d}</div>
+            ))}
+          </div>
+        )}
+        <div className="grid grid-cols-7">
+          {days.map(renderDayCell)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline due-date editor for the list view. Uses a native date input.
+ * Commits on change (no need for blur — the picker closes after a date is chosen).
+ */
+function InlineDueDateCell({
+  value,
+  saving,
+  overdue,
+  onCommit,
+}: {
+  value: string | undefined;
+  saving: boolean;
+  overdue: boolean;
+  onCommit: (newValue: string) => void;
+}) {
+  // Native date input wants YYYY-MM-DD; extract from the stored ISO/date-only string
+  const initial = value ? String(value).slice(0, 10) : '';
+  const [draft, setDraft] = useState(initial);
+  useEffect(() => {
+    setDraft(initial);
+  }, [initial]);
+
+  return (
+    <div className="relative min-w-[120px]">
+      <input
+        type="date"
+        value={draft}
+        disabled={saving}
+        onChange={(e) => {
+          const next = e.target.value;
+          setDraft(next);
+          // Native picker fires on each selection; commit immediately on a real change
+          if (next !== initial) onCommit(next);
+        }}
+        className={`w-full px-1.5 py-1 border border-gray-200 rounded font-mono-data text-xs bg-white hover:border-gray-300 focus:outline-none focus:border-teal-500 disabled:bg-gray-50 ${
+          overdue ? 'text-error font-semibold' : 'text-gray-700'
+        }`}
       />
       {saving && (
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">
