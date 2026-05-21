@@ -122,8 +122,14 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
 
   // Build preview by walking the template and looking for matches.
   // The active list comes from Settings → Checklist Templates (localStorage)
-  // with the hardcoded DOR list as the default.
-  const activeChecklist = useMemo(() => getFilingChecklist(), []);
+  // with the hardcoded DOR list as the default. State-scoped items are
+  // filtered out when the property's state doesn't match — items with no
+  // state apply to every property.
+  const activeChecklist = useMemo(() => {
+    const all = getFilingChecklist();
+    if (!propertyState) return all;
+    return all.filter((t) => !t.state || t.state === propertyState);
+  }, [propertyState]);
   const preview = useMemo(() => {
     const items: PreviewItem[] = [];
     activeChecklist.forEach((template) => {

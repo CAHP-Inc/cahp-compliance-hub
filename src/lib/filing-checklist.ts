@@ -1,4 +1,4 @@
-import type { ItemCategory } from './sharepoint';
+import type { ItemCategory, CahpState } from './sharepoint';
 
 /**
  * Filing Checklist Template — based on the DOR Townes at Converse submission.
@@ -26,6 +26,9 @@ export interface FilingChecklistItem {
   /** Optional override of the SharePoint library this item maps to.
    *  When unset, the FilingChecklistGenerator falls back to its category→library map. */
   library?: string;
+  /** Optional state filter — when set, this item is only added for properties in that state.
+   *  Undefined = applies to every property regardless of state. */
+  state?: CahpState;
 }
 
 export const DOR_FILING_CHECKLIST: FilingChecklistItem[] = [
@@ -127,6 +130,7 @@ export function getFilingChecklist(): FilingChecklistItem[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DOR_FILING_CHECKLIST;
     // Light schema validation — skip rows missing required fields rather than throwing.
+    // `state` and `library` are optional and pass through unchanged when present.
     return parsed.filter(
       (item): item is FilingChecklistItem =>
         item &&

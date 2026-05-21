@@ -10,7 +10,7 @@ import {
 } from '../lib/filing-checklist';
 import { PROPERTY_LINKED_LIBRARIES } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
-import type { ItemCategory } from '../lib/sharepoint';
+import type { ItemCategory, CahpState } from '../lib/sharepoint';
 
 /**
  * Settings → Checklist Templates editor.
@@ -49,6 +49,12 @@ const SCOPES: { value: FilingChecklistScope; label: string; help: string }[] = [
 const LIBRARY_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Use category default' },
   ...PROPERTY_LINKED_LIBRARIES.map((l) => ({ value: l, label: l })),
+];
+
+const STATE_OPTIONS: { value: '' | CahpState; label: string }[] = [
+  { value: '',   label: 'All states' },
+  { value: 'SC', label: 'SC only' },
+  { value: 'NC', label: 'NC only' },
 ];
 
 export function ChecklistTemplatesEditor() {
@@ -137,12 +143,16 @@ export function ChecklistTemplatesEditor() {
         if (row.scope !== 'cahp' && row.scope !== 'owner' && row.scope !== 'property') {
           throw new Error(`Row ${idx} has invalid scope: ${row.scope}`);
         }
+        if (row.state !== undefined && row.state !== 'SC' && row.state !== 'NC') {
+          throw new Error(`Row ${idx} has invalid state: ${row.state}`);
+        }
         return {
           title: row.title,
           category: row.category as ItemCategory,
           scope: row.scope as FilingChecklistScope,
           notes: typeof row.notes === 'string' ? row.notes : undefined,
           library: typeof row.library === 'string' ? row.library : undefined,
+          state: row.state as CahpState | undefined,
         };
       });
       setItems(validated);
@@ -226,6 +236,7 @@ export function ChecklistTemplatesEditor() {
                 <th className="px-3 py-2 text-left">Title</th>
                 <th className="px-3 py-2 text-left w-44">Category</th>
                 <th className="px-3 py-2 text-left w-36">Scope</th>
+                <th className="px-3 py-2 text-left w-32">State</th>
                 <th className="px-3 py-2 text-left w-48">SharePoint Library</th>
                 <th className="px-3 py-2 text-right w-24">Actions</th>
               </tr>
@@ -233,7 +244,7 @@ export function ChecklistTemplatesEditor() {
             <tbody className="divide-y divide-gray-100">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-xs text-gray-500 italic">
+                  <td colSpan={7} className="px-3 py-6 text-center text-xs text-gray-500 italic">
                     No items. Add one below or click <strong>Reset to defaults</strong> to load the built-in list.
                   </td>
                 </tr>
@@ -295,6 +306,18 @@ export function ChecklistTemplatesEditor() {
                       >
                         {SCOPES.map((s) => (
                           <option key={s.value} value={s.value} title={s.help}>{s.label}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <select
+                        value={item.state ?? ''}
+                        onChange={(e) => updateItem(idx, { state: (e.target.value || undefined) as CahpState | undefined })}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-teal-500"
+                        title="When set, this item is only added for properties in that state"
+                      >
+                        {STATE_OPTIONS.map((s) => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
                         ))}
                       </select>
                     </td>
