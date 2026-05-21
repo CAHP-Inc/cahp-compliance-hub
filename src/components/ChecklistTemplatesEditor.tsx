@@ -1,13 +1,20 @@
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import {
   DOR_FILING_CHECKLIST,
-  getFilingChecklist,
-  saveFilingChecklist,
-  resetFilingChecklist,
-  hasCustomFilingChecklist,
+  useChecklistTemplates,
+  itemToTemplateFields,
+  readLocalChecklistOverride,
+  clearLocalChecklistOverride,
   type FilingChecklistItem,
   type FilingChecklistScope,
 } from '../lib/filing-checklist';
+import {
+  createListItem,
+  updateListItem,
+  deleteListItem,
+  LIST_NAMES,
+  type ChecklistTemplate,
+} from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
 import type { ItemCategory, CahpState } from '../lib/sharepoint';
@@ -15,13 +22,15 @@ import type { ItemCategory, CahpState } from '../lib/sharepoint';
 /**
  * Settings → Checklist Templates editor.
  *
- * Edits the list of items the Filing Checklist Generator creates as
- * outstanding items when run against a property/submittal. Persistence is
- * browser-local (localStorage). Use Export JSON / Import JSON to share a
- * configuration across browsers or teammates.
+ * Reads from + writes to the shared SharePoint `Checklist Templates` list, so
+ * every teammate sees the same configuration. Loads the hardcoded defaults
+ * if the list hasn't been provisioned yet or is empty.
+ *
+ * On Save, the editor diffs the working copy against the SharePoint rows
+ * (add new, update changed, delete removed) so partial failures don't leave
+ * inconsistent state. Sort order is rewritten on every save.
  */
 
-// Mirrors ItemCategory (kept in sync manually to expose as choice list)
 const ITEM_CATEGORIES: ItemCategory[] = [
   'Operating Agreement',
   'Articles of Incorporation',
@@ -57,21 +66,58 @@ const STATE_OPTIONS: { value: '' | CahpState; label: string }[] = [
   { value: 'NC', label: 'NC only' },
 ];
 
+/**
+ * Editor row — the working copy. `rowId` ties back to a SharePoint listItem
+ * when one exists; `null` means it's a newly-added row not yet persisted.
+ */
+interface EditorRow extends FilingChecklistItem {
+  rowId: string | null;
+}
+
 export function ChecklistTemplatesEditor() {
-  // Snapshot active list once on mount; mutating local state, saving on Save click.
-  const [items, setItems] = useState<FilingChecklistItem[]>(() => getFilingChecklist());
+  const { templates, rawRows, loading, error, usingFallback, refetch } = useChecklistTemplates();
+
+  const [items, setItems] = useState<EditorRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [savedStamp, setSavedStamp] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isCustomized = useMemo(() => hasCustomFilingChecklist(), [savedStamp]);
+  // Pull live data into the local working copy whenever the SP list refreshes.
+  // We index editor rows by the SharePoint listItem ID; newly added rows have
+  // rowId === null and only get an ID once saved.
+  useEffect(() => {
+    if (loading) return;
+    if (rawRows && rawRows.length > 0) {
+      const sorted = [...rawRows].sort((a, b) => {
+        const aOrder = a.fields.TemplateSortOrder ?? Number.MAX_SAFE_INTEGER;
+        const bOrder = b.fields.TemplateSortOrder ?? Number.MAX_SAFE_INTEGER;
+        return aOrder - bOrder;
+      });
+      setItems(
+        sorted.map((row) => ({
+          rowId: row.id,
+          title: row.fields.Title ?? '',
+          category: (row.fields.TemplateCategory as ItemCategory) ?? 'Other',
+          scope: row.fields.TemplateScope ?? 'property',
+          notes: row.fields.TemplateNotes,
+          library: row.fields.TemplateLibrary,
+          state: row.fields.TemplateState,
+        })),
+      );
+    } else if (usingFallback) {
+      // Seed the working copy with the hardcoded defaults so the editor isn't
+      // blank when no SP rows exist yet. Saving these promotes them to SP.
+      setItems(templates.map((t) => ({ ...t, rowId: null })));
+    }
+  }, [loading, rawRows, usingFallback, templates]);
 
-  const dirty = useMemo(() => {
-    const baseline = getFilingChecklist();
-    return JSON.stringify(baseline) !== JSON.stringify(items);
-  }, [items, savedStamp]);
+  // Detect a local override that hasn't been imported into SharePoint yet
+  const localOverride = useMemo(() => readLocalChecklistOverride(), [savedStamp]);
 
-  const updateItem = (idx: number, patch: Partial<FilingChecklistItem>) => {
+  const updateItem = (idx: number, patch: Partial<EditorRow>) => {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   };
 
@@ -82,7 +128,7 @@ export function ChecklistTemplatesEditor() {
   const addItem = () => {
     setItems((prev) => [
       ...prev,
-      { title: '', category: 'Other', scope: 'property', notes: '' },
+      { rowId: null, title: '', category: 'Other', scope: 'property', notes: '' },
     ]);
   };
 
@@ -96,23 +142,84 @@ export function ChecklistTemplatesEditor() {
     });
   };
 
-  const handleSave = () => {
-    // Drop rows the user left blank
+  const handleSave = async () => {
     const cleaned = items.filter((i) => i.title.trim().length > 0);
-    saveFilingChecklist(cleaned);
-    setItems(cleaned);
-    setSavedStamp(new Date().toISOString());
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Snapshot of current SP rows for diff-against logic
+      const existingById = new Map<string, ChecklistTemplate>();
+      (rawRows ?? []).forEach((r) => existingById.set(r.id, r));
+
+      // Track which existing IDs are still present in the working copy — any
+      // that aren't get deleted from SP.
+      const keptIds = new Set<string>();
+
+      for (let i = 0; i < cleaned.length; i++) {
+        const row = cleaned[i];
+        const fields = itemToTemplateFields(row, i);
+        if (row.rowId && existingById.has(row.rowId)) {
+          keptIds.add(row.rowId);
+          await updateListItem(LIST_NAMES.ChecklistTemplates, row.rowId, fields);
+        } else {
+          // New row — create
+          await createListItem(LIST_NAMES.ChecklistTemplates, fields);
+        }
+      }
+
+      // Delete any SP rows the user removed
+      for (const [id] of existingById) {
+        if (!keptIds.has(id)) {
+          await deleteListItem(LIST_NAMES.ChecklistTemplates, id);
+        }
+      }
+
+      // Refresh state from SP so rowIds for new rows are populated
+      refetch?.();
+      setSavedStamp(new Date().toISOString());
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleReset = () => {
-    if (!confirm('Reset to the built-in defaults? Your custom changes will be lost (use Export first if you want a backup).')) return;
-    resetFilingChecklist();
-    setItems(DOR_FILING_CHECKLIST);
-    setSavedStamp(new Date().toISOString());
+  const handleResetToDefaults = () => {
+    if (!confirm("Replace the current list with the built-in defaults? Your custom changes will be removed (use Export JSON first if you want a backup).")) return;
+    setItems(DOR_FILING_CHECKLIST.map((t) => ({ ...t, rowId: null })));
+    // User still needs to click Save to push the defaults up to SharePoint
+  };
+
+  const handleImportFromBrowser = async () => {
+    const override = readLocalChecklistOverride();
+    if (!override || override.length === 0) {
+      setImportError('No saved configuration found in this browser.');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    setImportError(null);
+    try {
+      // Wipe existing SP rows first so we don't double up, then create from the local override
+      for (const row of rawRows ?? []) {
+        await deleteListItem(LIST_NAMES.ChecklistTemplates, row.id);
+      }
+      for (let i = 0; i < override.length; i++) {
+        await createListItem(LIST_NAMES.ChecklistTemplates, itemToTemplateFields(override[i], i));
+      }
+      clearLocalChecklistOverride();
+      refetch?.();
+      setSavedStamp(new Date().toISOString());
+      setShowImportConfirm(false);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(items.map(({ rowId: _id, ...rest }) => rest), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0, 10);
@@ -136,7 +243,7 @@ export function ChecklistTemplatesEditor() {
       const text = await file.text();
       const parsed = JSON.parse(text);
       if (!Array.isArray(parsed)) throw new Error('JSON root must be an array');
-      const validated: FilingChecklistItem[] = parsed.map((row, idx) => {
+      const validated: EditorRow[] = parsed.map((row, idx) => {
         if (!row || typeof row !== 'object') throw new Error(`Row ${idx} is not an object`);
         if (typeof row.title !== 'string') throw new Error(`Row ${idx} missing title`);
         if (typeof row.category !== 'string') throw new Error(`Row ${idx} missing category`);
@@ -147,6 +254,7 @@ export function ChecklistTemplatesEditor() {
           throw new Error(`Row ${idx} has invalid state: ${row.state}`);
         }
         return {
+          rowId: null,
           title: row.title,
           category: row.category as ItemCategory,
           scope: row.scope as FilingChecklistScope,
@@ -160,18 +268,104 @@ export function ChecklistTemplatesEditor() {
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
-      // Reset so same file can be re-imported after fix
       e.target.value = '';
     }
   };
 
+  // Detect unsaved changes — compare working copy to the live SP rows
+  const dirty = useMemo(() => {
+    if (loading) return false;
+    const existingMap = new Map<string, ChecklistTemplate>();
+    (rawRows ?? []).forEach((r) => existingMap.set(r.id, r));
+    // Different row count => dirty
+    if (items.length !== (rawRows?.length ?? 0)) return true;
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      if (!row.rowId) return true;
+      const sp = existingMap.get(row.rowId);
+      if (!sp) return true;
+      const spFields = sp.fields;
+      if (
+        spFields.Title !== row.title ||
+        spFields.TemplateCategory !== row.category ||
+        spFields.TemplateScope !== row.scope ||
+        (spFields.TemplateNotes ?? undefined) !== (row.notes || undefined) ||
+        (spFields.TemplateLibrary ?? undefined) !== (row.library || undefined) ||
+        spFields.TemplateState !== row.state ||
+        (spFields.TemplateSortOrder ?? -1) !== i
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [items, rawRows, loading, savedStamp]);
+
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-xs text-amber-900">
-        <strong>Storage:</strong> Edits live in this browser (localStorage). To share a configuration across browsers
-        or teammates, use <strong>Export JSON</strong> here and <strong>Import JSON</strong> elsewhere. We can promote
-        this to a shared SharePoint list when multi-user sync becomes important.
-      </div>
+      {error ? (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3 text-xs text-red-900">
+          <strong>Couldn't reach the Checklist Templates list.</strong>
+          <div className="mt-1">
+            {error.message}
+          </div>
+          <div className="mt-2">
+            If you haven't provisioned the list yet, run{' '}
+            <code className="bg-white px-1 rounded">scripts\provision-checklist-templates.ps1</code> from
+            the repo root. The app is falling back to the hardcoded DOR defaults below.
+          </div>
+        </div>
+      ) : usingFallback ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-900">
+          <strong>Showing built-in defaults.</strong> The Checklist Templates list in SharePoint is empty
+          (or hasn't been provisioned). Edit the list below and click <strong>Save changes</strong> to
+          push these defaults up so the rest of the team sees them.
+        </div>
+      ) : (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-xs text-emerald-900">
+          <strong>Synced to SharePoint.</strong> Edits made here are visible to every teammate. No more
+          per-browser configuration.
+        </div>
+      )}
+
+      {localOverride && (
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-xs text-amber-900 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <strong>Older browser-only config detected.</strong> You have {localOverride.length} item{localOverride.length === 1 ? '' : 's'} saved in this browser's localStorage from the previous version.
+            Click <strong>Import from this browser</strong> to push them up to SharePoint (this replaces the current SharePoint list with your saved items, then clears the local copy).
+          </div>
+          <button
+            onClick={() => setShowImportConfirm(true)}
+            disabled={saving}
+            className="text-xs px-2.5 py-1.5 rounded-md bg-amber-700 hover:bg-amber-800 text-white font-medium disabled:opacity-50 flex-shrink-0"
+          >
+            Import from this browser
+          </button>
+        </div>
+      )}
+
+      {showImportConfirm && (
+        <div className="bg-white border-2 border-amber-400 rounded-md p-3 text-xs">
+          <p className="text-amber-900 font-medium mb-2">
+            Replace SharePoint's {rawRows?.length ?? 0} item{(rawRows?.length ?? 0) === 1 ? '' : 's'} with the {localOverride?.length ?? 0} item{(localOverride?.length ?? 0) === 1 ? '' : 's'} saved in this browser?
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleImportFromBrowser}
+              disabled={saving}
+              className="px-3 py-1.5 rounded-md bg-amber-700 hover:bg-amber-800 text-white font-medium disabled:opacity-50"
+            >
+              {saving ? 'Importing…' : 'Yes, import + clear local copy'}
+            </button>
+            <button
+              onClick={() => setShowImportConfirm(false)}
+              disabled={saving}
+              className="px-3 py-1.5 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-lg shadow-card">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2 flex-wrap">
@@ -179,7 +373,6 @@ export function ChecklistTemplatesEditor() {
             <h3 className="text-sm font-semibold text-teal-900">Filing Checklist Templates</h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {items.length} item{items.length === 1 ? '' : 's'}
-              {isCustomized ? ' · custom configuration' : ' · using built-in defaults'}
               {dirty && <span className="ml-2 text-amber-700 font-semibold">· unsaved changes</span>}
             </p>
           </div>
@@ -206,25 +399,26 @@ export function ChecklistTemplatesEditor() {
               Export JSON
             </button>
             <button
-              onClick={handleReset}
+              onClick={handleResetToDefaults}
               className="text-xs px-2.5 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
-              title="Discard custom edits and restore the hardcoded default list"
+              title="Replace the current working copy with the hardcoded defaults (click Save to push to SharePoint)"
             >
-              Reset to defaults
+              Load defaults
             </button>
             <button
               onClick={handleSave}
-              disabled={!dirty}
-              className="text-xs px-3 py-1.5 rounded-md font-medium bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 disabled:cursor-not-allowed text-white"
+              disabled={!dirty || saving}
+              className="text-xs px-3 py-1.5 rounded-md font-medium bg-teal-700 hover:bg-teal-900 disabled:bg-gray-300 disabled:cursor-not-allowed text-white inline-flex items-center gap-1.5"
             >
-              Save changes
+              {saving && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
+              {saving ? 'Saving…' : 'Save changes'}
             </button>
           </div>
         </div>
 
-        {importError && (
+        {(saveError || importError) && (
           <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800">
-            Import failed: {importError}
+            {saveError ?? importError}
           </div>
         )}
 
@@ -245,17 +439,17 @@ export function ChecklistTemplatesEditor() {
               {items.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-6 text-center text-xs text-gray-500 italic">
-                    No items. Add one below or click <strong>Reset to defaults</strong> to load the built-in list.
+                    No items. Add one below or click <strong>Load defaults</strong> to seed the hardcoded list.
                   </td>
                 </tr>
               ) : (
                 items.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
+                  <tr key={item.rowId ?? `new-${idx}`} className="hover:bg-gray-50">
                     <td className="px-3 py-2 align-top">
                       <div className="flex flex-col gap-0.5 text-gray-400">
                         <button
                           onClick={() => moveItem(idx, -1)}
-                          disabled={idx === 0}
+                          disabled={idx === 0 || saving}
                           className="hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none"
                           title="Move up"
                         >
@@ -263,7 +457,7 @@ export function ChecklistTemplatesEditor() {
                         </button>
                         <button
                           onClick={() => moveItem(idx, 1)}
-                          disabled={idx === items.length - 1}
+                          disabled={idx === items.length - 1 || saving}
                           className="hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none"
                           title="Move down"
                         >
@@ -276,13 +470,15 @@ export function ChecklistTemplatesEditor() {
                         type="text"
                         value={item.title}
                         onChange={(e) => updateItem(idx, { title: e.target.value })}
+                        disabled={saving}
                         placeholder="Item title (e.g., 'CAHP Operating Agreement')"
                         className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:border-teal-500"
                       />
                       <textarea
                         value={item.notes ?? ''}
                         onChange={(e) => updateItem(idx, { notes: e.target.value })}
-                        placeholder="Notes (optional) — explains what the doc is and where it lives"
+                        disabled={saving}
+                        placeholder="Notes (optional)"
                         rows={2}
                         className="w-full mt-1 px-2 py-1 border border-gray-200 rounded text-[11px] text-gray-700 resize-none focus:outline-none focus:border-teal-500"
                       />
@@ -291,6 +487,7 @@ export function ChecklistTemplatesEditor() {
                       <select
                         value={item.category}
                         onChange={(e) => updateItem(idx, { category: e.target.value as ItemCategory })}
+                        disabled={saving}
                         className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-teal-500"
                       >
                         {ITEM_CATEGORIES.map((c) => (
@@ -302,6 +499,7 @@ export function ChecklistTemplatesEditor() {
                       <select
                         value={item.scope}
                         onChange={(e) => updateItem(idx, { scope: e.target.value as FilingChecklistScope })}
+                        disabled={saving}
                         className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-teal-500"
                       >
                         {SCOPES.map((s) => (
@@ -313,8 +511,8 @@ export function ChecklistTemplatesEditor() {
                       <select
                         value={item.state ?? ''}
                         onChange={(e) => updateItem(idx, { state: (e.target.value || undefined) as CahpState | undefined })}
+                        disabled={saving}
                         className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-teal-500"
-                        title="When set, this item is only added for properties in that state"
                       >
                         {STATE_OPTIONS.map((s) => (
                           <option key={s.value} value={s.value}>{s.label}</option>
@@ -325,6 +523,7 @@ export function ChecklistTemplatesEditor() {
                       <select
                         value={item.library ?? ''}
                         onChange={(e) => updateItem(idx, { library: e.target.value || undefined })}
+                        disabled={saving}
                         className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-teal-500"
                       >
                         {LIBRARY_OPTIONS.map((l) => (
@@ -335,7 +534,8 @@ export function ChecklistTemplatesEditor() {
                     <td className="px-3 py-2 align-top text-right">
                       <button
                         onClick={() => removeItem(idx)}
-                        className="text-[11px] text-error hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50"
+                        disabled={saving}
+                        className="text-[11px] text-error hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -350,7 +550,8 @@ export function ChecklistTemplatesEditor() {
         <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-lg">
           <button
             onClick={addItem}
-            className="text-xs px-3 py-1.5 rounded-md border border-dashed border-teal-400 text-teal-700 hover:bg-teal-50 inline-flex items-center gap-1.5"
+            disabled={saving}
+            className="text-xs px-3 py-1.5 rounded-md border border-dashed border-teal-400 text-teal-700 hover:bg-teal-50 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             <Icon name="plus" size={12} />
             Add checklist item

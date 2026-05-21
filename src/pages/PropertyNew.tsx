@@ -18,7 +18,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { BreadcrumbBar, Section, SaveErrorBanner } from '../components/detail';
 import { CountyMultiSelect } from '../components/CountyMultiSelect';
-import { getFilingChecklist } from '../lib/filing-checklist';
+import { useChecklistTemplates } from '../lib/filing-checklist';
 
 const CHOICES = {
   AMIProgram: ['20/50', '40/60', '50/80', '60/80', 'Mixed', 'None'] as const,
@@ -88,14 +88,15 @@ export function PropertyNew() {
   });
 
   // Initial Outstanding Items the wizard will create on Finish.
-  // Pulled from Settings → Checklist Templates and filtered by the property's
-  // state — items with no state apply to every property.
+  // Pulled from the shared SharePoint Checklist Templates list (fallback to
+  // hardcoded defaults when empty/unprovisioned) and filtered by the
+  // property's state — items with no state apply to every property.
+  const { templates: allChecklistTemplates } = useChecklistTemplates();
   const initialDocs = useMemo(() => {
-    const all = getFilingChecklist();
     const state = form.cahpState;
-    if (!state) return all;
-    return all.filter((t) => !t.state || t.state === state);
-  }, [form.cahpState]);
+    if (!state) return allChecklistTemplates;
+    return allChecklistTemplates.filter((t) => !t.state || t.state === state);
+  }, [allChecklistTemplates, form.cahpState]);
 
   // Owner entries — CAHP SC LLC pre-added at 0.01% if it exists as an Owner
   const cahpScLLC = useMemo(() => {

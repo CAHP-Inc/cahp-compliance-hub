@@ -1,19 +1,28 @@
-import type { ItemCategory, CahpState } from './sharepoint';
+import { useMemo } from 'react';
+import {
+  useSharePointList,
+  LIST_NAMES,
+  type ItemCategory,
+  type CahpState,
+  type ChecklistTemplate,
+} from './sharepoint';
 
 /**
- * Filing Checklist Template — based on the DOR Townes at Converse submission.
+ * Filing Checklist Template — drives both the Filing Checklist Generator
+ * (existing property → checklist button) and the New Property wizard's
+ * Step-5 outstanding-item creation.
  *
- * Each item maps to a category from ItemCategory. Scope hints tell the
- * auto-match logic where to look:
- *  - 'cahp'      — tagged to a CAHP entity owner
- *  - 'owner'     — tagged to the property's owner entity
- *  - 'property'  — tagged directly to the property
+ * Source of truth: the `Checklist Templates` SharePoint list. Edits in
+ * Settings → Checklist Templates write to that list, so everyone on the
+ * team sees the same configuration regardless of browser or device.
  *
- * The active list is editable via Settings → Checklist Templates and lives in
- * localStorage. We seed from DOR_FILING_CHECKLIST below the first time it's
- * read, so a fresh browser sees the same defaults as before.
+ * Fallback: if the SharePoint list hasn't been provisioned yet OR is empty,
+ * the hook returns the hardcoded DOR_FILING_CHECKLIST below so the app
+ * keeps working without manual setup.
  *
- * Priority is High by default because these are filing-blocking docs.
+ * Legacy localStorage helpers are kept for one-time import — the Settings
+ * editor offers a button to push your previously-saved local config up to
+ * SharePoint so you don't lose any customizations.
  */
 
 export type FilingChecklistScope = 'cahp' | 'owner' | 'property';
@@ -112,51 +121,122 @@ export const DOR_FILING_CHECKLIST: FilingChecklistItem[] = [
 ];
 
 // =============================================================================
-// Local override store — Settings → Checklist Templates edits land here.
-//
-// localStorage keeps changes per-browser. For shared editing across teammates
-// the user can export the JSON from Settings and import it elsewhere; we can
-// move this to a SharePoint list when multi-user sync becomes important.
+// SharePoint <-> FilingChecklistItem conversion helpers
+// =============================================================================
+
+/** Map a SharePoint row to the in-app shape. */
+export function templateRowToItem(row: ChecklistTemplate): FilingChecklistItem | null {
+  const t = row.fields;
+  if (!t.Title || !t.TemplateCategory || !t.TemplateScope) return null;
+  return {
+    title: t.Title,
+    category: t.TemplateCategory as ItemCategory,
+    scope: t.TemplateScope,
+    notes: t.TemplateNotes || undefined,
+    library: t.TemplateLibrary || undefined,
+    state: t.TemplateState,
+  };
+}
+
+/** Build a SharePoint field payload from an in-app item + sort position. */
+export function itemToTemplateFields(
+  item: FilingChecklistItem,
+  sortOrder: number,
+): Record<string, unknown> {
+  return {
+    Title: item.title,
+    TemplateCategory: item.category,
+    TemplateScope: item.scope,
+    TemplateState: item.state ?? null,
+    TemplateLibrary: item.library ?? null,
+    TemplateNotes: item.notes ?? null,
+    TemplateSortOrder: sortOrder,
+  };
+}
+
+// =============================================================================
+// React hook — primary read path
+// =============================================================================
+
+export interface UseChecklistTemplatesResult {
+  /** Resolved checklist items in display order (SharePoint if available, else defaults). */
+  templates: FilingChecklistItem[];
+  /** Raw SharePoint rows — null if the list doesn't exist yet OR isn't loaded. */
+  rawRows: ChecklistTemplate[] | null;
+  /** True while we're still fetching; consumers can show their default-or-loading UI. */
+  loading: boolean;
+  /** Hard fetch error (e.g., list doesn't exist). The hook still returns hardcoded defaults so callers degrade gracefully. */
+  error: Error | null;
+  /** True when we're serving the hardcoded fallback because SP returned no rows. */
+  usingFallback: boolean;
+  refetch?: () => void;
+}
+
+/**
+ * Read-side hook. Fetches the SharePoint Checklist Templates list and maps it
+ * to FilingChecklistItem[]. Falls back to DOR_FILING_CHECKLIST when the list
+ * doesn't exist (not provisioned) or has zero rows.
+ */
+export function useChecklistTemplates(): UseChecklistTemplatesResult {
+  const list = useSharePointList<ChecklistTemplate>(LIST_NAMES.ChecklistTemplates, { top: 500 });
+
+  const templates = useMemo<FilingChecklistItem[]>(() => {
+    if (!list.data || list.data.length === 0) return DOR_FILING_CHECKLIST;
+    // Sort by TemplateSortOrder ascending; missing values sort to end
+    const sorted = [...list.data].sort((a, b) => {
+      const aOrder = a.fields.TemplateSortOrder ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.fields.TemplateSortOrder ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    });
+    const items = sorted.map(templateRowToItem).filter((i): i is FilingChecklistItem => i !== null);
+    // Fallback if everything was malformed
+    return items.length > 0 ? items : DOR_FILING_CHECKLIST;
+  }, [list.data]);
+
+  const usingFallback = !list.loading && (!list.data || list.data.length === 0);
+
+  return {
+    templates,
+    rawRows: list.data ?? null,
+    loading: list.loading,
+    error: list.error,
+    usingFallback,
+    refetch: list.refetch,
+  };
+}
+
+// =============================================================================
+// Legacy localStorage helpers — kept for one-time migration from the old
+// per-browser config into the shared SharePoint list. Settings → Checklist
+// Templates exposes an "Import from this browser" button that reads via
+// readLocalChecklistOverride() and writes the result to SharePoint.
 // =============================================================================
 
 const STORAGE_KEY = 'cahp.checklistTemplates.v1';
 
-/** Read the active checklist — user-overridden if present, else hardcoded defaults. */
-export function getFilingChecklist(): FilingChecklistItem[] {
-  if (typeof localStorage === 'undefined') return DOR_FILING_CHECKLIST;
+/** Returns the per-browser overrides (if any) for one-time migration. */
+export function readLocalChecklistOverride(): FilingChecklistItem[] | null {
+  if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DOR_FILING_CHECKLIST;
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DOR_FILING_CHECKLIST;
-    // Light schema validation — skip rows missing required fields rather than throwing.
-    // `state` and `library` are optional and pass through unchanged when present.
-    return parsed.filter(
+    if (!Array.isArray(parsed)) return null;
+    const items = parsed.filter(
       (item): item is FilingChecklistItem =>
         item &&
         typeof item.title === 'string' &&
         typeof item.category === 'string' &&
         typeof item.scope === 'string',
     );
+    return items.length > 0 ? items : null;
   } catch {
-    return DOR_FILING_CHECKLIST;
+    return null;
   }
 }
 
-/** Persist a custom checklist. Pass an empty array to keep an explicitly-empty list. */
-export function saveFilingChecklist(items: FilingChecklistItem[]): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
-/** Clear the override and revert to the hardcoded defaults. */
-export function resetFilingChecklist(): void {
+/** Clear the localStorage override after a successful import. */
+export function clearLocalChecklistOverride(): void {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(STORAGE_KEY);
-}
-
-/** True if the user has saved any custom overrides (vs. running on defaults). */
-export function hasCustomFilingChecklist(): boolean {
-  if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(STORAGE_KEY) !== null;
 }

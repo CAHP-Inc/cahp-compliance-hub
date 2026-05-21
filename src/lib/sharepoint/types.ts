@@ -251,6 +251,26 @@ export interface CorrespondencePropertyLinkFields {
 export type CorrespondencePropertyLink = SharePointListItem<CorrespondencePropertyLinkFields>;
 
 // =============================================================================
+// LIST: Checklist Templates — shared, cross-browser source of truth for the
+// items the Filing Checklist Generator + Property Wizard create. Replaces the
+// older localStorage-only store. One row per template item.
+// =============================================================================
+
+export type ChecklistScope = 'cahp' | 'owner' | 'property';
+
+export interface ChecklistTemplateFields {
+  Title?: string;                             // The template item title
+  TemplateCategory?: string;                  // Maps to ItemCategory
+  TemplateScope?: ChecklistScope;             // Where to look for matching docs
+  TemplateState?: CahpState;                  // Optional state restriction; blank = all
+  TemplateLibrary?: string;                   // Optional per-item SharePoint library override
+  TemplateNotes?: string;
+  TemplateSortOrder?: number;                 // Display order (lower = first)
+}
+
+export type ChecklistTemplate = SharePointListItem<ChecklistTemplateFields>;
+
+// =============================================================================
 // LIST: Billing Tracker
 // =============================================================================
 
@@ -590,6 +610,7 @@ export const LIST_NAMES = {
   CommunicationPropertyLinks: 'Communication Property Links',
   CommunicationOwnerLinks: 'Communication Owner Links',
   CorrespondencePropertyLinks: 'Correspondence Property Links',
+  ChecklistTemplates: 'Checklist Templates',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

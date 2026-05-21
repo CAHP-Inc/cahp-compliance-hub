@@ -15,7 +15,7 @@ import {
 } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY } from './UploadDocumentModal';
 import type { PropertyLinkedLibrary } from './UploadDocumentModal';
-import { getFilingChecklist } from '../lib/filing-checklist';
+import { useChecklistTemplates } from '../lib/filing-checklist';
 import type { FilingChecklistItem } from '../lib/filing-checklist';
 import { Icon } from './ui/Icon';
 
@@ -127,15 +127,15 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   }, [propertyId, ownership.data]);
 
   // Build preview by walking the template and looking for matches.
-  // The active list comes from Settings → Checklist Templates (localStorage)
-  // with the hardcoded DOR list as the default. State-scoped items are
-  // filtered out when the property's state doesn't match — items with no
-  // state apply to every property.
+  // Templates are loaded from the shared SharePoint list (Settings → Checklist
+  // Templates), with the hardcoded DOR list as fallback when the list is
+  // empty or unprovisioned. State-scoped items are filtered out when the
+  // property's state doesn't match — items with no state apply to every property.
+  const { templates: allTemplates } = useChecklistTemplates();
   const activeChecklist = useMemo(() => {
-    const all = getFilingChecklist();
-    if (!propertyState) return all;
-    return all.filter((t) => !t.state || t.state === propertyState);
-  }, [propertyState]);
+    if (!propertyState) return allTemplates;
+    return allTemplates.filter((t) => !t.state || t.state === propertyState);
+  }, [allTemplates, propertyState]);
   const preview = useMemo(() => {
     const items: PreviewItem[] = [];
     activeChecklist.forEach((template) => {
