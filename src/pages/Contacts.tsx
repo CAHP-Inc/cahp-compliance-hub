@@ -32,6 +32,7 @@ const CONTACT_ROLES: ContactRole[] = [
   'Property Manager',
   'Vendor',
   'Lender',
+  'DOR',
   'Other',
 ];
 
@@ -43,6 +44,7 @@ const ROLE_STYLES: Record<ContactRole, string> = {
   'Property Manager': 'bg-teal-100 text-teal-800',
   Vendor:             'bg-gray-100 text-gray-700',
   Lender:             'bg-rose-100 text-rose-800',
+  DOR:                'bg-purple-100 text-purple-800',
   Other:              'bg-gray-100 text-gray-700',
 };
 

@@ -74,7 +74,7 @@ $contactCols = @(
     @{ Display = "Contact Email"; Internal = "ContactEmail"; Type = "Text"; InView = $true }
     @{ Display = "Contact Phone"; Internal = "ContactPhone"; Type = "Text"; InView = $true }
     @{ Display = "Contact Role";  Internal = "ContactRole";  Type = "Choice";
-       Choices = @("Property Owner", "Sponsor", "Attorney", "Accountant", "Property Manager", "Vendor", "Lender", "Other");
+       Choices = @("Property Owner", "Sponsor", "Attorney", "Accountant", "Property Manager", "Vendor", "Lender", "DOR", "Other");
        InView = $true }
     @{ Display = "Contact Notes"; Internal = "ContactNotes"; Type = "Note";   InView = $false }
 )
@@ -82,7 +82,19 @@ $contactCols = @(
 foreach ($col in $contactCols) {
     $existing = Get-PnPField -List $ListTitle -Identity $col.Internal -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Host "  → $($col.Display) exists, skipping" -ForegroundColor DarkGray
+        # If the column already exists but it's a Choice column, sync its
+        # choice list so newly-added values (like DOR) show up on existing
+        # installs without a manual SharePoint admin step.
+        if ($col.Type -eq "Choice") {
+            try {
+                Set-PnPField -List $ListTitle -Identity $col.Internal -Values @{ Choices = $col.Choices } -ErrorAction Stop | Out-Null
+                Write-Host "  -> $($col.Display) choices refreshed ($($col.Choices.Count) values)" -ForegroundColor DarkCyan
+            } catch {
+                Write-Host "  ! Could not refresh $($col.Display) choices: $_" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "  -> $($col.Display) exists, skipping" -ForegroundColor DarkGray
+        }
         continue
     }
     try {
@@ -97,7 +109,7 @@ foreach ($col in $contactCols) {
         Add-PnPField @params -ErrorAction Stop | Out-Null
         Write-Host "  + $($col.Display) [$($col.Type)]" -ForegroundColor Cyan
     } catch {
-        Write-Host "  ! Failed: $($col.Display) — $_" -ForegroundColor Red
+        Write-Host "  ! Failed: $($col.Display) -- $_" -ForegroundColor Red
     }
 }
 

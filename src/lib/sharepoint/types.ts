@@ -675,6 +675,7 @@ export type ContactRole =
   | 'Property Manager'
   | 'Vendor'
   | 'Lender'
+  | 'DOR'
   | 'Other';
 
 export interface ContactFields {

@@ -42,6 +42,7 @@ const CONTACT_ROLES: ContactRole[] = [
   'Property Manager',
   'Vendor',
   'Lender',
+  'DOR',
   'Other',
 ];
 
