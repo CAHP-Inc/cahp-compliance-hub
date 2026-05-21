@@ -18,6 +18,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { BreadcrumbBar, Section, SaveErrorBanner } from '../components/detail';
 import { CountyMultiSelect } from '../components/CountyMultiSelect';
+import { getFilingChecklist } from '../lib/filing-checklist';
 
 const CHOICES = {
   AMIProgram: ['20/50', '40/60', '50/80', '60/80', 'Mixed', 'None'] as const,
@@ -43,16 +44,10 @@ const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
   6: { title: 'Review & Create', subtitle: 'Last look before writing everything to SharePoint.' },
 };
 
-// The 7 initial-documents items per Spec §3.3.3 Step 5
-const INITIAL_DOCS = [
-  { title: 'Operating Agreement (executed)', category: 'Operating Agreement' as const },
-  { title: 'LURA executed', category: 'LURA' as const },
-  { title: 'Current AMI Certification', category: 'AMI Certification' as const },
-  { title: 'Organizational Chart', category: 'Org Chart' as const },
-  { title: 'Current Rent Roll', category: 'Rent Roll' as const },
-  { title: 'Property Deed', category: 'Deed' as const },
-  { title: 'Insurance Certificate', category: 'Other' as const },
-];
+// Initial document checklist now comes from Settings → Checklist Templates
+// (localStorage with the hardcoded DOR list as the fallback). The wizard
+// honors per-template state filters too — so an SC-only template won't get
+// created for an NC property and vice versa.
 
 interface OwnerEntryDraft {
   ownerLookupId: string;
@@ -91,6 +86,16 @@ export function PropertyNew() {
     firstFilingTaxYear: new Date().getFullYear().toString() as CahpTaxYear,
     annualFilingRequired: true,
   });
+
+  // Initial Outstanding Items the wizard will create on Finish.
+  // Pulled from Settings → Checklist Templates and filtered by the property's
+  // state — items with no state apply to every property.
+  const initialDocs = useMemo(() => {
+    const all = getFilingChecklist();
+    const state = form.cahpState;
+    if (!state) return all;
+    return all.filter((t) => !t.state || t.state === state);
+  }, [form.cahpState]);
 
   // Owner entries — CAHP SC LLC pre-added at 0.01% if it exists as an Owner
   const cahpScLLC = useMemo(() => {
@@ -165,17 +170,19 @@ export function PropertyNew() {
         console.warn('First Submittal creation failed:', e);
       }
 
-      // 3. Create the 7 Outstanding Items
+      // 3. Create Outstanding Items from the active Checklist Templates
       const today = new Date().toISOString();
-      for (const doc of INITIAL_DOCS) {
+      for (const doc of initialDocs) {
         try {
-          await createListItem(LIST_NAMES.Outstanding, {
+          const payload: Record<string, unknown> = {
             Title: doc.title,
             PropertyLookupId: propertyId,
             ItemCategory: doc.category,
             ItemStatus: 'Requested',
             DateRequested: today,
-          });
+          };
+          if (doc.notes) payload.ItemNotes = doc.notes;
+          await createListItem(LIST_NAMES.Outstanding, payload);
         } catch (e) {
           // eslint-disable-next-line no-console
           console.warn(`Outstanding Item "${doc.title}" creation failed:`, e);
@@ -522,20 +529,28 @@ export function PropertyNew() {
       {step === 5 && (
         <Section title="Initial Documents Outstanding Items" fullWidth>
           <p className="text-sm text-gray-600 mb-3">
-            On Finish, the following <strong>{INITIAL_DOCS.length} Outstanding Items</strong> will be auto-created and linked to this property,
-            all marked as <strong>Requested</strong>. You can edit, assign, or close them after creation from the Outstanding Items module.
+            On Finish, the following <strong>{initialDocs.length} Outstanding Item{initialDocs.length === 1 ? '' : 's'}</strong> will be auto-created and linked to this property,
+            all marked as <strong>Requested</strong>. The list comes from <strong>Settings → Checklist Templates</strong>
+            {form.cahpState && <> (state filter: <span className="font-mono-data">{form.cahpState}</span>)</>}.
+            Edit the templates in Settings to change which items appear here.
           </p>
-          <ul className="bg-gray-50 rounded-md p-3 space-y-1.5">
-            {INITIAL_DOCS.map((doc, idx) => (
-              <li key={idx} className="flex items-center gap-2 text-sm">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs font-bold flex-shrink-0">
-                  {idx + 1}
-                </span>
-                <span className="text-gray-900">{doc.title}</span>
-                <span className="text-xs text-gray-500 font-mono-data ml-auto">{doc.category}</span>
-              </li>
-            ))}
-          </ul>
+          {initialDocs.length === 0 ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-xs text-yellow-900">
+              No checklist items match the current configuration. Either the templates list is empty (open Settings → Checklist Templates → Reset to defaults), or no template applies to <strong>{form.cahpState ?? 'this state'}</strong>.
+            </div>
+          ) : (
+            <ul className="bg-gray-50 rounded-md p-3 space-y-1.5">
+              {initialDocs.map((doc, idx) => (
+                <li key={idx} className="flex items-center gap-2 text-sm">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs font-bold flex-shrink-0">
+                    {idx + 1}
+                  </span>
+                  <span className="text-gray-900">{doc.title}</span>
+                  <span className="text-xs text-gray-500 font-mono-data ml-auto">{doc.category}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
       )}
 
@@ -577,7 +592,7 @@ export function PropertyNew() {
               <ul className="text-sm space-y-1">
                 <li>✓ <strong>1 Property</strong> record</li>
                 <li>✓ <strong>1 Submittal</strong> ({filingConfig.firstFilingType} {filingConfig.firstFilingTaxYear}, status Draft)</li>
-                <li>✓ <strong>{INITIAL_DOCS.length} Outstanding Items</strong> for initial document collection</li>
+                <li>✓ <strong>{initialDocs.length} Outstanding Item{initialDocs.length === 1 ? '' : 's'}</strong> for initial document collection (from Settings → Checklist Templates)</li>
                 <li>✓ <strong>{(cahpScLLC ? 1 : 0) + ownerEntries.length} Ownership row{((cahpScLLC ? 1 : 0) + ownerEntries.length) === 1 ? '' : 's'}</strong>
                   {cahpScLLC && ` (CAHP SC LLC at 0.01% Managing Member${ownerEntries.length > 0 ? ` + ${ownerEntries.length} additional` : ''})`}
                 </li>
