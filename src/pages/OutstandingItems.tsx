@@ -148,6 +148,17 @@ export function OutstandingItems() {
         if (itemDate !== dueDateFilter) return false;
       }
       return true;
+    }).sort((a, b) => {
+      // Sort by due date ascending (oldest first). Items with no due date
+      // float to the top — those are the ones that need triage first.
+      const aDate = a.fields.DueDate ? parseDateOnly(a.fields.DueDate)?.getTime() ?? null : null;
+      const bDate = b.fields.DueDate ? parseDateOnly(b.fields.DueDate)?.getTime() ?? null : null;
+      if (aDate === null && bDate === null) {
+        return (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '');
+      }
+      if (aDate === null) return -1;
+      if (bDate === null) return 1;
+      return aDate - bDate;
     });
   }, [items.data, search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, showClosed, propertiesById]);
 
