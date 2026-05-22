@@ -66,6 +66,42 @@ export function Properties() {
     return map;
   }, [ownership.data, owners.data]);
 
+  // For each owner, find their parent LLC (the largest-% LLC/entity member of
+  // this entity). Used to nest sub-entities like VanRock Fund I under their
+  // parent VanRock Holdings on the Properties listing.
+  //
+  // Schema: a row "Holdings owns N% of Fund I" has OwnerLookupId=Holdings,
+  // ParentOwnerLookupId=Fund I. So to find Fund I's parents, filter by
+  // ParentOwnerLookupId=Fund I and look at OwnerLookupId.
+  //
+  // Individuals are excluded so a property doesn't get nested under a person.
+  const parentLLCByOwner = useMemo(() => {
+    const map = new Map<string, Owner>();
+    const ownersById = new Map<string, Owner>();
+    (owners.data ?? []).forEach((o) => ownersById.set(String(o.id), o));
+    const rowsByHeldEntity = new Map<string, Ownership[]>();
+    (ownership.data ?? []).forEach((row) => {
+      const heldId = row.fields.ParentOwnerLookupId ? String(row.fields.ParentOwnerLookupId) : '';
+      if (!heldId || !row.fields.OwnerLookupId) return;
+      if (!rowsByHeldEntity.has(heldId)) rowsByHeldEntity.set(heldId, []);
+      rowsByHeldEntity.get(heldId)!.push(row);
+    });
+    for (const [heldId, rows] of rowsByHeldEntity) {
+      const sorted = [...rows].sort(
+        (a, b) => (b.fields.OwnershipPercent ?? 0) - (a.fields.OwnershipPercent ?? 0),
+      );
+      for (const row of sorted) {
+        const oid = String(row.fields.OwnerLookupId);
+        const owner = ownersById.get(oid);
+        if (!owner) continue;
+        if (owner.fields.OwnerType === 'Individual') continue;
+        map.set(heldId, owner);
+        break;
+      }
+    }
+    return map;
+  }, [ownership.data, owners.data]);
+
   // contactId → contact, for quick lookup when rendering the Owner Contact column
   const contactsById = useMemo(() => {
     const m = new Map<string, Contact>();
@@ -270,33 +306,76 @@ export function Properties() {
   }, [data, parcelStatsByProperty]);
 
   /**
-   * Group filtered properties by their primary direct owner. Single-property
-   * owners render as a flat row (entity + property in the same row); multi-
-   * property owners render as a collapsible parent row with aggregate
-   * columns, expanding into a child row per property.
+   * Two-level nested grouping:
+   *   - Outer group = topmost-LLC ancestor of each property's primary direct owner
+   *     (or the primary owner itself if it has no LLC parent in the system).
+   *   - Inner sub-group = the primary direct owner, when that owner has a parent LLC
+   *     and is therefore nested.
    *
-   * Properties with no linked direct owner fall into an "Unlinked" bucket
-   * at the bottom — useful as a checklist for getting ownership properly
-   * recorded.
+   * So VanRock Holdings ends up as a top-level group containing both its 7
+   * direct-ownership properties AND a sub-group "VanRock Fund I, LLC" with
+   * its own properties (701 E Main).
+   *
+   * Properties with no direct owner fall into an "Unlinked" bucket at the
+   * bottom.
    */
   const groupedRows = useMemo(() => {
-    const groups = new Map<string, { owner: Owner | null; properties: Property[] }>();
     const UNLINKED = '__unlinked__';
+    type SubGroup = { owner: Owner; properties: Property[] };
+    type TopGroup = {
+      ownerId: string;
+      owner: Owner | null;
+      directProperties: Property[];        // properties whose primary owner IS this top-level entity
+      subGroups: Map<string, SubGroup>;    // sub-entity id → its bucket of properties
+    };
+    const groups = new Map<string, TopGroup>();
+    const ensure = (key: string, owner: Owner | null): TopGroup => {
+      let g = groups.get(key);
+      if (!g) {
+        g = { ownerId: key, owner, directProperties: [], subGroups: new Map() };
+        groups.set(key, g);
+      }
+      return g;
+    };
+
     for (const p of filtered) {
-      const owner = primaryOwnerByProperty.get(String(p.id));
-      const key = owner ? String(owner.id) : UNLINKED;
-      if (!groups.has(key)) groups.set(key, { owner: owner ?? null, properties: [] });
-      groups.get(key)!.properties.push(p);
+      const primary = primaryOwnerByProperty.get(String(p.id));
+      if (!primary) {
+        ensure(UNLINKED, null).directProperties.push(p);
+        continue;
+      }
+      const parent = parentLLCByOwner.get(String(primary.id));
+      if (!parent) {
+        // Primary owner has no LLC parent → primary IS the top-level group
+        ensure(String(primary.id), primary).directProperties.push(p);
+      } else {
+        // Primary owner is a sub-entity → nest under its parent LLC
+        const top = ensure(String(parent.id), parent);
+        let sub = top.subGroups.get(String(primary.id));
+        if (!sub) {
+          sub = { owner: primary, properties: [] };
+          top.subGroups.set(String(primary.id), sub);
+        }
+        sub.properties.push(p);
+      }
     }
-    const arr = Array.from(groups.entries()).map(([key, g]) => ({ ownerId: key, ...g }));
-    // Sort: linked groups alphabetically by owner name, unlinked group last
+
+    const arr = Array.from(groups.values());
     arr.sort((a, b) => {
       if (a.ownerId === UNLINKED) return 1;
       if (b.ownerId === UNLINKED) return -1;
       return (a.owner?.fields.Title ?? '').localeCompare(b.owner?.fields.Title ?? '');
     });
+    // Sort sub-groups alphabetically too
+    for (const g of arr) {
+      g.subGroups = new Map(
+        [...g.subGroups.entries()].sort((a, b) =>
+          (a[1].owner.fields.Title ?? '').localeCompare(b[1].owner.fields.Title ?? ''),
+        ),
+      );
+    }
     return arr;
-  }, [filtered, primaryOwnerByProperty]);
+  }, [filtered, primaryOwnerByProperty, parentLLCByOwner]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={refetch} />;
@@ -408,8 +487,12 @@ export function Properties() {
                 const ownerKey = group.ownerId;
                 const ownerName = group.owner?.fields.Title ?? '(no linked owner)';
                 const isExpanded = expandedOwnerIds.has(ownerKey);
-                const isSingle = group.properties.length === 1;
-                const props = group.properties;
+                const subGroupArr = Array.from(group.subGroups.values());
+                const allProps = [
+                  ...group.directProperties,
+                  ...subGroupArr.flatMap((sg) => sg.properties),
+                ];
+                const isSingle = allProps.length === 1 && subGroupArr.length === 0;
 
                 // ─── Cell renderers reused by both single-row and child-row ───
                 const renderPropertyNameCell = (p: Property) => (
@@ -516,9 +599,38 @@ export function Properties() {
                   );
                 };
 
+                // Property rows: either at child depth (depth 1, under parent group)
+                // or grandchild depth (depth 2, under a nested sub-entity).
+                const renderPropertyRow = (p: Property, depth: 1 | 2, viaSubEntity?: string) => (
+                  <tr
+                    key={`prop-${ownerKey}-${depth}-${p.id}`}
+                    onClick={() => navigate(`/properties/${p.id}`)}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3"></td>
+                    <td className={`px-4 py-3 ${depth === 2 ? 'pl-14' : 'pl-8'} text-gray-400 text-xs`}>
+                      ↳ {viaSubEntity && <span className="text-gray-500 italic ml-1">via {viaSubEntity}</span>}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
+                    <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
+                    <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
+                    <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
+                    <td className="px-4 py-3">
+                      {p.fields.PropertyStatus ? (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                  </tr>
+                );
+
                 // ─── Single-property entity: render as one flat row ───
                 if (isSingle) {
-                  const p = props[0];
+                  const p = allProps[0];
                   return [
                     <tr
                       key={`single-${ownerKey}-${p.id}`}
@@ -556,26 +668,26 @@ export function Properties() {
                   ];
                 }
 
-                // ─── Multi-property: aggregate parent row + (when expanded) child rows ───
-                const totalUnits = props.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
-                const totalParcels = props.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
-                const filedParcels = props.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
-                const stateAgg = countBy(props, (p) => p.fields.cahpState);
+                // ─── Multi-property / nested: aggregate top row over direct + sub-entity properties ───
+                const totalUnits = allProps.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
+                const totalParcels = allProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
+                const filedParcels = allProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
+                const stateAgg = countBy(allProps, (p) => p.fields.cahpState);
                 const countyAgg = countBy(
-                  props.flatMap((p) => (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((c) => ({ c }))),
+                  allProps.flatMap((p) => (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((c) => ({ c }))),
                   (x) => x.c,
                 );
-                const amiAgg = countBy(props, (p) => p.fields.AMIProgram);
-                const statusAgg = countBy(props, (p) => p.fields.PropertyStatus);
+                const amiAgg = countBy(allProps, (p) => p.fields.AMIProgram);
+                const statusAgg = countBy(allProps, (p) => p.fields.PropertyStatus);
                 const filingAgg = countBy(
-                  props.map((p) => {
+                  allProps.map((p) => {
                     const sub = latestSubmittalByProperty.get(p.id);
                     return { s: sub?.fields.SubmittalStatus ?? 'Not Filed' };
                   }),
                   (x) => x.s,
                 );
                 const contactAgg = countBy(
-                  props.map((p) => {
+                  allProps.map((p) => {
                     const cId = p.fields.PropertyOwnerContactLookupId ? String(p.fields.PropertyOwnerContactLookupId) : '';
                     return { c: contactsById.get(cId)?.fields.Title };
                   }),
@@ -603,9 +715,14 @@ export function Properties() {
                       ) : (
                         <span className="text-gray-400 italic">{ownerName}</span>
                       )}
+                      {subGroupArr.length > 0 && (
+                        <span className="ml-2 text-[10px] text-gray-500 font-normal">
+                          + {subGroupArr.length} sub-{subGroupArr.length === 1 ? 'entity' : 'entities'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600">
-                      {props.length} {props.length === 1 ? 'property' : 'properties'}
+                      {allProps.length} {allProps.length === 1 ? 'property' : 'properties'}
                     </td>
                     <td className="px-4 py-3"><AggregateChips entries={stateAgg} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={countyAgg} styleMap={{}} /></td>
@@ -627,31 +744,72 @@ export function Properties() {
                 );
 
                 if (isExpanded) {
-                  for (const p of props) {
+                  // Direct properties of the top-level entity first
+                  for (const p of group.directProperties) {
+                    rows.push(renderPropertyRow(p, 1));
+                  }
+                  // Then nested sub-entity groups (e.g., VanRock Fund I under VanRock Holdings)
+                  for (const sub of subGroupArr) {
+                    const subKey = String(sub.owner.id);
+                    const subExpanded = expandedOwnerIds.has(subKey);
+                    const subProps = sub.properties;
+                    const subUnits = subProps.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
+                    const subParcels = subProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
+                    const subFiled = subProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
+                    const subStateAgg = countBy(subProps, (p) => p.fields.cahpState);
+                    const subStatusAgg = countBy(subProps, (p) => p.fields.PropertyStatus);
+                    const subFilingAgg = countBy(
+                      subProps.map((p) => {
+                        const s = latestSubmittalByProperty.get(p.id);
+                        return { s: s?.fields.SubmittalStatus ?? 'Not Filed' };
+                      }),
+                      (x) => x.s,
+                    );
+
                     rows.push(
                       <tr
-                        key={`child-${ownerKey}-${p.id}`}
-                        onClick={() => navigate(`/properties/${p.id}`)}
-                        className="hover:bg-gray-50 transition-colors cursor-pointer"
+                        key={`subgroup-${ownerKey}-${subKey}`}
+                        onClick={() => toggleExpand(subKey)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer bg-amber-50/30"
                       >
+                        <td className="px-4 py-3 text-gray-500"></td>
+                        <td className="px-4 py-3 pl-8 text-gray-700">
+                          <div className="flex items-center gap-1">
+                            <Icon name="chevron-right" size={12} className={subExpanded ? 'rotate-90 transition-transform' : 'transition-transform'} />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigate(`/owners/${sub.owner.id}`); }}
+                              className="text-teal-700 hover:text-teal-900 underline-offset-2 hover:underline text-left font-semibold text-xs"
+                            >
+                              {sub.owner.fields.Title}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600">
+                          {subProps.length} {subProps.length === 1 ? 'property' : 'properties'}
+                        </td>
+                        <td className="px-4 py-3"><AggregateChips entries={subStateAgg} /></td>
                         <td className="px-4 py-3"></td>
-                        <td className="px-4 py-3 pl-8 text-gray-400 text-xs">↳</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
-                        <td className="px-4 py-3">
-                          <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-mono-data text-xs font-semibold">{subUnits || '—'}</span>
+                            {subParcels > 0 && (
+                              <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap">
+                                {subParcels} TMID · <span className={subFiled === subParcels ? 'text-success' : 'text-gray-600'}>{subFiled} filed</span>
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
-                        <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
-                        <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
-                        <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
-                        <td className="px-4 py-3">
-                          {p.fields.PropertyStatus ? (
-                            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
-                      </tr>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"><AggregateChips entries={subStatusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
+                        <td className="px-4 py-3"><AggregateChips entries={subFilingAgg} styleMap={FILING_STATUS_STYLES as Record<string, string>} /></td>
+                      </tr>,
                     );
+                    if (subExpanded) {
+                      for (const p of subProps) {
+                        rows.push(renderPropertyRow(p, 2, sub.owner.fields.Title));
+                      }
+                    }
                   }
                 }
                 return rows;
