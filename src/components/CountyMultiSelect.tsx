@@ -28,6 +28,7 @@ export function CountyMultiSelect({ value, onChange, disabled }: CountyMultiSele
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -40,6 +41,15 @@ export function CountyMultiSelect({ value, onChange, disabled }: CountyMultiSele
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
+
+  // Click anywhere in the field surface focuses the actual <input>. Without
+  // this, typing went nowhere because the placeholder span absorbed the click
+  // and the input never received keyboard focus.
+  const focusInput = () => {
+    if (disabled) return;
+    setOpen(true);
+    inputRef.current?.focus();
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -63,11 +73,8 @@ export function CountyMultiSelect({ value, onChange, disabled }: CountyMultiSele
     <div ref={containerRef} className="relative">
       <div
         className={`w-full min-h-[34px] px-2 py-1 border border-gray-300 rounded bg-white flex flex-wrap items-center gap-1 cursor-text ${disabled ? 'opacity-60' : ''}`}
-        onClick={() => !disabled && setOpen(true)}
+        onClick={focusInput}
       >
-        {selected.length === 0 && (
-          <span className="text-sm text-gray-400">— pick one or more counties —</span>
-        )}
         {selected.map((c) => (
           <span
             key={c}
@@ -88,12 +95,27 @@ export function CountyMultiSelect({ value, onChange, disabled }: CountyMultiSele
         ))}
         {!disabled && (
           <input
+            ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
             onFocus={() => setOpen(true)}
-            placeholder={selected.length === 0 ? '' : 'Add another…'}
-            className="flex-1 min-w-[80px] outline-none text-sm border-0 bg-transparent"
+            onKeyDown={(e) => {
+              // Backspace on an empty query pops the most recently added county
+              if (e.key === 'Backspace' && query === '' && selected.length > 0) {
+                e.preventDefault();
+                remove(selected[selected.length - 1]);
+              } else if (e.key === 'Escape') {
+                setOpen(false);
+                setQuery('');
+              }
+            }}
+            placeholder={
+              selected.length === 0
+                ? 'Type to search counties…'
+                : 'Add another…'
+            }
+            className="flex-1 min-w-[120px] outline-none text-sm border-0 bg-transparent"
           />
         )}
       </div>
