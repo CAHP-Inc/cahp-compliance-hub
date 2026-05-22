@@ -287,6 +287,30 @@ export interface EmailTemplateFields {
 export type EmailTemplate = SharePointListItem<EmailTemplateFields>;
 
 // =============================================================================
+// LIST: Access List — who can sign in and at what role. Managed in Settings →
+// Access List. Replaces the previously-hardcoded EMAIL_ROLE_MAP. A hardcoded
+// fallback in lib/roleMap.ts handles the case where the list is missing or
+// unreachable, so the original team never gets locked out.
+//
+// Title column holds the email (UPN) — case-insensitive match. AccessRole is
+// the granted role; AccessActive=false lets you keep a row for the audit
+// trail without granting access.
+// =============================================================================
+
+export type AccessRole = 'Admin' | 'Contributor' | 'Accounting';
+
+export interface AccessListEntryFields {
+  Title?: string;                  // Email / UPN — the lookup key
+  AccessRole?: AccessRole;
+  AccessDisplayName?: string;      // Friendly name (used by AssigneePicker autocomplete + audit)
+  AccessOrg?: string;              // Free-text org label
+  AccessActive?: boolean;          // false = keep the row but deny access
+  AccessNotes?: string;
+}
+
+export type AccessListEntry = SharePointListItem<AccessListEntryFields>;
+
+// =============================================================================
 // LIST: Billing Tracker
 // =============================================================================
 
@@ -527,6 +551,15 @@ export interface OwnerFields {
   OwnerAddress?: string;           // Address of the entity (shown on detailed org charts)
   IsTaxExempt?: boolean;           // For nonprofits — adds "IRC § 501(c)(3) Tax-Exempt" line to org chart
   EntityDescription?: string;      // Optional override for auto-derived "South Carolina LLC" label on org charts
+  /**
+   * Marks this entity as part of the CAHP family — the parent 501(c)(3) and
+   * any wholly-owned subsidiary that gets used as a co-member in property-
+   * owning LLCs (e.g., CAHP SC LLC, CAHP NC LLC). Used by the org chart to
+   * highlight the exemption chain: any LLC that has a CAHP-flagged entity
+   * as a direct member is the "exemption source" entity whose docs must
+   * accompany its subsidiary properties' DOR filings.
+   */
+  IsCAHPEntity?: boolean;
 }
 
 export type Owner = SharePointListItem<OwnerFields>;
@@ -628,6 +661,7 @@ export const LIST_NAMES = {
   CorrespondencePropertyLinks: 'Correspondence Property Links',
   ChecklistTemplates: 'Checklist Templates',
   EmailTemplates: 'Email Templates',
+  AccessList: 'Access List',
 } as const;
 
 export type ListName = (typeof LIST_NAMES)[keyof typeof LIST_NAMES];

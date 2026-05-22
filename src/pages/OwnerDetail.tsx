@@ -320,6 +320,19 @@ export function OwnerDetail() {
           />
         )}
         <EditableField
+          label="CAHP Entity"
+          value={display.IsCAHPEntity ? 'Yes' : 'No'}
+          editing={editing}
+          type="choice"
+          choices={['Yes', 'No'] as const}
+          onChange={(v) => handleFieldChange('IsCAHPEntity', v === 'Yes' as never)}
+        />
+        {(display.IsCAHPEntity || owner.fields.IsCAHPEntity) && (
+          <p className="text-[11px] text-gold-900 italic ml-44">
+            Flagged as part of the CAHP family — appears in gold on org charts. Subsidiary LLCs with this entity as a member are flagged as "exemption source" entities (their docs accompany DOR filings).
+          </p>
+        )}
+        <EditableField
           label="Notes"
           value={display.OwnerNotes}
           editing={editing}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, createContext, useContext } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   useSharePointItem,
@@ -27,6 +27,9 @@ import {
   type ItemPriority,
   getBeneficialOwnershipTree,
   computeBeneficialOwnership,
+  annotateCahpChain,
+  getExemptionSources,
+  type OrgChartCahpAnnotation,
   type OwnershipNode,
   type BeneficialOwner,
   type Contact,
@@ -1343,6 +1346,11 @@ const OWNER_TYPE_BADGE_STYLES: Record<string, string> = {
   'General Partnership': 'bg-fuchsia-100 text-fuchsia-800',
 };
 
+// Per-node CAHP annotations are looked up by relationship.id. Sharing them
+// via context keeps the EntityCard signature stable while letting the org
+// chart highlight the exemption chain.
+const CahpAnnotationsContext = createContext<Map<string, OrgChartCahpAnnotation>>(new Map());
+
 function PropertyOrgChartTab({ propertyId, property }: { propertyId: string; property: Property }) {
   const [layout, setLayout] = useState<ChartLayout>('detailed');
   const propertyTitle = property.fields.Title ?? '(unnamed)';
@@ -1357,6 +1365,9 @@ function PropertyOrgChartTab({ propertyId, property }: { propertyId: string; pro
     if (!ownership.data || !owners.data) return [];
     return getBeneficialOwnershipTree('property', propertyId, ownership.data, owners.data);
   }, [ownership.data, owners.data, propertyId]);
+
+  const cahpAnnotations = useMemo(() => annotateCahpChain(tree), [tree]);
+  const exemptionSources = useMemo(() => getExemptionSources(tree), [tree]);
 
   const beneficial = useMemo(() => {
     if (!ownership.data || !owners.data) return [];
@@ -1401,11 +1412,42 @@ function PropertyOrgChartTab({ propertyId, property }: { propertyId: string; pro
           </p>
         </div>
       ) : (
-        <>
+        <CahpAnnotationsContext.Provider value={cahpAnnotations}>
+          {/* CAHP exemption-source callout — surfaces the entities in this property's
+              chain that have a CAHP entity as a direct member. Those entities' docs
+              accompany the DOR filing for this property. */}
+          {exemptionSources.length > 0 && (
+            <div className="bg-gold-50 border-l-4 border-gold-500 border border-gold-200 rounded-md p-3 mb-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-gold-500 text-teal-900 uppercase tracking-wider">
+                    CAHP
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-semibold text-teal-900">
+                    Exemption source{exemptionSources.length === 1 ? '' : 's'}
+                  </h4>
+                  <p className="text-xs text-gray-700 mt-0.5">
+                    The following {exemptionSources.length === 1 ? 'entity has' : 'entities have'} a CAHP member in {exemptionSources.length === 1 ? 'its' : 'their'} ownership chain. {exemptionSources.length === 1 ? "Its" : "Their"} formation documents accompany the DOR filing for this property.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {exemptionSources.map((src) => (
+                      <li key={src.ownerName} className="text-xs">
+                        <strong className="text-teal-900">{src.ownerName}</strong>{' '}
+                        <span className="text-gray-600">— CAHP member: {src.cahpMembers.join(', ')}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           {layout === 'detailed' && <DetailedChart tree={tree} propertyTitle={propertyTitle} />}
           {layout === 'beneficial' && <BeneficialChart beneficialOwners={beneficial} propertyTitle={propertyTitle} />}
           {layout === 'dor' && <DORChart tree={tree} property={property} owners={owners.data ?? []} />}
-        </>
+        </CahpAnnotationsContext.Provider>
       )}
     </div>
   );
@@ -1432,6 +1474,7 @@ function TreeBranch({ node }: { node: OwnershipNode }) {
   return (
     <div>
       <EntityCard
+        relationshipId={String(node.relationship.id)}
         name={node.owner?.fields.Title ?? '(unresolved)'}
         ownerType={node.owner?.fields.OwnerType}
         relationshipType={node.relationship.fields.RelationshipType}
@@ -1753,6 +1796,7 @@ function DORColumn({ node, isTopLevel = false }: { node: OwnershipNode; isTopLev
 
       {/* This node */}
       <EntityCard
+        relationshipId={String(node.relationship.id)}
         name={node.owner?.fields.Title ?? '(unresolved)'}
         ownerType={node.owner?.fields.OwnerType}
         relationshipType={node.relationship.fields.RelationshipType}
@@ -1854,6 +1898,7 @@ function EntityCard({
   isTaxExempt,
   entityDescription,
   isSingleMember,
+  relationshipId,
 }: {
   name: string;
   ownerType?: string;
@@ -1865,7 +1910,13 @@ function EntityCard({
   isTaxExempt?: boolean;
   entityDescription?: string;
   isSingleMember?: boolean;
+  /** When provided, the card consults CahpAnnotationsContext for CAHP-related styling. */
+  relationshipId?: string;
 }) {
+  const cahpAnnotations = useContext(CahpAnnotationsContext);
+  const annotation = relationshipId ? cahpAnnotations.get(relationshipId) : undefined;
+  const isCahp = annotation?.isCahpEntity ?? false;
+  const isExemptionSource = annotation?.isExemptionSource ?? false;
   // Build the formation description line. Priority:
   //   1. Manual override (EntityDescription) — use as-is
   //   2. Auto-derive from OwnerType + state + single-member status
@@ -1890,13 +1941,33 @@ function EntityCard({
     }
   }
 
+  // CAHP highlight styling: gold border + soft gold background for the
+  // CAHP family (the entity itself is part of CAHP), distinct teal-gold
+  // ring for "exemption source" entities (an LLC whose direct member is a
+  // CAHP entity — its docs go with the DOR filing for its subsidiaries).
+  const containerClass = isCahp
+    ? 'inline-block bg-gold-50 border-2 border-gold-500 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center'
+    : isExemptionSource
+      ? 'inline-block bg-white border-2 border-gold-400 ring-1 ring-gold-200 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center'
+      : 'inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center';
+
   return (
-    <div className="inline-block bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm min-w-[220px] text-center">
+    <div className={containerClass}>
       <div className="flex items-center justify-center gap-2 flex-wrap">
         <span className="font-semibold text-gray-900 text-sm">{name}</span>
         {ownerType && (
           <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${OWNER_TYPE_BADGE_STYLES[ownerType] ?? 'bg-gray-100 text-gray-700'}`}>
             {ownerType}
+          </span>
+        )}
+        {isCahp && (
+          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gold-500 text-teal-900 uppercase tracking-wider">
+            CAHP
+          </span>
+        )}
+        {!isCahp && isExemptionSource && (
+          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gold-200 text-gold-900 uppercase tracking-wider" title={`CAHP exemption source — docs needed for subsidiary filings. CAHP member: ${annotation?.cahpMemberNames.join(', ')}`}>
+            Exemption Source
           </span>
         )}
       </div>

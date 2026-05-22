@@ -60,6 +60,22 @@ export function SignInGate({ children }: SignInGateProps) {
     );
   }
 
+  // Loading state: signed in, waiting on the Access List fetch to resolve
+  // before deciding access. Without this we'd briefly flash the "Access denied"
+  // screen against the fallback list before the SharePoint copy lands.
+  if (session.isAuthenticated && session.accessLoading && !session.isAuthorized) {
+    return (
+      <div className="min-h-screen bg-teal-900 flex items-center justify-center p-6">
+        <div className="bg-white rounded-xl shadow-2xl p-10 max-w-md w-full text-center">
+          <div className="inline-flex items-center gap-3 text-gray-600">
+            <div className="w-4 h-4 rounded-full border-2 border-teal-700 border-r-transparent animate-spin" />
+            <span className="text-sm">Checking access…</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // State 2: authenticated but not authorized
   if (!session.isAuthorized) {
     return (
@@ -75,11 +91,11 @@ export function SignInGate({ children }: SignInGateProps) {
           <p className="text-sm text-gray-600 mb-1">Signed in as:</p>
           <p className="text-sm font-semibold text-gray-800 mb-6">{session.user?.email}</p>
           <p className="text-xs text-gray-500 mb-6">
-            Contact Brandy Turner to request access. If you're an admin, edit
+            Contact Brandy Turner to request access. If you're an admin, open
             <span className="font-mono-data mx-1 px-1.5 py-0.5 bg-gray-100 rounded text-[11px]">
-              src/lib/roleMap.ts
+              Settings → Access List
             </span>
-            to add this email.
+            and add this email.
           </p>
           <button
             onClick={handleSignOut}

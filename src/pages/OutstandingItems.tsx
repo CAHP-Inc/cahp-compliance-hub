@@ -78,7 +78,11 @@ export function OutstandingItems() {
   const [view, setView] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<ItemPriority | 'All'>('All');
-  const [assigneeFilter, setAssigneeFilter] = useState<string>('All');
+  // Seed the assignee filter from ?assignee=... so deep links from the
+  // Contacts page land pre-filtered to that person.
+  const [assigneeFilter, setAssigneeFilter] = useState<string>(
+    () => searchParams.get('assignee') || 'All',
+  );
   // Seed the property filter from ?property={id} so deep links from MyDay land
   // pre-filtered to the property the user clicked.
   const [propertyFilter, setPropertyFilter] = useState<string>(
@@ -112,13 +116,16 @@ export function OutstandingItems() {
     return new Map(properties.data.map((p) => [String(p.id), p]));
   }, [properties.data]);
 
-  // Build list of unique assignees
+  // Build list of unique assignees. If the URL pre-filtered to someone with
+  // no items yet, include that value so the dropdown still shows the active filter.
   const assignees = useMemo(() => {
-    if (!items.data) return [];
-    return Array.from(
-      new Set(items.data.map((i) => i.fields.AssignedTo).filter(Boolean))
-    ) as string[];
-  }, [items.data]);
+    const set = new Set<string>();
+    (items.data ?? []).forEach((i) => {
+      if (i.fields.AssignedTo) set.add(i.fields.AssignedTo);
+    });
+    if (assigneeFilter !== 'All') set.add(assigneeFilter);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items.data, assigneeFilter]);
 
   const filtered = useMemo(() => {
     if (!items.data) return [];

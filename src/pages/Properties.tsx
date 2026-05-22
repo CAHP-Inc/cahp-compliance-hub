@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -30,6 +30,41 @@ export function Properties() {
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 1000 });
+  const [expandedOwnerIds, setExpandedOwnerIds] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (ownerId: string) =>
+    setExpandedOwnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ownerId)) next.delete(ownerId);
+      else next.add(ownerId);
+      return next;
+    });
+
+  // For each property, find its primary direct owner (largest-percent member).
+  // Properties with no direct-owner Ownership row fall into an "ungrouped" bucket.
+  const primaryOwnerByProperty = useMemo(() => {
+    const map = new Map<string, Owner>();
+    const ownersById = new Map<string, Owner>();
+    (owners.data ?? []).forEach((o) => ownersById.set(String(o.id), o));
+    const rowsByProperty = new Map<string, Ownership[]>();
+    (ownership.data ?? []).forEach((row) => {
+      const pid = row.fields.LinkedPropertyLookupId ? String(row.fields.LinkedPropertyLookupId) : '';
+      if (!pid || !row.fields.OwnerLookupId) return;
+      if (!rowsByProperty.has(pid)) rowsByProperty.set(pid, []);
+      rowsByProperty.get(pid)!.push(row);
+    });
+    for (const [pid, rows] of rowsByProperty) {
+      const sorted = [...rows].sort(
+        (a, b) => (b.fields.OwnershipPercent ?? 0) - (a.fields.OwnershipPercent ?? 0),
+      );
+      const oid = String(sorted[0].fields.OwnerLookupId);
+      const owner = ownersById.get(oid);
+      if (owner) map.set(pid, owner);
+    }
+    return map;
+  }, [ownership.data, owners.data]);
 
   // contactId → contact, for quick lookup when rendering the Owner Contact column
   const contactsById = useMemo(() => {
@@ -197,6 +232,35 @@ export function Properties() {
     };
   }, [data]);
 
+  /**
+   * Group filtered properties by their primary direct owner. Single-property
+   * owners render as a flat row (entity + property in the same row); multi-
+   * property owners render as a collapsible parent row with aggregate
+   * columns, expanding into a child row per property.
+   *
+   * Properties with no linked direct owner fall into an "Unlinked" bucket
+   * at the bottom — useful as a checklist for getting ownership properly
+   * recorded.
+   */
+  const groupedRows = useMemo(() => {
+    const groups = new Map<string, { owner: Owner | null; properties: Property[] }>();
+    const UNLINKED = '__unlinked__';
+    for (const p of filtered) {
+      const owner = primaryOwnerByProperty.get(String(p.id));
+      const key = owner ? String(owner.id) : UNLINKED;
+      if (!groups.has(key)) groups.set(key, { owner: owner ?? null, properties: [] });
+      groups.get(key)!.properties.push(p);
+    }
+    const arr = Array.from(groups.entries()).map(([key, g]) => ({ ownerId: key, ...g }));
+    // Sort: linked groups alphabetically by owner name, unlinked group last
+    arr.sort((a, b) => {
+      if (a.ownerId === UNLINKED) return 1;
+      if (b.ownerId === UNLINKED) return -1;
+      return (a.owner?.fields.Title ?? '').localeCompare(b.owner?.fields.Title ?? '');
+    });
+    return arr;
+  }, [filtered, primaryOwnerByProperty]);
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={refetch} />;
   if (!data || !stats) return null;
@@ -284,8 +348,9 @@ export function Properties() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left w-8"></th>
                 <th className="px-4 py-3 text-left">Legal Entity</th>
+                <th className="px-4 py-3 text-left">Property</th>
                 <th className="px-4 py-3 text-left">State</th>
                 <th className="px-4 py-3 text-left">County</th>
                 <th className="px-4 py-3 text-right">Units</th>
@@ -296,168 +361,237 @@ export function Properties() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map((p) => (
-                <tr
-                  key={p.id}
-                  onClick={() => navigate(`/properties/${p.id}`)}
-                  className="hover:bg-gray-50 transition-colors cursor-pointer"
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900">
+              {groupedRows.flatMap((group) => {
+                const ownerKey = group.ownerId;
+                const ownerName = group.owner?.fields.Title ?? '(no linked owner)';
+                const isExpanded = expandedOwnerIds.has(ownerKey);
+                const isSingle = group.properties.length === 1;
+                const props = group.properties;
+
+                // ─── Cell renderers reused by both single-row and child-row ───
+                const renderPropertyNameCell = (p: Property) => (
+                  <>
                     {p.fields.Title}
                     {p.fields.cahpVerificationStatus === 'Inherited - Unverified' && (
-                      <span
-                        className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-50 text-yellow-800 align-middle"
-                        title="Inherited data — needs verification"
-                      >
-                        UNVERIFIED
-                      </span>
+                      <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-50 text-yellow-800 align-middle">UNVERIFIED</span>
                     )}
                     {p.fields.cahpVerificationStatus === 'Needs Follow-Up' && (
-                      <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-error/10 text-error align-middle">
-                        FOLLOW-UP
-                      </span>
+                      <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-error/10 text-error align-middle">FOLLOW-UP</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">{p.fields.LegalEntity || '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className="font-mono-data text-xs font-semibold text-teal-700">
-                      {p.fields.cahpState || '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 text-xs">
-                    {(() => {
-                      const list = (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-                      if (list.length === 0) return '—';
-                      // Strip the "(SC)"/"(NC)" suffix per county for the column display since
-                      // the State column already shows that info; full label stays on the detail page.
-                      const stripped = list.map((c) => c.replace(/\s*\([^)]*\)\s*/g, ''));
-                      if (stripped.length === 1) return stripped[0];
-                      return (
-                        <div className="flex flex-wrap gap-1">
-                          {stripped.map((c) => (
-                            <span key={c} className="px-1 py-0.5 rounded bg-teal-50 text-teal-800 text-[10px] font-medium">
-                              {c}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono-data">
-                    {p.fields.UnitCount ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {(() => {
-                      const cId = p.fields.PropertyOwnerContactLookupId
-                        ? String(p.fields.PropertyOwnerContactLookupId)
-                        : '';
-                      const contact = cId ? contactsById.get(cId) : undefined;
-                      if (!contact) return <span className="text-gray-400">—</span>;
-                      return (
-                        <div className="min-w-0">
-                          <div className="text-gray-900 truncate">{contact.fields.Title}</div>
-                          {contact.fields.ContactEmail && (
-                            <div className="text-[11px] text-gray-500 font-mono-data truncate">
-                              {contact.fields.ContactEmail}
-                            </div>
+                  </>
+                );
+                const renderCountyCell = (p: Property) => {
+                  const list = (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+                  if (list.length === 0) return '—';
+                  const stripped = list.map((c) => c.replace(/\s*\([^)]*\)\s*/g, ''));
+                  if (stripped.length === 1) return stripped[0];
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {stripped.map((c) => (
+                        <span key={c} className="px-1 py-0.5 rounded bg-teal-50 text-teal-800 text-[10px] font-medium">{c}</span>
+                      ))}
+                    </div>
+                  );
+                };
+                const renderContactCell = (p: Property) => {
+                  const cId = p.fields.PropertyOwnerContactLookupId ? String(p.fields.PropertyOwnerContactLookupId) : '';
+                  const contact = cId ? contactsById.get(cId) : undefined;
+                  if (!contact) return <span className="text-gray-400">—</span>;
+                  return (
+                    <div className="min-w-0">
+                      <div className="text-gray-900 truncate">{contact.fields.Title}</div>
+                      {contact.fields.ContactEmail && (
+                        <div className="text-[11px] text-gray-500 font-mono-data truncate">{contact.fields.ContactEmail}</div>
+                      )}
+                    </div>
+                  );
+                };
+                const renderFilingStatusCell = (p: Property) => {
+                  const agg = filingAggregateByProperty.get(p.id);
+                  const sub = latestSubmittalByProperty.get(p.id);
+                  const parcelCount = parcelCountByProperty.get(p.id) ?? 0;
+                  if (!sub || !agg) {
+                    return (
+                      <div className="flex flex-col gap-0.5 items-start">
+                        <span className="text-gray-400 text-xs italic">Not Filed</span>
+                        {parcelCount > 1 && (
+                          <span className="text-[10px] text-gray-400 font-mono-data">{parcelCount} parcels</span>
+                        )}
+                      </div>
+                    );
+                  }
+                  const status = sub.fields.SubmittalStatus;
+                  const year = agg.year ?? sub.fields.cahpTaxYear;
+                  const filingType = agg.filingType ?? sub.fields.FilingType;
+                  const multiParcel = agg.total > 1;
+                  const allApproved = agg.approved === agg.total;
+                  const allDenied = agg.denied === agg.total;
+                  const allDraft = agg.draft === agg.total;
+                  const allFiled = agg.filed === agg.total;
+                  const isMixed = multiParcel && !allApproved && !allDenied && !allDraft && !allFiled;
+                  const headlineStatus = isMixed ? 'Mixed' : status;
+                  return (
+                    <div className="flex flex-col gap-0.5 items-start">
+                      {headlineStatus && (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${FILING_STATUS_STYLES[headlineStatus as SubmittalStatusValue] || 'bg-purple-100 text-purple-800'}`}>{headlineStatus}</span>
+                      )}
+                      {(year || filingType) && (
+                        <span className="text-[10px] text-gray-500 font-mono-data">{year ?? ''}{year && filingType ? ' · ' : ''}{filingType ?? ''}</span>
+                      )}
+                      {multiParcel && (
+                        <span className="text-[10px] text-gray-600 font-mono-data" title={`${agg.draft} Draft / ${agg.filed} Filed / ${agg.approved} Approved / ${agg.denied} Denied`}>
+                          {isMixed ? (
+                            <>
+                              {agg.approved > 0 && <span className="text-green-700">{agg.approved}A</span>}
+                              {agg.approved > 0 && (agg.filed + agg.denied + agg.draft > 0) && ' / '}
+                              {agg.filed > 0 && <span className="text-blue-700">{agg.filed}F</span>}
+                              {agg.filed > 0 && (agg.denied + agg.draft > 0) && ' / '}
+                              {agg.denied > 0 && <span className="text-red-700">{agg.denied}D</span>}
+                              {agg.denied > 0 && agg.draft > 0 && ' / '}
+                              {agg.draft > 0 && <span className="text-gray-600">{agg.draft}Dr</span>}
+                              {' of '}{agg.total}
+                            </>
+                          ) : (
+                            <>{agg.total} of {parcelCount} parcels</>
                           )}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-4 py-3">
-                    {p.fields.PropertyStatus ? (
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'
-                        }`}
+                        </span>
+                      )}
+                    </div>
+                  );
+                };
+
+                // ─── Single-property entity: render as one flat row ───
+                if (isSingle) {
+                  const p = props[0];
+                  return [
+                    <tr
+                      key={`single-${ownerKey}-${p.id}`}
+                      onClick={() => navigate(`/properties/${p.id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        {group.owner ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/owners/${group.owner!.id}`); }}
+                            className="text-teal-700 hover:text-teal-900 underline-offset-2 hover:underline text-left"
+                          >
+                            {ownerName}
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 italic">{ownerName}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
+                      <td className="px-4 py-3 text-right font-mono-data">{p.fields.UnitCount ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
+                      <td className="px-4 py-3">
+                        {p.fields.PropertyStatus ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                    </tr>,
+                  ];
+                }
+
+                // ─── Multi-property: aggregate parent row + (when expanded) child rows ───
+                const totalUnits = props.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
+                const stateAgg = countBy(props, (p) => p.fields.cahpState);
+                const countyAgg = countBy(
+                  props.flatMap((p) => (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((c) => ({ c }))),
+                  (x) => x.c,
+                );
+                const amiAgg = countBy(props, (p) => p.fields.AMIProgram);
+                const statusAgg = countBy(props, (p) => p.fields.PropertyStatus);
+                const filingAgg = countBy(
+                  props.map((p) => {
+                    const sub = latestSubmittalByProperty.get(p.id);
+                    return { s: sub?.fields.SubmittalStatus ?? 'Not Filed' };
+                  }),
+                  (x) => x.s,
+                );
+                const contactAgg = countBy(
+                  props.map((p) => {
+                    const cId = p.fields.PropertyOwnerContactLookupId ? String(p.fields.PropertyOwnerContactLookupId) : '';
+                    return { c: contactsById.get(cId)?.fields.Title };
+                  }),
+                  (x) => x.c,
+                );
+
+                const rows: JSX.Element[] = [];
+                rows.push(
+                  <tr
+                    key={`group-${ownerKey}`}
+                    onClick={() => toggleExpand(ownerKey)}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer bg-gray-50/50"
+                  >
+                    <td className="px-4 py-3 text-gray-500">
+                      <Icon name={isExpanded ? 'chevron-right' : 'chevron-right'} size={14} className={isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'} />
+                    </td>
+                    <td className="px-4 py-3 font-bold text-gray-900">
+                      {group.owner ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/owners/${group.owner!.id}`); }}
+                          className="text-teal-700 hover:text-teal-900 underline-offset-2 hover:underline text-left"
+                        >
+                          {ownerName}
+                        </button>
+                      ) : (
+                        <span className="text-gray-400 italic">{ownerName}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">
+                      {props.length} {props.length === 1 ? 'property' : 'properties'}
+                    </td>
+                    <td className="px-4 py-3"><AggregateChips entries={stateAgg} /></td>
+                    <td className="px-4 py-3"><AggregateChips entries={countyAgg} styleMap={{}} /></td>
+                    <td className="px-4 py-3 text-right font-mono-data font-semibold">{totalUnits || '—'}</td>
+                    <td className="px-4 py-3"><AggregateChips entries={amiAgg} /></td>
+                    <td className="px-4 py-3"><AggregateChips entries={contactAgg} /></td>
+                    <td className="px-4 py-3"><AggregateChips entries={statusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
+                    <td className="px-4 py-3"><AggregateChips entries={filingAgg} styleMap={FILING_STATUS_STYLES as Record<string, string>} /></td>
+                  </tr>
+                );
+
+                if (isExpanded) {
+                  for (const p of props) {
+                    rows.push(
+                      <tr
+                        key={`child-${ownerKey}-${p.id}`}
+                        onClick={() => navigate(`/properties/${p.id}`)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer"
                       >
-                        {p.fields.PropertyStatus}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {(() => {
-                      const agg = filingAggregateByProperty.get(p.id);
-                      const sub = latestSubmittalByProperty.get(p.id);
-                      const parcelCount = parcelCountByProperty.get(p.id) ?? 0;
-
-                      if (!sub || !agg) {
-                        return (
-                          <div className="flex flex-col gap-0.5 items-start">
-                            <span className="text-gray-400 text-xs italic">Not Filed</span>
-                            {parcelCount > 1 && (
-                              <span className="text-[10px] text-gray-400 font-mono-data">
-                                {parcelCount} parcels
-                              </span>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      const status = sub.fields.SubmittalStatus;
-                      const year = agg.year ?? sub.fields.cahpTaxYear;
-                      const filingType = agg.filingType ?? sub.fields.FilingType;
-                      const multiParcel = agg.total > 1;
-
-                      // Decide what the "headline" status is
-                      // Mixed → show "Mixed"; uniform → show that single status
-                      const allApproved = agg.approved === agg.total;
-                      const allDenied = agg.denied === agg.total;
-                      const allDraft = agg.draft === agg.total;
-                      const allFiled = agg.filed === agg.total;
-                      const isMixed = multiParcel && !allApproved && !allDenied && !allDraft && !allFiled;
-                      const headlineStatus = isMixed ? 'Mixed' : status;
-
-                      return (
-                        <div className="flex flex-col gap-0.5 items-start">
-                          {headlineStatus && (
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                                FILING_STATUS_STYLES[headlineStatus as SubmittalStatusValue] || 'bg-purple-100 text-purple-800'
-                              }`}
-                            >
-                              {headlineStatus}
-                            </span>
-                          )}
-                          {(year || filingType) && (
-                            <span className="text-[10px] text-gray-500 font-mono-data">
-                              {year ?? ''}{year && filingType ? ' · ' : ''}{filingType ?? ''}
-                            </span>
-                          )}
-                          {multiParcel && (
-                            <span
-                              className="text-[10px] text-gray-600 font-mono-data"
-                              title={`${agg.draft} Draft / ${agg.filed} Filed / ${agg.approved} Approved / ${agg.denied} Denied`}
-                            >
-                              {isMixed ? (
-                                <>
-                                  {agg.approved > 0 && <span className="text-green-700">{agg.approved}A</span>}
-                                  {agg.approved > 0 && (agg.filed + agg.denied + agg.draft > 0) && ' / '}
-                                  {agg.filed > 0 && <span className="text-blue-700">{agg.filed}F</span>}
-                                  {agg.filed > 0 && (agg.denied + agg.draft > 0) && ' / '}
-                                  {agg.denied > 0 && <span className="text-red-700">{agg.denied}D</span>}
-                                  {agg.denied > 0 && agg.draft > 0 && ' / '}
-                                  {agg.draft > 0 && <span className="text-gray-600">{agg.draft}Dr</span>}
-                                  {' of '}{agg.total}
-                                </>
-                              ) : (
-                                <>{agg.total} of {parcelCount} parcels</>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                </tr>
-              ))}
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3 pl-8 text-gray-400 text-xs">↳</td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
+                        <td className="px-4 py-3 text-right font-mono-data">{p.fields.UnitCount ?? '—'}</td>
+                        <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
+                        <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
+                        <td className="px-4 py-3">
+                          {p.fields.PropertyStatus ? (
+                            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                      </tr>
+                    );
+                  }
+                }
+                return rows;
+              })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500 text-sm">
                     No properties match the current filters.
                   </td>
                 </tr>
@@ -470,6 +604,47 @@ export function Properties() {
       <p className="text-xs text-gray-400 mt-4 text-center">
         Click any property to drill into its detail page · Click <strong>New Property</strong> to add one.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Render distinct values from a set of properties as small badge chips with
+ * counts. Used in the collapsed aggregate row.
+ *   countBy([{x:'a'},{x:'a'},{x:'b'}], p => p.x)  →  [{label:'a',count:2},{label:'b',count:1}]
+ */
+function countBy<T>(items: T[], key: (item: T) => string | undefined): { label: string; count: number }[] {
+  const m = new Map<string, number>();
+  for (const it of items) {
+    const k = (key(it) ?? '').trim();
+    if (!k) continue;
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return Array.from(m.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+
+function AggregateChips({
+  entries,
+  emptyLabel = '—',
+  styleMap,
+}: {
+  entries: { label: string; count: number }[];
+  emptyLabel?: string;
+  /** Optional per-label background class, e.g. STATUS_STYLES. */
+  styleMap?: Record<string, string>;
+}) {
+  if (entries.length === 0) return <span className="text-gray-300">{emptyLabel}</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entries.map((e) => (
+        <span
+          key={e.label}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold inline-flex items-center gap-1 ${styleMap?.[e.label] ?? 'bg-gray-100 text-gray-700'}`}
+        >
+          <span className="truncate max-w-[120px]">{e.label}</span>
+          <span className="font-mono-data opacity-75">{e.count}</span>
+        </span>
+      ))}
     </div>
   );
 }

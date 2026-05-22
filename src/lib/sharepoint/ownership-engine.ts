@@ -16,6 +16,101 @@ import type { Owner, Ownership } from './types';
 
 export type SubjectType = 'property' | 'owner';
 
+/**
+ * Does this owner count as a "CAHP entity" — i.e., the parent 501(c)(3) or
+ * one of its wholly-owned subsidiaries? Used by org chart views to highlight
+ * the exemption chain.
+ *
+ * Honors the explicit `IsCAHPEntity` flag first (Settings → Owner Detail).
+ * Falls back to a name-based heuristic so existing data without the flag
+ * still gets the right treatment.
+ */
+export function isCahpEntity(owner: Owner | null | undefined): boolean {
+  if (!owner) return false;
+  if (owner.fields.IsCAHPEntity) return true;
+  const t = (owner.fields.Title ?? '').toLowerCase();
+  return t.includes('cahp') || t.includes('carolina affordable housing project');
+}
+
+/**
+ * Per-node annotations for the property's ownership tree, derived in one
+ * pass so the renderer doesn't have to re-walk the chain for each card.
+ */
+export interface OrgChartCahpAnnotation {
+  /** This entity itself is part of the CAHP family. */
+  isCahpEntity: boolean;
+  /**
+   * One of THIS entity's direct upstream members is a CAHP entity — meaning
+   * this entity's documents are the ones DOR needs for the exemption
+   * filing on its subsidiary properties.
+   */
+  isExemptionSource: boolean;
+  /**
+   * Names of the CAHP entities that are direct members of this entity.
+   * Empty when isExemptionSource is false.
+   */
+  cahpMemberNames: string[];
+}
+
+/**
+ * Walk an OwnershipNode tree and annotate each node with CAHP-related flags.
+ * Returned as a Map keyed by relationship.id so the renderer can look up
+ * annotations by tree position.
+ */
+export function annotateCahpChain(
+  tree: OwnershipNode[],
+): Map<string, OrgChartCahpAnnotation> {
+  const annotations = new Map<string, OrgChartCahpAnnotation>();
+  function walk(nodes: OwnershipNode[]) {
+    for (const node of nodes) {
+      const cahpKidsNames: string[] = [];
+      for (const parentNode of node.children) {
+        if (isCahpEntity(parentNode.owner)) {
+          const name = parentNode.owner?.fields.Title;
+          if (name && !cahpKidsNames.includes(name)) cahpKidsNames.push(name);
+        }
+      }
+      annotations.set(String(node.relationship.id), {
+        isCahpEntity: isCahpEntity(node.owner),
+        isExemptionSource: cahpKidsNames.length > 0,
+        cahpMemberNames: cahpKidsNames,
+      });
+      if (node.children.length > 0) walk(node.children);
+    }
+  }
+  walk(tree);
+  return annotations;
+}
+
+/** Convenience: list every entity in the tree whose direct members include a CAHP entity. */
+export function getExemptionSources(
+  tree: OwnershipNode[],
+): { ownerName: string; cahpMembers: string[] }[] {
+  const out: { ownerName: string; cahpMembers: string[] }[] = [];
+  const seen = new Set<string>();
+  function walk(nodes: OwnershipNode[]) {
+    for (const node of nodes) {
+      const cahpKidsNames: string[] = [];
+      for (const parentNode of node.children) {
+        if (isCahpEntity(parentNode.owner)) {
+          const name = parentNode.owner?.fields.Title;
+          if (name && !cahpKidsNames.includes(name)) cahpKidsNames.push(name);
+        }
+      }
+      if (cahpKidsNames.length > 0 && node.owner?.fields.Title) {
+        const key = String(node.owner.id);
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({ ownerName: node.owner.fields.Title, cahpMembers: cahpKidsNames });
+        }
+      }
+      if (node.children.length > 0) walk(node.children);
+    }
+  }
+  walk(tree);
+  return out;
+}
+
 export interface OwnershipNode {
   /** The ownership relationship record */
   relationship: Ownership;

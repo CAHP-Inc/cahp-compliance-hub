@@ -15,6 +15,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { ChecklistTemplatesEditor } from '../components/ChecklistTemplatesEditor';
 import { EmailTemplatesEditor } from '../components/EmailTemplatesEditor';
+import { AccessListEditor } from '../components/AccessListEditor';
 
 const ROLE_LABELS: Record<Role, string> = {
   'Admin': 'Admin',
@@ -33,14 +34,6 @@ const ROLE_BADGE_STYLES: Record<Role, string> = {
   'Contributor': 'bg-gold-100 text-gold-900 border-gold-300',
   'Accounting': 'bg-blue-100 text-blue-900 border-blue-300',
 };
-
-// Access list mirrors roleMap.ts — kept in sync at deploy time
-const ACCESS_LIST: { email: string; role: Role; org: string; addedIn: string }[] = [
-  { email: 'bturner@newshirepm.com', role: 'Admin', org: 'NewShire', addedIn: 'PR-02' },
-  { email: 'stan@vanrockre.com', role: 'Admin', org: 'VanRock', addedIn: 'PR-15a' },
-  { email: 'bdebruin@redcedarhomes.com', role: 'Admin', org: 'Red Cedar', addedIn: 'PR-15a' },
-  { email: 'lheckman@redcedarhomes.com', role: 'Contributor', org: 'Red Cedar', addedIn: 'PR-15-hotfix' },
-];
 
 export function SettingsPage() {
   const { user, role, realRole, setDevRoleOverride } = useSession();
@@ -164,55 +157,15 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* Access List tab */}
+      {/* Access List tab — full CRUD against the SharePoint Access List */}
       {tab === 'access' && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-900">
-            <strong>Source of truth:</strong> Access is controlled by{' '}
-            <code className="bg-white px-1 rounded">src/lib/roleMap.ts</code>. To add or remove access, edit that file,
-            commit, and push. GitHub Actions deploys the change in ~2 minutes. Users not in this list see an Access Denied
-            screen on sign-in, regardless of M365 tenant membership.
+        isAdmin ? (
+          <AccessListEditor />
+        ) : (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-900">
+            Editing the access list requires the Admin role. Contact bturner@newshirepm.com to request access changes.
           </div>
-
-          <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                <tr>
-                  <th className="px-4 py-3 text-left">Email (UPN)</th>
-                  <th className="px-4 py-3 text-left">Organization</th>
-                  <th className="px-4 py-3 text-left">Role</th>
-                  <th className="px-4 py-3 text-left">Added In</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {ACCESS_LIST.map((entry) => {
-                  const isMe = entry.email.toLowerCase() === user?.email.toLowerCase();
-                  return (
-                    <tr key={entry.email} className={isMe ? 'bg-teal-50/50' : ''}>
-                      <td className="px-4 py-3 font-mono-data text-xs">
-                        {entry.email}
-                        {isMe && <span className="ml-2 text-[10px] font-semibold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded">YOU</span>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{entry.org}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold border ${ROLE_BADGE_STYLES[entry.role]}`}>
-                          {ROLE_LABELS[entry.role]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-500 font-mono-data">{entry.addedIn}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {!isAdmin && (
-            <p className="text-xs text-gray-500 italic">
-              Only Admins can request access changes. Contact bturner@newshirepm.com.
-            </p>
-          )}
-        </div>
+        )
       )}
 
       {/* Permissions Matrix tab */}

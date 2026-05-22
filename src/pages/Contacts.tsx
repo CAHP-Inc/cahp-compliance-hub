@@ -263,9 +263,13 @@ export function Contacts() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {openCount > 0 ? (
-                        <span className="bg-amber-100 text-amber-900 font-mono-data text-xs font-semibold px-2 py-0.5 rounded">
+                        <Link
+                          to={`/outstanding-items?assignee=${encodeURIComponent(c.fields.Title ?? '')}`}
+                          className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-mono-data text-xs font-semibold px-2 py-0.5 rounded inline-block transition-colors"
+                          title={`View ${openCount} open item${openCount === 1 ? '' : 's'} assigned to ${c.fields.Title}`}
+                        >
                           {openCount}
-                        </span>
+                        </Link>
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
