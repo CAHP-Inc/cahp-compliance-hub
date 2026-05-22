@@ -124,6 +124,12 @@ export function PropertyNew() {
 
   const [ownerEntries, setOwnerEntries] = useState<OwnerEntryDraft[]>([]);
 
+  // Direct-ownership mode: the property is owned outright by a single entity
+  // (e.g. IV Fund Global's SFRs) with no LLC wrapper. Suppresses the CAHP SC LLC
+  // auto-add so the org chart stays a clean two-node tree: Owner → Property.
+  // Defaults to ON when the wizard is opened from an Owner page; otherwise OFF.
+  const [directOwnership, setDirectOwnership] = useState<boolean>(!!prefillOwnerId);
+
   // When PropertyNew is opened from an Owner page with `?ownerId=…`, seed the
   // ownership step with that entity so the user doesn't have to manually pick
   // it from the list. Runs once when the owners list resolves.
@@ -218,8 +224,11 @@ export function PropertyNew() {
       }
 
       // 4. Create Ownership records
-      // Auto-add CAHP SC LLC at 0.01% Managing Member if it exists
-      if (cahpScLLC) {
+      // Auto-add CAHP SC LLC at 0.01% Managing Member if it exists — UNLESS
+      // this is a direct-ownership property (e.g. IV Fund Global SFR), in
+      // which case the entity owns it outright and CAHP SC LLC is not in
+      // the chain.
+      if (cahpScLLC && !directOwnership) {
         try {
           await createListItem(LIST_NAMES.Ownership, {
             Title: cahpScLLC.fields.Title,
@@ -280,7 +289,7 @@ export function PropertyNew() {
   };
 
   const totalOwnerPercent =
-    (cahpScLLC ? 0.01 : 0) + ownerEntries.reduce((sum, e) => sum + (e.percent || 0), 0);
+    (cahpScLLC && !directOwnership ? 0.01 : 0) + ownerEntries.reduce((sum, e) => sum + (e.percent || 0), 0);
 
   return (
     <div>
@@ -432,23 +441,44 @@ export function PropertyNew() {
       {step === 3 && (
         <div>
           <Section title="Ownership Members" fullWidth>
-            {/* CAHP SC LLC pre-fill */}
-            <div className={`p-3 rounded border ${cahpScLLC ? 'bg-teal-50 border-teal-200' : 'bg-yellow-50 border-yellow-200'}`}>
-              <div className="flex items-start gap-2">
-                <Icon name="alert" size={14} className={cahpScLLC ? 'text-teal-700' : 'text-yellow-700'} />
-                <div className="text-sm">
-                  {cahpScLLC ? (
-                    <>
-                      <strong>CAHP SC LLC</strong> will be auto-added as <strong>Managing Member at 0.01%</strong> on Finish (matched from Owners list).
-                    </>
-                  ) : (
-                    <>
-                      <strong>CAHP SC LLC</strong> not found in Owners list — won't be auto-added. <Link to="/owners/new" className="underline text-teal-700">Create it first</Link> if you want it included.
-                    </>
-                  )}
+            {/* Direct-ownership toggle — drives whether CAHP SC LLC gets auto-added */}
+            <label className="flex items-start gap-2 p-3 rounded border border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100">
+              <input
+                type="checkbox"
+                checked={directOwnership}
+                onChange={(e) => setDirectOwnership(e.target.checked)}
+                className="mt-0.5"
+              />
+              <div className="text-sm">
+                <div className="font-semibold text-gray-800">Direct ownership (no LLC wrapper)</div>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Check this when the property is owned outright by a single entity
+                  (e.g. an SFR directly owned by IV Fund Global). When checked,
+                  <strong> CAHP SC LLC will NOT be added</strong> — the org chart
+                  shows a clean Owner → Property tree.
+                </p>
+              </div>
+            </label>
+
+            {/* CAHP SC LLC pre-fill (only shown when not in direct-ownership mode) */}
+            {!directOwnership && (
+              <div className={`mt-3 p-3 rounded border ${cahpScLLC ? 'bg-teal-50 border-teal-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                <div className="flex items-start gap-2">
+                  <Icon name="alert" size={14} className={cahpScLLC ? 'text-teal-700' : 'text-yellow-700'} />
+                  <div className="text-sm">
+                    {cahpScLLC ? (
+                      <>
+                        <strong>CAHP SC LLC</strong> will be auto-added as <strong>Managing Member at 0.01%</strong> on Finish (matched from Owners list).
+                      </>
+                    ) : (
+                      <>
+                        <strong>CAHP SC LLC</strong> not found in Owners list — won't be auto-added. <Link to="/owners/new" className="underline text-teal-700">Create it first</Link> if you want it included.
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Additional members */}
             <div className="mt-4">
@@ -627,8 +657,9 @@ export function PropertyNew() {
                 <li>✓ <strong>1 Property</strong> record</li>
                 <li>✓ <strong>1 Submittal</strong> ({filingConfig.firstFilingType} {filingConfig.firstFilingTaxYear}, status Draft)</li>
                 <li>✓ <strong>{initialDocs.length} Outstanding Item{initialDocs.length === 1 ? '' : 's'}</strong> for initial document collection (from Settings → Checklist Templates)</li>
-                <li>✓ <strong>{(cahpScLLC ? 1 : 0) + ownerEntries.length} Ownership row{((cahpScLLC ? 1 : 0) + ownerEntries.length) === 1 ? '' : 's'}</strong>
-                  {cahpScLLC && ` (CAHP SC LLC at 0.01% Managing Member${ownerEntries.length > 0 ? ` + ${ownerEntries.length} additional` : ''})`}
+                <li>✓ <strong>{(cahpScLLC && !directOwnership ? 1 : 0) + ownerEntries.length} Ownership row{((cahpScLLC && !directOwnership ? 1 : 0) + ownerEntries.length) === 1 ? '' : 's'}</strong>
+                  {cahpScLLC && !directOwnership && ` (CAHP SC LLC at 0.01% Managing Member${ownerEntries.length > 0 ? ` + ${ownerEntries.length} additional` : ''})`}
+                  {directOwnership && ' (direct ownership — CAHP SC LLC NOT added)'}
                 </li>
                 <li className="pt-1 text-xs text-gray-500">All actions audit-logged</li>
               </ul>
