@@ -87,6 +87,32 @@ export function Properties() {
   }, [taxMapIDs.data]);
 
   /**
+   * Per-property parcel + filed-parcel counts. A parcel is "filed" if at
+   * least one submittal points at it (via TaxMapIDLookupId) with a status
+   * other than Draft / blank. Lets the entity row surface IV-Fund-style SFR
+   * portfolios at a glance: "120 parcels · 87 filed".
+   */
+  const parcelStatsByProperty = useMemo(() => {
+    const filedTaxMapIds = new Set<string>();
+    (submittals.data ?? []).forEach((s) => {
+      const tmid = s.fields.TaxMapIDLookupId ? String(s.fields.TaxMapIDLookupId) : '';
+      if (!tmid) return;
+      const status = s.fields.SubmittalStatus;
+      if (status && status !== 'Draft') filedTaxMapIds.add(tmid);
+    });
+    const map = new Map<string, { totalParcels: number; filedParcels: number }>();
+    (taxMapIDs.data ?? []).forEach((t) => {
+      const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
+      if (!pid) return;
+      const cur = map.get(pid) ?? { totalParcels: 0, filedParcels: 0 };
+      cur.totalParcels++;
+      if (filedTaxMapIds.has(String(t.id))) cur.filedParcels++;
+      map.set(pid, cur);
+    });
+    return map;
+  }, [taxMapIDs.data, submittals.data]);
+
+  /**
    * For each property's latest year+filing-type, count submittals by status.
    * Used to show "X of N Filed" style multi-parcel breakdown.
    */
@@ -223,14 +249,25 @@ export function Properties() {
 
   const stats = useMemo(() => {
     if (!data) return null;
+    let totalParcels = 0;
+    let filedParcels = 0;
+    for (const p of data) {
+      const ps = parcelStatsByProperty.get(p.id);
+      if (ps) {
+        totalParcels += ps.totalParcels;
+        filedParcels += ps.filedParcels;
+      }
+    }
     return {
       total: data.length,
       active: data.filter((p) => p.fields.PropertyStatus === 'Active').length,
       sc: data.filter((p) => p.fields.cahpState === 'SC').length,
       nc: data.filter((p) => p.fields.cahpState === 'NC').length,
       units: data.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0),
+      parcels: totalParcels,
+      filedParcels,
     };
-  }, [data]);
+  }, [data, parcelStatsByProperty]);
 
   /**
    * Group filtered properties by their primary direct owner. Single-property
@@ -271,7 +308,7 @@ export function Properties() {
         <div>
           <h1 className="text-2xl font-bold text-teal-700">Properties</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {stats.total} properties under CAHP management · {stats.units.toLocaleString()} units total
+            {stats.total} properties under CAHP management · {stats.units.toLocaleString()} units · {stats.parcels.toLocaleString()} tax map IDs ({stats.filedParcels} filed)
           </p>
         </div>
         <button
@@ -284,10 +321,16 @@ export function Properties() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
         <KPICard label="Total Properties" value={stats.total} />
         <KPICard label="Active" value={stats.active} accent="success" />
         <KPICard label="Total Units" value={stats.units.toLocaleString()} />
+        <KPICard label="Tax Map IDs" value={stats.parcels.toLocaleString()} />
+        <KPICard
+          label="Filed Parcels"
+          value={stats.parcels > 0 ? `${stats.filedParcels} / ${stats.parcels}` : '—'}
+          accent={stats.parcels > 0 && stats.filedParcels === stats.parcels ? 'success' : undefined}
+        />
         <KPICard label="SC" value={stats.sc} />
         <KPICard label="NC" value={stats.nc} />
       </div>
@@ -406,6 +449,19 @@ export function Properties() {
                     </div>
                   );
                 };
+                const renderUnitsCell = (p: Property) => {
+                  const ps = parcelStatsByProperty.get(p.id);
+                  return (
+                    <div className="flex flex-col items-end">
+                      <span className="font-mono-data">{p.fields.UnitCount ?? '—'}</span>
+                      {ps && ps.totalParcels > 0 && (
+                        <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${ps.filedParcels} of ${ps.totalParcels} parcels filed`}>
+                          {ps.totalParcels} TMID · <span className={ps.filedParcels === ps.totalParcels ? 'text-success' : 'text-gray-600'}>{ps.filedParcels} filed</span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                };
                 const renderFilingStatusCell = (p: Property) => {
                   const agg = filingAggregateByProperty.get(p.id);
                   const sub = latestSubmittalByProperty.get(p.id);
@@ -487,7 +543,7 @@ export function Properties() {
                         <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
                       </td>
                       <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
-                      <td className="px-4 py-3 text-right font-mono-data">{p.fields.UnitCount ?? '—'}</td>
+                      <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
                       <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
                       <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
                       <td className="px-4 py-3">
@@ -502,6 +558,8 @@ export function Properties() {
 
                 // ─── Multi-property: aggregate parent row + (when expanded) child rows ───
                 const totalUnits = props.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
+                const totalParcels = props.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
+                const filedParcels = props.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
                 const stateAgg = countBy(props, (p) => p.fields.cahpState);
                 const countyAgg = countBy(
                   props.flatMap((p) => (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((c) => ({ c }))),
@@ -551,7 +609,16 @@ export function Properties() {
                     </td>
                     <td className="px-4 py-3"><AggregateChips entries={stateAgg} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={countyAgg} styleMap={{}} /></td>
-                    <td className="px-4 py-3 text-right font-mono-data font-semibold">{totalUnits || '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="font-mono-data font-semibold">{totalUnits || '—'}</span>
+                        {totalParcels > 0 && (
+                          <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${filedParcels} of ${totalParcels} parcels filed`}>
+                            {totalParcels} TMID · <span className={filedParcels === totalParcels ? 'text-success' : 'text-gray-600'}>{filedParcels} filed</span>
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3"><AggregateChips entries={amiAgg} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={contactAgg} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={statusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
@@ -574,7 +641,7 @@ export function Properties() {
                           <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
                         </td>
                         <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
-                        <td className="px-4 py-3 text-right font-mono-data">{p.fields.UnitCount ?? '—'}</td>
+                        <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
                         <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
                         <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
                         <td className="px-4 py-3">

@@ -464,11 +464,23 @@ export function OwnerDetail() {
 
       {/* Direct Property Holdings */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Property Holdings</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {directProperties.length} direct property {directProperties.length === 1 ? 'holding' : 'holdings'}
-          </p>
+        <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Property Holdings</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {directProperties.length} direct property {directProperties.length === 1 ? 'holding' : 'holdings'}
+              {' · '}
+              <span className="text-gray-400">Add properties directly owned by this entity to track their tax map IDs and filings.</span>
+            </p>
+          </div>
+          <button
+            onClick={() => navigate(`/properties/new?ownerId=${owner.id}&role=Member&percent=100`)}
+            className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1 flex-shrink-0"
+            title={`Create a new property pre-linked to ${owner.fields.Title}`}
+          >
+            <Icon name="plus" size={12} />
+            Add Property
+          </button>
         </div>
         {directProperties.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-gray-500">
@@ -476,6 +488,9 @@ export function OwnerDetail() {
             {stats && stats.propertyCounts.indirect > 0 && (
               <> Has indirect interest in <strong>{stats.propertyCounts.indirect}</strong> propert{stats.propertyCounts.indirect === 1 ? 'y' : 'ies'} via owned entities.</>
             )}
+            <div className="mt-3 text-xs text-gray-400">
+              Use <strong>Add Property</strong> above to create a property record for an SFR or portfolio this entity owns outright — then add tax map IDs to it from the property page.
+            </div>
           </div>
         ) : (
           <table className="w-full text-sm">

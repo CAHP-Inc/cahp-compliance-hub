@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   createListItem,
   useSharePointList,
@@ -57,9 +57,21 @@ interface OwnerEntryDraft {
 
 export function PropertyNew() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState<WizardStep>(1);
 
   const { data: allOwners } = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+
+  // `?ownerId=…&role=Member&percent=100` — used from OwnerDetail's "Add Property"
+  // button so the new property is born linked to the right entity (e.g. directly-
+  // owned SFRs under IV Fund Global). Read once on mount.
+  const prefillOwnerId = searchParams.get('ownerId') ?? '';
+  const prefillRole = (searchParams.get('role') as 'Managing Member' | 'Member') || 'Member';
+  const prefillPercent = Number(searchParams.get('percent') ?? '100');
+  const prefillOwner = useMemo(
+    () => (allOwners ?? []).find((o) => String(o.id) === String(prefillOwnerId)),
+    [allOwners, prefillOwnerId],
+  );
 
   const [form, setForm] = useState<Partial<PropertyFields>>({
     Title: '',
@@ -111,6 +123,21 @@ export function PropertyNew() {
   }, [allOwners]);
 
   const [ownerEntries, setOwnerEntries] = useState<OwnerEntryDraft[]>([]);
+
+  // When PropertyNew is opened from an Owner page with `?ownerId=…`, seed the
+  // ownership step with that entity so the user doesn't have to manually pick
+  // it from the list. Runs once when the owners list resolves.
+  useEffect(() => {
+    if (!prefillOwner || ownerEntries.length > 0) return;
+    setOwnerEntries([
+      {
+        ownerLookupId: String(prefillOwner.id),
+        role: prefillRole,
+        percent: prefillPercent,
+      },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillOwner]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,6 +289,12 @@ export function PropertyNew() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-teal-700">New Property</h1>
         <p className="text-sm text-gray-500 mt-1">{STEP_TITLES[step].subtitle}</p>
+        {prefillOwner && (
+          <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-md text-xs text-teal-800">
+            <Icon name="external" size={12} />
+            New property will be linked to <strong>{prefillOwner.fields.Title}</strong> ({prefillRole}, {prefillPercent}%)
+          </div>
+        )}
       </div>
 
       {/* Stepper */}
