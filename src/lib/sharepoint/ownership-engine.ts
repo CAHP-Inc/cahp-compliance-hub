@@ -223,49 +223,58 @@ export function getBeneficialOwnershipTree(
 
 /**
  * Counts the number of properties an owner has direct or indirect interest in.
- * Direct = the owner appears in ownership rows linked to properties.
- * Indirect = the owner is upstream of another owner that has direct interest in properties.
+ *
+ * Schema reminder: in this app, an Ownership row reads
+ *   "{OwnerLookupId} owns {OwnershipPercent}% of {ParentOwnerLookupId|LinkedPropertyLookupId}"
+ * So the HOLDER is OwnerLookupId; the thing held is ParentOwnerLookupId (for
+ * inter-entity rows) or LinkedPropertyLookupId (for property rows).
+ *
+ *   Direct = rows where OwnerLookupId == owner AND LinkedProperty is set.
+ *   Indirect = walk DOWN through entities this owner invests in — i.e., follow
+ *   rows where OwnerLookupId == current, taking ParentOwnerLookupId as the next
+ *   subsidiary. Collect those subsidiaries' direct properties, recurse.
  */
 export function countPropertiesForOwner(
   ownerId: string,
   allOwnership: Ownership[],
   _allOwners: Owner[]
 ): { direct: number; indirect: number } {
-  // Direct: rows where Owner == ownerId AND LinkedProperty is set
   const direct = allOwnership.filter(
     (o) =>
       String(o.fields.OwnerLookupId) === String(ownerId) &&
       o.fields.LinkedPropertyLookupId
   ).length;
 
-  // Indirect: recursively walk DOWN from this owner — find owners that this owner has interest in,
-  // then find their property holdings, repeat.
   const visited = new Set<string>([String(ownerId)]);
   const propertiesFound = new Set<string>();
 
   function walkDown(currentOwnerId: string) {
-    // Find rows where ParentOwner == currentOwnerId — these are entities this owner has interest in
-    const childRelations = allOwnership.filter(
-      (o) => String(o.fields.ParentOwnerLookupId) === String(currentOwnerId)
+    // Entities currentOwnerId invests in = rows where OwnerLookupId == current
+    // AND ParentOwnerLookupId set. The ParentOwnerLookupId of each row is the
+    // subsidiary entity.
+    const investments = allOwnership.filter(
+      (o) =>
+        String(o.fields.OwnerLookupId) === String(currentOwnerId) &&
+        o.fields.ParentOwnerLookupId
     );
-    for (const rel of childRelations) {
-      const childOwnerId = rel.fields.OwnerLookupId;
-      if (!childOwnerId || visited.has(String(childOwnerId))) continue;
-      visited.add(String(childOwnerId));
+    for (const rel of investments) {
+      const subsidiaryId = rel.fields.ParentOwnerLookupId;
+      if (!subsidiaryId || visited.has(String(subsidiaryId))) continue;
+      visited.add(String(subsidiaryId));
 
-      // Properties held by this child owner
-      const childProps = allOwnership.filter(
+      // Properties the subsidiary holds directly
+      const subProps = allOwnership.filter(
         (o) =>
-          String(o.fields.OwnerLookupId) === String(childOwnerId) &&
+          String(o.fields.OwnerLookupId) === String(subsidiaryId) &&
           o.fields.LinkedPropertyLookupId
       );
-      for (const prop of childProps) {
+      for (const prop of subProps) {
         if (prop.fields.LinkedPropertyLookupId) {
           propertiesFound.add(String(prop.fields.LinkedPropertyLookupId));
         }
       }
 
-      walkDown(String(childOwnerId));
+      walkDown(String(subsidiaryId));
     }
   }
 
@@ -329,9 +338,9 @@ export function getUpstreamOwnerIds(
  * Returns the set of property IDs this owner has a direct OR indirect beneficial
  * interest in.
  *
- * Direct = rows where OwnerLookupId == ownerId AND LinkedPropertyLookupId is set.
- * Indirect = walk DOWN through child entities (rows where ParentOwnerLookupId
- * points at the current owner) and collect their property holdings, recursively.
+ * See countPropertiesForOwner above for the schema reminder. Walks DOWN the
+ * tree (entities this owner invests in), not UP (entities that invest in this
+ * owner). Use `getUpstreamOwnerIds` for the opposite direction.
  *
  * Use case: "show me everything Deepak owns" — surfaces every property even
  * when Deepak only holds them through nested LLCs.
@@ -343,7 +352,6 @@ export function getPropertyIdsForOwner(
   const propertiesFound = new Set<string>();
   const visited = new Set<string>([String(ownerId)]);
 
-  // Direct holdings
   for (const o of allOwnership) {
     if (
       String(o.fields.OwnerLookupId) === String(ownerId) &&
@@ -353,31 +361,107 @@ export function getPropertyIdsForOwner(
     }
   }
 
-  // Indirect: walk down the entity tree
   function walkDown(currentOwnerId: string) {
-    const childRelations = allOwnership.filter(
-      (o) => String(o.fields.ParentOwnerLookupId) === String(currentOwnerId),
+    const investments = allOwnership.filter(
+      (o) =>
+        String(o.fields.OwnerLookupId) === String(currentOwnerId) &&
+        o.fields.ParentOwnerLookupId,
     );
-    for (const rel of childRelations) {
-      const childOwnerId = rel.fields.OwnerLookupId;
-      if (!childOwnerId || visited.has(String(childOwnerId))) continue;
-      visited.add(String(childOwnerId));
+    for (const rel of investments) {
+      const subsidiaryId = rel.fields.ParentOwnerLookupId;
+      if (!subsidiaryId || visited.has(String(subsidiaryId))) continue;
+      visited.add(String(subsidiaryId));
 
       for (const o of allOwnership) {
         if (
-          String(o.fields.OwnerLookupId) === String(childOwnerId) &&
+          String(o.fields.OwnerLookupId) === String(subsidiaryId) &&
           o.fields.LinkedPropertyLookupId
         ) {
           propertiesFound.add(String(o.fields.LinkedPropertyLookupId));
         }
       }
 
-      walkDown(String(childOwnerId));
+      walkDown(String(subsidiaryId));
     }
   }
   walkDown(String(ownerId));
 
   return propertiesFound;
+}
+
+/**
+ * One node in the downstream tree returned by `getDownstreamTree`. Each node
+ * represents an entity the root owner has direct or transitive interest in,
+ * plus the properties that entity holds directly.
+ */
+export interface DownstreamNode {
+  owner: Owner;
+  /** % of this entity held by its immediate parent in the tree (from the Ownership row) */
+  percentFromParent: number | undefined;
+  /** Property IDs this entity holds directly */
+  directPropertyIds: string[];
+  /** Sub-entities this entity invests in */
+  children: DownstreamNode[];
+}
+
+/**
+ * Walks DOWN from `ownerId`, building a tree of entities the owner invests in
+ * (directly or transitively), each annotated with the property IDs that entity
+ * holds. Used by the owner-rooted org chart view to show "everything below me."
+ *
+ * Cycle-safe via a visited set scoped to each branch.
+ */
+export function getDownstreamTree(
+  ownerId: string,
+  allOwnership: Ownership[],
+  allOwners: Owner[],
+  maxDepth = 10,
+): DownstreamNode[] {
+  const ownersById = new Map(allOwners.map((o) => [String(o.id), o]));
+
+  function walk(
+    currentOwnerId: string,
+    visited: Set<string>,
+    depth: number,
+  ): DownstreamNode[] {
+    if (depth > maxDepth) return [];
+    const investments = allOwnership.filter(
+      (o) =>
+        String(o.fields.OwnerLookupId) === String(currentOwnerId) &&
+        o.fields.ParentOwnerLookupId,
+    );
+    const nodes: DownstreamNode[] = [];
+    for (const rel of investments) {
+      const subId = String(rel.fields.ParentOwnerLookupId);
+      if (visited.has(subId)) continue;
+      const subOwner = ownersById.get(subId);
+      if (!subOwner) continue;
+
+      const directPropertyIds = allOwnership
+        .filter(
+          (o) =>
+            String(o.fields.OwnerLookupId) === subId &&
+            o.fields.LinkedPropertyLookupId,
+        )
+        .map((o) => String(o.fields.LinkedPropertyLookupId));
+
+      const branchVisited = new Set(visited);
+      branchVisited.add(subId);
+
+      nodes.push({
+        owner: subOwner,
+        percentFromParent: rel.fields.OwnershipPercent,
+        directPropertyIds,
+        children: walk(subId, branchVisited, depth + 1),
+      });
+    }
+    // Sort by % desc within each level
+    return nodes.sort(
+      (a, b) => (b.percentFromParent ?? 0) - (a.percentFromParent ?? 0),
+    );
+  }
+
+  return walk(String(ownerId), new Set([String(ownerId)]), 0);
 }
 
 /**

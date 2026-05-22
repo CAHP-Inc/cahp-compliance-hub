@@ -11,6 +11,8 @@ import {
   countMembersOf,
   countLLCsOwnedBy,
   getPropertyIdsForOwner,
+  getDownstreamTree,
+  type DownstreamNode,
   type Owner,
   type OwnerFields,
   type Ownership,
@@ -524,6 +526,15 @@ export function OwnerDetail() {
         )}
       </div>
 
+      {/* Downstream tree — everything this entity owns or holds interest in */}
+      <OwnerDownstreamTreeSection
+        ownerId={String(owner.id)}
+        ownerTitle={owner.fields.Title}
+        ownership={ownership.data ?? []}
+        owners={owners.data ?? []}
+        properties={properties.data ?? []}
+      />
+
       {/* Outstanding items across every property this owner has an interest in */}
       <OwnerOutstandingItemsSection
         ownerId={String(owner.id)}
@@ -865,30 +876,35 @@ function CascadePreviewSection({
       )
       .forEach((o) => directPropertyIds.add(String(o.fields.LinkedPropertyLookupId)));
 
-    // Indirect: walk DOWN to find properties held by entities this owner has stake in
+    // Indirect: walk DOWN through subsidiaries (entities this owner invests in)
+    // and collect their direct property holdings. Schema: "X owns Y" → row has
+    // OwnerLookupId=X, ParentOwnerLookupId=Y. So Y (the subsidiary) is the
+    // ParentOwnerLookupId of rows where OwnerLookupId=X.
     const visited = new Set<string>([String(ownerId)]);
     const indirectPropertyIds = new Set<string>();
 
     function walkDown(currentOwnerId: string) {
-      const childRels = ownership.filter(
-        (o) => String(o.fields.ParentOwnerLookupId) === String(currentOwnerId)
+      const investments = ownership.filter(
+        (o) =>
+          String(o.fields.OwnerLookupId) === String(currentOwnerId) &&
+          o.fields.ParentOwnerLookupId
       );
-      for (const rel of childRels) {
-        const childOwnerId = rel.fields.OwnerLookupId;
-        if (!childOwnerId || visited.has(String(childOwnerId))) continue;
-        visited.add(String(childOwnerId));
+      for (const rel of investments) {
+        const subId = rel.fields.ParentOwnerLookupId;
+        if (!subId || visited.has(String(subId))) continue;
+        visited.add(String(subId));
 
         ownership
           .filter(
             (o) =>
-              String(o.fields.OwnerLookupId) === String(childOwnerId) &&
+              String(o.fields.OwnerLookupId) === String(subId) &&
               o.fields.LinkedPropertyLookupId
           )
           .forEach((o) =>
             indirectPropertyIds.add(String(o.fields.LinkedPropertyLookupId))
           );
 
-        walkDown(String(childOwnerId));
+        walkDown(String(subId));
       }
     }
     walkDown(String(ownerId));
@@ -953,6 +969,184 @@ function CascadePreviewSection({
           ) : null
         )}
       </ul>
+    </div>
+  );
+}
+
+// =============================================================================
+// OwnerDownstreamTreeSection — informational "everything this entity owns" view.
+// Walks the ownership graph DOWN from the current owner to surface every
+// subsidiary entity + every property held anywhere in the chain. Reference
+// only — DOR filings still use the property-rooted org chart.
+// =============================================================================
+
+function OwnerDownstreamTreeSection({
+  ownerId,
+  ownerTitle,
+  ownership,
+  owners,
+  properties,
+}: {
+  ownerId: string;
+  ownerTitle: string | undefined;
+  ownership: Ownership[];
+  owners: Owner[];
+  properties: Property[];
+}) {
+  const propertiesById = useMemo(() => {
+    const m = new Map<string, Property>();
+    for (const p of properties) m.set(String(p.id), p);
+    return m;
+  }, [properties]);
+
+  const directPropertyIds = useMemo(() => {
+    return ownership
+      .filter(
+        (o) =>
+          String(o.fields.OwnerLookupId) === String(ownerId) &&
+          o.fields.LinkedPropertyLookupId,
+      )
+      .map((o) => String(o.fields.LinkedPropertyLookupId));
+  }, [ownership, ownerId]);
+
+  const tree = useMemo(
+    () => getDownstreamTree(ownerId, ownership, owners),
+    [ownerId, ownership, owners],
+  );
+
+  const totalEntities = useMemo(() => {
+    let n = 0;
+    function count(nodes: DownstreamNode[]) {
+      for (const node of nodes) {
+        n++;
+        count(node.children);
+      }
+    }
+    count(tree);
+    return n;
+  }, [tree]);
+
+  const totalProperties = useMemo(() => {
+    const seen = new Set<string>(directPropertyIds);
+    function walk(nodes: DownstreamNode[]) {
+      for (const node of nodes) {
+        node.directPropertyIds.forEach((id) => seen.add(id));
+        walk(node.children);
+      }
+    }
+    walk(tree);
+    return seen.size;
+  }, [tree, directPropertyIds]);
+
+  // Empty state — no direct properties AND no subsidiaries. Skip the section
+  // entirely so individuals / leaf entities don't get a useless empty card.
+  if (directPropertyIds.length === 0 && tree.length === 0) return null;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+        <h3 className="text-sm font-semibold text-gray-700">Ownership Tree — Everything Below {ownerTitle}</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {totalEntities} sub-entit{totalEntities === 1 ? 'y' : 'ies'} · {totalProperties} propert{totalProperties === 1 ? 'y' : 'ies'} held anywhere in the chain.
+          <span className="ml-1 italic">Reference view — DOR filings still use each property's own org chart.</span>
+        </p>
+      </div>
+      <div className="p-4 text-sm">
+        <DownstreamTreeNode
+          ownerName={ownerTitle ?? '(this entity)'}
+          ownerType={undefined}
+          ownerId={String(ownerId)}
+          percentFromParent={undefined}
+          directPropertyIds={directPropertyIds}
+          children_={tree}
+          propertiesById={propertiesById}
+          depth={0}
+          isRoot
+        />
+      </div>
+    </div>
+  );
+}
+
+function DownstreamTreeNode({
+  ownerName,
+  ownerType,
+  ownerId,
+  percentFromParent,
+  directPropertyIds,
+  children_,
+  propertiesById,
+  depth,
+  isRoot,
+}: {
+  ownerName: string;
+  ownerType: string | undefined;
+  ownerId: string | undefined;
+  percentFromParent: number | undefined;
+  directPropertyIds: string[];
+  children_: DownstreamNode[];
+  propertiesById: Map<string, Property>;
+  depth: number;
+  isRoot?: boolean;
+}) {
+  const navigate = useNavigate();
+  return (
+    <div className={depth === 0 ? '' : 'ml-5 pl-3 border-l-2 border-gray-200'}>
+      <div className="flex items-center gap-2 py-1">
+        <Icon name={isRoot ? 'home' : 'folder'} size={14} className={isRoot ? 'text-teal-700' : 'text-gray-500'} />
+        {ownerId ? (
+          <button
+            onClick={() => navigate(`/owners/${ownerId}`)}
+            className={`font-medium text-left ${isRoot ? 'text-teal-900' : 'text-teal-700 hover:text-teal-900 hover:underline'}`}
+          >
+            {ownerName}
+          </button>
+        ) : (
+          <span className="font-medium text-gray-900">{ownerName}</span>
+        )}
+        {ownerType && (
+          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{ownerType}</span>
+        )}
+        {percentFromParent != null && (
+          <span className="text-[11px] text-gray-500 font-mono-data">{percentFromParent}% held from above</span>
+        )}
+      </div>
+      {directPropertyIds.length > 0 && (
+        <ul className="ml-6 mb-1">
+          {directPropertyIds.map((pid) => {
+            const p = propertiesById.get(pid);
+            return (
+              <li key={pid} className="py-0.5">
+                <button
+                  onClick={() => navigate(`/properties/${pid}`)}
+                  className="text-xs text-gray-700 hover:text-teal-700 hover:underline flex items-center gap-1.5"
+                >
+                  <Icon name="home" size={11} className="text-gray-400" />
+                  {p?.fields.Title ?? `Property #${pid}`}
+                  {p?.fields.cahpState && <span className="text-[10px] text-gray-400 font-mono-data">{p.fields.cahpState}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {children_.length > 0 && (
+        <div>
+          {children_.map((child) => (
+            <DownstreamTreeNode
+              key={`${child.owner.id}-${depth}`}
+              ownerName={child.owner.fields.Title ?? '(unnamed)'}
+              ownerType={child.owner.fields.OwnerType}
+              ownerId={String(child.owner.id)}
+              percentFromParent={child.percentFromParent}
+              directPropertyIds={child.directPropertyIds}
+              children_={child.children}
+              propertiesById={propertiesById}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
