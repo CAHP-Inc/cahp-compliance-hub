@@ -335,6 +335,34 @@ export function getUpstreamOwnerIds(
 }
 
 /**
+ * Walks UPSTREAM from an owner entity to collect every ancestor in the chain
+ * (and the owner itself). Used so an Assignment-of-Interest / parent-level
+ * document tagged to the holding company surfaces on every subsidiary's
+ * Documents tab automatically.
+ *
+ * Cycle-safe via the visited set.
+ */
+export function getAncestorOwnerIds(
+  ownerId: string,
+  allOwnership: Ownership[],
+): Set<string> {
+  const upstream = new Set<string>([String(ownerId)]);
+  const queue: string[] = [String(ownerId)];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const o of allOwnership) {
+      if (String(o.fields.ParentOwnerLookupId) !== current) continue;
+      if (!o.fields.OwnerLookupId) continue;
+      const parent = String(o.fields.OwnerLookupId);
+      if (upstream.has(parent)) continue;
+      upstream.add(parent);
+      queue.push(parent);
+    }
+  }
+  return upstream;
+}
+
+/**
  * Returns the set of property IDs this owner has a direct OR indirect beneficial
  * interest in.
  *

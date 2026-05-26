@@ -324,7 +324,10 @@ export async function uploadDocument(options: DocumentUploadOptions): Promise<Do
     uploaded = await uploadInChunks(driveId, encodedName, file, onProgress);
   }
 
-  // Set metadata if provided
+  // Set metadata if provided. Failure to patch is now surfaced as an error so
+  // the user knows the file landed in SharePoint but is missing its
+  // Owner/Property tag — without the tag, EntityDocumentsSection's filter
+  // hides the doc and it looks like the upload silently failed.
   let listItemId: string | null = null;
   if (metadata && Object.keys(metadata).length > 0) {
     try {
@@ -333,9 +336,13 @@ export async function uploadDocument(options: DocumentUploadOptions): Promise<Do
         .patch(metadata);
       listItemId = updated.id ?? null;
     } catch (e) {
-      // Metadata patch failure is recoverable — file is uploaded; user can re-tag later
+      const msg = e instanceof Error ? e.message : String(e);
       // eslint-disable-next-line no-console
       console.warn('Metadata patch failed after upload:', e);
+      throw new Error(
+        `File uploaded to ${libraryName} but its Owner/Property tag couldn't be saved — without the tag the doc won't appear on the entity's Documents tab. ` +
+        `Open the library directly in SharePoint to set the tag, or delete the upload and retry. (Cause: ${msg})`,
+      );
     }
   }
 

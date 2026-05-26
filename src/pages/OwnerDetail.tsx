@@ -12,6 +12,7 @@ import {
   countLLCsOwnedBy,
   getPropertyIdsForOwner,
   getDownstreamTree,
+  getAncestorOwnerIds,
   type DownstreamNode,
   type Owner,
   type OwnerFields,
@@ -553,11 +554,12 @@ export function OwnerDetail() {
 
       {/* Owner-scoped documents — formation docs, EIN, Articles, COE, Cert of Auth, etc. */}
       <EntityDocumentsSection
-        ownerIds={[String(owner.id)]}
+        ownerIds={Array.from(getAncestorOwnerIds(String(owner.id), ownership.data ?? []))}
         primaryOwnerTitle={owner.fields.Title}
         title="Owner Documents"
-        subtitle="Entity formation docs (EIN, Articles, COE, Cert of Authorization, OA) — uploaded once, surfaced on every property this owner holds."
+        subtitle="This entity's own formation docs PLUS anything tagged to a parent in the ownership chain (e.g. an Assignment of Interest tagged to the holding company shows up here on every subsidiary). Includes the CAHP Entity Documents library."
         uploadOwnerId={String(owner.id)}
+        useCahpEntityLibrary
       />
 
       {/* Deeds where this entity is the grantee */}
