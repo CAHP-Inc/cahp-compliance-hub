@@ -114,15 +114,24 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
     if (!owners.data) return new Set<string>();
     const ids = new Set<string>(upstreamOwnerIds);
     // Belt-and-suspenders: also include any CAHP-named entity even if it's
-    // not yet linked through Ownership Structure rows. State filter dropped.
+    // not yet linked through Ownership Structure rows. EXCLUDE entities
+    // whose name contains the opposite state token (e.g. exclude 'CAHP SC LLC'
+    // for an NC property). The shared parent nonprofit doesn't carry a
+    // state-name token, so it survives the filter on both states.
+    const oppositeStateRe =
+      propertyState === 'SC' ? /\bNC\b/i :
+      propertyState === 'NC' ? /\bSC\b/i :
+      null;
     for (const o of owners.data) {
-      const t = (o.fields.Title ?? '').toLowerCase();
-      if (t.includes('cahp') || t.includes('carolina affordable housing project')) {
-        ids.add(String(o.id));
-      }
+      const title = o.fields.Title ?? '';
+      const t = title.toLowerCase();
+      const isCahp = t.includes('cahp') || t.includes('carolina affordable housing project');
+      if (!isCahp) continue;
+      if (oppositeStateRe && oppositeStateRe.test(title)) continue;
+      ids.add(String(o.id));
     }
     return ids;
-  }, [owners.data, upstreamOwnerIds]);
+  }, [owners.data, upstreamOwnerIds, propertyState]);
 
   // Find property's direct-owner entity IDs (LLCs that own this property)
   const propertyOwnerIds = useMemo(() => {
