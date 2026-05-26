@@ -11,6 +11,7 @@ import {
   type OwnershipFields,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { toDateInputValue } from '../lib/dates';
 import { BreadcrumbBar, Section, SaveErrorBanner } from '../components/detail';
 
 export function OwnershipNew() {
@@ -237,7 +238,7 @@ export function OwnershipNew() {
           <Field label="Effective Date">
             <input
               type="date"
-              value={form.EffectiveDate ? new Date(form.EffectiveDate).toISOString().slice(0, 10) : ''}
+              value={toDateInputValue(form.EffectiveDate)}
               onChange={(e) => handleChange('EffectiveDate', e.target.value ? new Date(e.target.value).toISOString() : undefined)}
               className={`${inputClass} font-mono-data`}
             />

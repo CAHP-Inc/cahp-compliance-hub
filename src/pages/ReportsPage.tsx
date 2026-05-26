@@ -11,7 +11,7 @@ import {
   type Correspondence,
   type OwnerCommunication,
 } from '../lib/sharepoint';
-import { formatDateOnly } from '../lib/dates';
+import { formatDateOnly, formatDateET } from '../lib/dates';
 import {
   REPORTS,
   downloadCSV,
@@ -444,7 +444,7 @@ async function runOutstandingItemsByOwnerReport(
         'Due Date': formatDateOnly(o.fields.DueDate, ''),
         Overdue: overdue ? 'YES' : '',
         'Date Requested': o.fields.DateRequested
-          ? new Date(o.fields.DateRequested).toLocaleDateString()
+          ? formatDateET(o.fields.DateRequested)
           : '',
         'Has Document': o.fields.RelatedDocUrl ? 'YES' : '',
         Notes: o.fields.ItemNotes ?? '',
@@ -506,7 +506,7 @@ async function runDocumentExpirationCalendar(
       Document: doc.fields.FileLeafRef ?? doc.fields.Title ?? '',
       'Document Type': library,
       Property: property?.fields.Title ?? '(unscoped)',
-      'Expires / Due': new Date(doc.fields.ExpirationDate).toLocaleDateString(),
+      'Expires / Due': formatDateET(doc.fields.ExpirationDate),
       'Days Until': Math.floor((exp - now) / (24 * 60 * 60 * 1000)),
       Status: '',
       'Responsible Party': '',
@@ -527,8 +527,8 @@ async function runUntaggedDocumentsReport(
     .map(({ library, doc }) => ({
       Library: library,
       Filename: doc.fields.FileLeafRef ?? doc.fields.Title ?? '',
-      'Uploaded': doc.fields.Created ? new Date(doc.fields.Created).toLocaleDateString() : '',
-      'Modified': doc.fields.Modified ? new Date(doc.fields.Modified).toLocaleDateString() : '',
+      'Uploaded': doc.fields.Created ? formatDateET(doc.fields.Created) : '',
+      'Modified': doc.fields.Modified ? formatDateET(doc.fields.Modified) : '',
       'Size (bytes)': doc.fields.File_x0020_Size ?? '',
       URL: doc.webUrl ?? '',
     }))
@@ -721,9 +721,9 @@ async function bundleAuditPack(
       Subject: c.fields.Title ?? '',
       Direction: c.fields.Direction ?? '',
       'Letter Type': c.fields.LetterType ?? '',
-      'Date Received': c.fields.DateReceived ? new Date(c.fields.DateReceived).toLocaleDateString() : '',
-      'Date Responded': c.fields.DateResponded ? new Date(c.fields.DateResponded).toLocaleDateString() : '',
-      'Response Due': c.fields.ResponseDue ? new Date(c.fields.ResponseDue).toLocaleDateString() : '',
+      'Date Received': c.fields.DateReceived ? formatDateET(c.fields.DateReceived) : '',
+      'Date Responded': c.fields.DateResponded ? formatDateET(c.fields.DateResponded) : '',
+      'Response Due': c.fields.ResponseDue ? formatDateET(c.fields.ResponseDue) : '',
     }));
 
   // Sheet: Outstanding Items
@@ -747,7 +747,7 @@ async function bundleAuditPack(
       Property: ctx.propertiesById.get(String(doc.fields.PropertyLookupId))?.fields.Title ?? '',
       Library: library,
       Filename: doc.fields.FileLeafRef ?? doc.fields.Title ?? '',
-      Uploaded: doc.fields.Created ? new Date(doc.fields.Created).toLocaleDateString() : '',
+      Uploaded: doc.fields.Created ? formatDateET(doc.fields.Created) : '',
       URL: doc.webUrl ?? '',
     }));
 
@@ -759,7 +759,7 @@ async function bundleAuditPack(
       Property: ctx.propertiesById.get(String(s.fields.PropertyLookupId))?.fields.Title ?? '',
       Submittal: s.fields.Title ?? '',
       'Snapshot Date': s.fields.OrgChartSnapshotDate
-        ? new Date(s.fields.OrgChartSnapshotDate).toLocaleDateString()
+        ? formatDateET(s.fields.OrgChartSnapshotDate)
         : '',
       'Snapshot Size (chars)': s.fields.OrgChartSnapshotJSON?.length ?? 0,
     }));

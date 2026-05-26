@@ -5,8 +5,10 @@ import { useSession } from '../lib/session';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import type { Role } from '../lib/permissions';
 import { useSharePointList, LIST_NAMES, type Property, type ComplianceDeadline, type DeadlineStatus, type OutstandingItem, type Submittal } from '../lib/sharepoint';
+import { EASTERN_TZ } from '../lib/dates';
 
 const TODAY = new Date().toLocaleDateString('en-US', {
+  timeZone: EASTERN_TZ,
   weekday: 'long',
   year: 'numeric',
   month: 'long',
@@ -212,7 +214,7 @@ export function MyDay() {
                         isOverdue ? 'text-error font-bold' : isUrgent ? 'text-amber-700 font-semibold' : 'text-gray-700'
                       }`}
                     >
-                      {dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {dueDate?.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric', year: 'numeric' })}
                     </div>
                     <div className="text-[11px] text-gray-500">
                       {isOverdue
@@ -347,7 +349,7 @@ export function MyDay() {
                     {dueDate ? (
                       <>
                         <div className={`text-xs font-mono-data ${isOverdue ? 'text-error font-bold' : 'text-gray-700'}`}>
-                          {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {dueDate.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric' })}
                         </div>
                         <div className="text-[10px] text-gray-500">
                           {isOverdue ? `${Math.abs(daysOut!)}d overdue` : daysOut === 0 ? 'Today' : `in ${daysOut}d`}

@@ -18,6 +18,7 @@ import {
   type CommunicationOwnerLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 import {
   BreadcrumbBar,
   Section,
@@ -325,7 +326,7 @@ export function OwnerCommunicationDetail() {
             )}
           </div>
           <p className="text-sm text-gray-500">
-            {comm.fields.CommDate && new Date(comm.fields.CommDate).toLocaleDateString()}
+            {comm.fields.CommDate && formatDateET(comm.fields.CommDate)}
             {linkedProperties.length > 0 && (
               <>
                 {' · '}

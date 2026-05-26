@@ -9,6 +9,7 @@ import {
 } from '../../lib/sharepoint';
 import { useSession } from '../../lib/session';
 import { Icon } from '../ui/Icon';
+import { formatDateTime } from '../../lib/dates';
 
 const TYPE_ICONS: Record<NotificationType, 'check' | 'calendar' | 'file' | 'star' | 'alert' | 'inbox'> = {
   TaskAssigned: 'check',
@@ -119,7 +120,7 @@ export function NotificationBell() {
                         {n.fields.Title}
                       </div>
                       <div className="text-[10px] text-gray-500 font-mono-data mt-0.5">
-                        {n.createdDateTime && new Date(n.createdDateTime).toLocaleString()}
+                        {n.createdDateTime && formatDateTime(n.createdDateTime)}
                       </div>
                     </div>
                   </li>

@@ -14,6 +14,7 @@ import {
   type SubmittalStatusValue,
   type ItemCategory,
 } from '../lib/sharepoint';
+import { formatDateET, toDateInputValue } from '../lib/dates';
 
 const LETTER_TYPES: LetterType[] = [
   'Initial Acknowledgment',
@@ -71,7 +72,7 @@ export function LogLetterModal({
   const [submittalId, setSubmittalId] = useState<string>(defaultSubmittalId ?? '');
   const [direction, setDirection] = useState<CorrespondenceDirection>('Inbound (from DOR)');
   const [letterType, setLetterType] = useState<LetterType | ''>('');
-  const [dateReceived, setDateReceived] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [dateReceived, setDateReceived] = useState<string>(toDateInputValue(new Date()));
   const [subject, setSubject] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [responseDue, setResponseDue] = useState<string>('');
@@ -190,7 +191,7 @@ export function LogLetterModal({
               ItemStatus: 'Requested',
               DateRequested: new Date(dateReceived).toISOString(),
               DueDate: new Date(responseDue).toISOString(),
-              ItemNotes: `Auto-created from DOR Correspondence #${corr.id}. Response due ${new Date(responseDue).toLocaleDateString()}.`,
+              ItemNotes: `Auto-created from DOR Correspondence #${corr.id}. Response due ${formatDateET(responseDue)}.`,
             });
             createdItems++;
           } catch (e) {
@@ -201,7 +202,7 @@ export function LogLetterModal({
         if (createdItems > 0) {
           setCascadeLog((prev) => [
             ...prev,
-            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${new Date(responseDue).toLocaleDateString()})`,
+            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${formatDateET(responseDue)})`,
           ]);
         } else {
           setCascadeLog((prev) => [...prev, `⚠ Outstanding Item creation failed (correspondence still saved)`]);

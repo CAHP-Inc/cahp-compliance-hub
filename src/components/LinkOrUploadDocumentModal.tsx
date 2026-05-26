@@ -14,6 +14,7 @@ import {
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import type { PropertyLinkedLibrary } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
+import { formatDateET } from '../lib/dates';
 
 interface DocItemRaw {
   id: string;
@@ -389,7 +390,7 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
                               {doc.scopeLabel}
                             </span>
                             <span>{doc.library}</span>
-                            {doc.uploadDate && <span className="font-mono-data">{new Date(doc.uploadDate).toLocaleDateString()}</span>}
+                            {doc.uploadDate && <span className="font-mono-data">{formatDateET(doc.uploadDate)}</span>}
                           </div>
                         </div>
                         <button

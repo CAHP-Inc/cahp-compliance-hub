@@ -17,6 +17,7 @@ import {
 } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
+import { toDateInputValue } from '../lib/dates';
 import type { ItemCategory, CahpState } from '../lib/sharepoint';
 
 /**
@@ -222,7 +223,7 @@ export function ChecklistTemplatesEditor() {
     const blob = new Blob([JSON.stringify(items.map(({ rowId: _id, ...rest }) => rest), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = toDateInputValue(new Date());
     a.href = url;
     a.download = `cahp-checklist-templates-${stamp}.json`;
     document.body.appendChild(a);

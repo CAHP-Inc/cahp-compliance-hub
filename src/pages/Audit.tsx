@@ -7,6 +7,7 @@ import {
   type AuditAction,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { EASTERN_TZ } from '../lib/dates';
 
 const ACTION_STYLES: Record<AuditAction, string> = {
   CREATE: 'bg-green-100 text-green-800',
@@ -333,12 +334,13 @@ function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString('en-US', {
+    timeZone: EASTERN_TZ,
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  });
+  }) + ' ET';
 }
 
 function downloadAuditCSV(rows: AuditLog[]) {

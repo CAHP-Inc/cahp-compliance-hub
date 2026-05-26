@@ -1,4 +1,5 @@
 import { graphClient } from './sharepoint/client';
+import { EASTERN_TZ } from './dates';
 
 /**
  * Send mail via Microsoft Graph as the signed-in user.
@@ -128,7 +129,7 @@ export interface TemplateContext {
  */
 export function applyTemplateVars(text: string, ctx: TemplateContext): string {
   const today = new Date().toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: EASTERN_TZ, year: 'numeric', month: 'long', day: 'numeric',
   });
   const map: Record<string, string | undefined> = {
     contact: ctx.contactName,

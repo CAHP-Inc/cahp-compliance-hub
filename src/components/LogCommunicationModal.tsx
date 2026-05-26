@@ -11,6 +11,7 @@ import {
 } from '../lib/sharepoint';
 import { notifyUser } from '../lib/notifications';
 import { useSession } from '../lib/session';
+import { formatDateET, toDateInputValue } from '../lib/dates';
 
 const COMM_TYPES: CommType[] = ['Email', 'Phone', 'Meeting', 'SMS', 'Other'];
 const COMM_DIRECTIONS: CommDirection[] = ['Inbound', 'Outbound'];
@@ -35,7 +36,7 @@ export function LogCommunicationModal({
   const [subject, setSubject] = useState('');
   const [commType, setCommType] = useState<CommType>('Email');
   const [direction, setDirection] = useState<CommDirection>('Inbound');
-  const [commDate, setCommDate] = useState(new Date().toISOString().slice(0, 10));
+  const [commDate, setCommDate] = useState(toDateInputValue(new Date()));
   // Multi-select: a communication can span many properties / owners
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(
     new Set(defaultPropertyId ? [defaultPropertyId] : []),
@@ -179,7 +180,7 @@ export function LogCommunicationModal({
               DateRequested: new Date(commDate).toISOString(),
               DueDate: new Date(responseDue).toISOString(),
               Priority: 'Medium',
-              ItemNotes: `Auto-created from Owner Communication #${comm.id} (${commType}, ${direction}). Follow up by ${new Date(responseDue).toLocaleDateString()}.`,
+              ItemNotes: `Auto-created from Owner Communication #${comm.id} (${commType}, ${direction}). Follow up by ${formatDateET(responseDue)}.`,
             });
             createdItems++;
           } catch (e) {
@@ -190,7 +191,7 @@ export function LogCommunicationModal({
         if (createdItems > 0) {
           setCascadeLog((prev) => [
             ...prev,
-            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${new Date(responseDue).toLocaleDateString()})`,
+            `✓ ${createdItems} Outstanding Item${createdItems === 1 ? '' : 's'} created (due ${formatDateET(responseDue)})`,
           ]);
         } else {
           setCascadeLog((prev) => [...prev, `⚠ Outstanding Item creation failed (comm record still saved)`]);
@@ -204,7 +205,7 @@ export function LogCommunicationModal({
         await notifyUser({
           upn: user.email,
           type: 'TaskAssigned',
-          title: `Follow up due ${new Date(responseDue).toLocaleDateString()}: ${subject}`,
+          title: `Follow up due ${formatDateET(responseDue)}: ${subject}`,
           targetType: 'Communication',
           targetId: String(comm.id),
           url: `/comms/${comm.id}`,

@@ -8,6 +8,7 @@ import {
   type DeadlineType,
   type Property,
 } from '../lib/sharepoint';
+import { EASTERN_TZ } from '../lib/dates';
 import { Icon } from '../components/ui/Icon';
 import { NewDeadlineModal } from '../components/NewDeadlineModal';
 
@@ -461,5 +462,5 @@ function formatDate(iso: string | undefined | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, year: 'numeric', month: 'short', day: 'numeric' });
 }

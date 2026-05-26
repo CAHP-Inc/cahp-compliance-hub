@@ -8,6 +8,7 @@ import {
   type Property,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 
 const RELATIONSHIP_STYLES: Record<RelationshipType, string> = {
   'Managing Member': 'bg-teal-100 text-teal-800',
@@ -195,7 +196,7 @@ export function Ownership() {
                       <td className="px-4 py-3 text-gray-700 text-xs">{o.fields.ParentEntity || '—'}</td>
                       <td className="px-4 py-3 text-gray-700 text-xs">{linkedProperty?.fields.Title || '—'}</td>
                       <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                        {o.fields.EffectiveDate ? new Date(o.fields.EffectiveDate).toLocaleDateString() : '—'}
+                        {o.fields.EffectiveDate ? formatDateET(o.fields.EffectiveDate) : '—'}
                       </td>
                     </tr>
                   );

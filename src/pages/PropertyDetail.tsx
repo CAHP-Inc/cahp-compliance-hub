@@ -54,7 +54,7 @@ import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
-import { formatDateOnly } from '../lib/dates';
+import { formatDateOnly, formatDateET, formatDateTime, toDateInputValue, EASTERN_TZ } from '../lib/dates';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -1316,7 +1316,7 @@ function PropertyActivityTab({ propertyId }: { propertyId: string }) {
               )}
             </div>
             <div className="text-xs text-gray-500 font-mono-data flex-shrink-0 text-right">
-              <div>{new Date(row.createdDateTime).toLocaleDateString()}</div>
+              <div>{formatDateET(row.createdDateTime)}</div>
               <div className="text-gray-400">{row.createdBy?.user?.displayName ?? ''}</div>
             </div>
           </li>
@@ -2790,7 +2790,7 @@ function formatNoteTimestamp(iso: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return formatDateTime(d);
 }
 
 // =============================================================================
@@ -2901,7 +2901,7 @@ function EditableField({
         className={`${inputClass} ${mono ? 'font-mono-data' : ''}`} />
     );
   } else if (type === 'date') {
-    const dateValue = value ? new Date(value as string).toISOString().slice(0, 10) : '';
+    const dateValue = value ? toDateInputValue(value as string) : '';
     input = (
       <input type="date" value={dateValue}
         onChange={(e) => onChange(e.target.value ? new Date(e.target.value).toISOString() : null)}
@@ -2938,5 +2938,5 @@ function formatDate(iso: string | undefined | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, year: 'numeric', month: 'short', day: 'numeric' });
 }

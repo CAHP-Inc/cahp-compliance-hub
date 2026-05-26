@@ -7,6 +7,8 @@
  * all the work using already-loaded SharePoint data.
  */
 
+import { toDateInputValue } from './dates';
+
 // =============================================================================
 // Report descriptors
 // =============================================================================
@@ -216,6 +218,6 @@ function triggerDownload(blob: Blob, filename: string): void {
  * e.g., "compliance-status-2026-05-15.csv"
  */
 export function timestampedFilename(base: string, ext: string): string {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = toDateInputValue(new Date());
   return `${base}-${date}.${ext}`;
 }

@@ -18,6 +18,7 @@
 import jsPDF from 'jspdf';
 import { uploadDocument } from '../lib/sharepoint';
 import type { OwnershipNode, Property } from '../lib/sharepoint';
+import { toDateInputValue } from '../lib/dates';
 
 // =============================================================================
 // Public API
@@ -424,7 +425,7 @@ function drawFooter(pdf: jsPDF, x: number, y: number, w: number): void {
 
 function buildBaseFilename(propertyTitle: string): string {
   const safe = propertyTitle.replace(/[\\/:*?"<>|]/g, '').trim() || 'Property';
-  const date = new Date().toISOString().slice(0, 10);
+  const date = toDateInputValue(new Date());
   return `${safe} - Org Chart - ${date}.pdf`;
 }
 
@@ -538,7 +539,7 @@ export async function exportOrgChartPDF(
     file: pdfBlob,
     metadata: {
       PropertyLookupId: String(property.id),
-      ChartDate: new Date().toISOString().slice(0, 10),
+      ChartDate: toDateInputValue(new Date()),
     },
   });
 

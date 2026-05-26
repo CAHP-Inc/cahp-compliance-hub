@@ -11,6 +11,7 @@ import {
   type CorrChannel,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 import { LogLetterModal } from '../components/LogLetterModal';
 import { LogDORCommModal } from '../components/LogDORCommModal';
 
@@ -299,7 +300,7 @@ export function CorrespondencePage() {
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                      {c.fields.DateReceived ? new Date(c.fields.DateReceived).toLocaleDateString() : '—'}
+                      {c.fields.DateReceived ? formatDateET(c.fields.DateReceived) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${CHANNEL_STYLES[channel]}`}>
@@ -338,7 +339,7 @@ export function CorrespondencePage() {
                       ) : '—'}
                     </td>
                     <td className={`px-4 py-3 font-mono-data text-xs ${isOverdue ? 'text-error font-semibold' : 'text-gray-700'}`}>
-                      {responseDue ? responseDue.toLocaleDateString() : '—'}
+                      {responseDue ? formatDateET(responseDue) : '—'}
                       {isOverdue && ' ⚠'}
                     </td>
                   </tr>

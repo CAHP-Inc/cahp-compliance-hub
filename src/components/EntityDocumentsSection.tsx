@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSharePointList, updateListItem, deleteListItem, LIST_NAMES, type Owner } from '../lib/sharepoint';
 import { PROPERTY_LINKED_LIBRARIES, CAHP_ENTITY_LIBRARY, UploadDocumentModal } from './UploadDocumentModal';
 import { Icon } from './ui/Icon';
+import { formatDateET } from '../lib/dates';
 
 interface DocItemRaw {
   id: string;
@@ -424,7 +425,7 @@ export function EntityDocumentsSection({
                       </div>
                     ) : (
                     <span className="text-gray-400 font-mono-data text-[10px] flex-shrink-0">
-                      {d.uploadDate ? new Date(d.uploadDate).toLocaleDateString() : ''}
+                      {d.uploadDate ? formatDateET(d.uploadDate) : ''}
                     </span>
                     )}
                     <button

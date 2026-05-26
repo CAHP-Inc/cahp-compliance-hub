@@ -29,7 +29,7 @@ import { LoggedCommunicationsSection } from '../components/LoggedCommunicationsS
 import { DeedsSection } from '../components/DeedsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
-import { formatDateOnly } from '../lib/dates';
+import { formatDateOnly, formatDateET } from '../lib/dates';
 import {
   BreadcrumbBar,
   Section,
@@ -403,7 +403,7 @@ export function OwnerDetail() {
                       {rel.fields.OwnershipPercent != null ? `${rel.fields.OwnershipPercent}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                      {rel.fields.EffectiveDate ? new Date(rel.fields.EffectiveDate).toLocaleDateString() : '—'}
+                      {rel.fields.EffectiveDate ? formatDateET(rel.fields.EffectiveDate) : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -519,7 +519,7 @@ export function OwnerDetail() {
                     {rel.fields.OwnershipPercent != null ? `${rel.fields.OwnershipPercent}%` : '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                    {rel.fields.EffectiveDate ? new Date(rel.fields.EffectiveDate).toLocaleDateString() : '—'}
+                    {rel.fields.EffectiveDate ? formatDateET(rel.fields.EffectiveDate) : '—'}
                   </td>
                 </tr>
               ))}

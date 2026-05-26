@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { OutstandingItem, Property } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
-import { formatDateOnly } from '../lib/dates';
+import { formatDateOnly, toDateInputValue } from '../lib/dates';
 
 /**
  * Export Outstanding Items modal.
@@ -201,7 +201,7 @@ export function ExportOutstandingItemsModal({
     const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = toDateInputValue(new Date());
     const stem = propertyTitle ? propertyTitle.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') : 'Portfolio';
     a.href = url;
     a.download = `${stem}_OutstandingItems_${stamp}.csv`;

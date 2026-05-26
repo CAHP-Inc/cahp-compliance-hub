@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from './ui/Icon';
+import { formatDateTime } from '../lib/dates';
 
 /**
  * Renders an org chart from a frozen JSON snapshot stored on a submittal.
@@ -159,7 +160,7 @@ export function SubmittalOrgChartSnapshot({
             Captured{' '}
             <span className="font-mono-data">
               {snapshot.capturedAt
-                ? new Date(snapshot.capturedAt).toLocaleString()
+                ? formatDateTime(snapshot.capturedAt)
                 : 'date unknown'}
             </span>
             . Renders historical data only — not current ownership.

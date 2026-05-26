@@ -12,6 +12,7 @@ import {
   type CommunicationOwnerLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 import { LogCommunicationModal } from '../components/LogCommunicationModal';
 
 const TYPE_STYLES: Record<CommType, string> = {
@@ -289,7 +290,7 @@ export function OwnerCommunicationsPage() {
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                      {c.fields.CommDate ? new Date(c.fields.CommDate).toLocaleDateString() : '—'}
+                      {c.fields.CommDate ? formatDateET(c.fields.CommDate) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       {c.fields.CommType ? (
@@ -336,7 +337,7 @@ export function OwnerCommunicationsPage() {
                       {c.fields.CommParticipants || '—'}
                     </td>
                     <td className={`px-4 py-3 font-mono-data text-xs ${isOverdue ? 'text-error font-semibold' : 'text-gray-700'}`}>
-                      {responseDue ? responseDue.toLocaleDateString() : '—'}
+                      {responseDue ? formatDateET(responseDue) : '—'}
                       {isOverdue && ' ⚠'}
                     </td>
                     <td className="px-4 py-3">

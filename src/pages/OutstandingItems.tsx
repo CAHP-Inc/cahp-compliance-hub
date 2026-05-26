@@ -10,7 +10,7 @@ import {
   type ItemPriority,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
-import { formatDateOnly, parseDateOnly, toDateOnlyISO } from '../lib/dates';
+import { formatDateOnly, parseDateOnly, toDateOnlyISO, EASTERN_TZ } from '../lib/dates';
 import { NewOutstandingItemModal } from '../components/NewOutstandingItemModal';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
@@ -902,8 +902,8 @@ function CalendarView({
       const lastDay = days[6];
       const sameMonth = start.getMonth() === lastDay.getMonth();
       const label = sameMonth
-        ? `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${lastDay.getDate()}, ${lastDay.getFullYear()}`
-        : `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${lastDay.getFullYear()}`;
+        ? `${start.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric' })} – ${lastDay.getDate()}, ${lastDay.getFullYear()}`
+        : `${start.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric' })} – ${lastDay.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric' })}, ${lastDay.getFullYear()}`;
       return { days, rangeStart: start, rangeEnd: end, rangeLabel: `Week of ${label}` };
     }
     // month
@@ -918,7 +918,7 @@ function CalendarView({
       days,
       rangeStart: first,
       rangeEnd: last,
-      rangeLabel: anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      rangeLabel: anchor.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'long', year: 'numeric' }),
     };
   }, [mode, anchor]);
 
@@ -990,7 +990,7 @@ function CalendarView({
             }
           >
             {mode === 'week'
-              ? day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              ? day.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, weekday: 'short', month: 'short', day: 'numeric' })
               : day.getDate()}
           </span>
           {dayItems.length > 0 && (

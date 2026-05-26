@@ -24,7 +24,7 @@ import {
   type DeedParcelLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
-import { formatDateOnly } from '../lib/dates';
+import { formatDateOnly, formatDateET } from '../lib/dates';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { notifyUser } from '../lib/notifications';
 import { useSession } from '../lib/session';
@@ -474,8 +474,8 @@ export function SubmittalDetail() {
         NextAction: null,
         NextActionDue: null,
         SubmittalNotes: f.SubmittalNotes
-          ? `${f.SubmittalNotes}\n\n[Approval ${new Date().toLocaleDateString()}] Letter ref: ${approvalLetterRef}`
-          : `[Approval ${new Date().toLocaleDateString()}] Letter ref: ${approvalLetterRef}`,
+          ? `${f.SubmittalNotes}\n\n[Approval ${formatDateET(new Date())}] Letter ref: ${approvalLetterRef}`
+          : `[Approval ${formatDateET(new Date())}] Letter ref: ${approvalLetterRef}`,
       });
 
       await refetch();
@@ -852,7 +852,7 @@ export function SubmittalDetail() {
                     <div className="text-gray-900 truncate">{o.fields.Title}</div>
                     <div className="text-[11px] text-gray-500 font-mono-data">
                       {o.fields.ItemStatus ?? 'Requested'}
-                      {o.fields.DateRequested && ` · requested ${new Date(o.fields.DateRequested).toLocaleDateString()}`}
+                      {o.fields.DateRequested && ` · requested ${formatDateET(o.fields.DateRequested)}`}
                     </div>
                   </div>
                 </li>
@@ -936,7 +936,7 @@ export function SubmittalDetail() {
                   )}
                 </div>
                 <div className="text-xs text-gray-500 font-mono-data flex-shrink-0 text-right">
-                  <div>{new Date(row.createdDateTime).toLocaleDateString()}</div>
+                  <div>{formatDateET(row.createdDateTime)}</div>
                   <div className="text-gray-400">{row.createdBy?.user?.displayName ?? ''}</div>
                 </div>
               </li>
@@ -1052,7 +1052,7 @@ function TransitionModal({
                     </label>
                     <p className="font-mono-data text-gray-900">
                       {field === 'DateFiled' && typeof currentValue === 'string'
-                        ? new Date(currentValue).toLocaleDateString()
+                        ? formatDateET(currentValue)
                         : String(currentValue)}
                     </p>
                   </div>
@@ -1259,9 +1259,7 @@ function serializeTree(tree: ReturnType<typeof getBeneficialOwnershipTree>): unk
 
 function formatDate(iso: string | undefined): string | undefined {
   if (!iso) return undefined;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString();
+  return formatDateET(iso, iso);
 }
 
 /**

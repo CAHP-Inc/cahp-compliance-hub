@@ -10,6 +10,7 @@ import {
   type Submittal,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
+import { toDateInputValue } from '../lib/dates';
 
 type DispositionType = Extract<PropertyStatus, 'Sold' | 'Withdrawn' | 'Removed from Program'>;
 
@@ -42,7 +43,7 @@ const isClosedItemStatus = (s: string | undefined) =>
 
 export function DispositionModal({ property, onClose, onComplete }: DispositionModalProps) {
   const [type, setType] = useState<DispositionType | ''>('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(toDateInputValue(new Date()));
   const [reason, setReason] = useState('');
   const [closeOpenItems, setCloseOpenItems] = useState(true);
   const [closeDeadlines, setCloseDeadlines] = useState(true);

@@ -9,6 +9,7 @@
  * editable form field that swaps between read/edit modes).
  */
 import { Link } from 'react-router-dom';
+import { EASTERN_TZ } from '../../lib/dates';
 
 // =============================================================================
 // BreadcrumbBar
@@ -260,5 +261,5 @@ export function formatDate(iso: string | undefined | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, year: 'numeric', month: 'short', day: 'numeric' });
 }

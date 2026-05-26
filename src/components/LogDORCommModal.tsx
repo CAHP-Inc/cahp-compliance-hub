@@ -9,6 +9,7 @@ import {
   type CahpTaxYear,
   type CahpState,
 } from '../lib/sharepoint';
+import { toDateInputValue } from '../lib/dates';
 
 /**
  * Log General DOR Communication.
@@ -52,7 +53,7 @@ export function LogDORCommModal({
   const [propertySearch, setPropertySearch] = useState('');
   const [channel, setChannel] = useState<CorrChannel>('Email');
   const [direction, setDirection] = useState<CorrespondenceDirection>('Outbound (to DOR)');
-  const [commDate, setCommDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [commDate, setCommDate] = useState<string>(toDateInputValue(new Date()));
   const [subject, setSubject] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [participants, setParticipants] = useState<string>('');

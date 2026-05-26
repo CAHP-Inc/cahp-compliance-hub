@@ -16,6 +16,7 @@ import {
   type SubmittalStatusValue,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { toDateInputValue } from '../lib/dates';
 import { BreadcrumbBar, Section, SaveErrorBanner } from '../components/detail';
 import { CountyMultiSelect } from '../components/CountyMultiSelect';
 import { useChecklistTemplates } from '../lib/filing-checklist';
@@ -364,7 +365,7 @@ export function PropertyNew() {
               <input type="text" value={form.PropertyAddress ?? ''} onChange={(e) => handleChange('PropertyAddress', e.target.value)} placeholder="Street, City, State, ZIP" className={inputClass} />
             </Field>
             <Field label="Date Added to CAHP">
-              <input type="date" value={form.DateAddedToCAHP ? new Date(form.DateAddedToCAHP).toISOString().slice(0, 10) : ''} onChange={(e) => handleChange('DateAddedToCAHP', e.target.value ? new Date(e.target.value).toISOString() : undefined)} className={`${inputClass} font-mono-data`} />
+              <input type="date" value={toDateInputValue(form.DateAddedToCAHP)} onChange={(e) => handleChange('DateAddedToCAHP', e.target.value ? new Date(e.target.value).toISOString() : undefined)} className={`${inputClass} font-mono-data`} />
             </Field>
           </Section>
           <Section title="Location">

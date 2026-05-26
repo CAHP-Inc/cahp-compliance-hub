@@ -7,6 +7,7 @@ import {
   type Owner,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 import { PROPERTY_LINKED_LIBRARIES } from '../components/UploadDocumentModal';
 
 interface UntaggedDoc {
@@ -430,7 +431,7 @@ export function UntaggedDocuments() {
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-700">{doc.library}</td>
                   <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">
-                    {doc.uploadDate ? new Date(doc.uploadDate).toLocaleDateString() : '—'}
+                    {doc.uploadDate ? formatDateET(doc.uploadDate) : '—'}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600">{doc.uploader ?? '—'}</td>
                   <td className="px-4 py-3">

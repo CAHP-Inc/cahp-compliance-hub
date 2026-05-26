@@ -9,6 +9,7 @@ import {
 } from '../lib/sharepoint';
 import { useSession } from '../lib/session';
 import { Icon } from '../components/ui/Icon';
+import { formatDateTime } from '../lib/dates';
 
 const TYPE_LABEL: Record<NotificationType, string> = {
   TaskAssigned: 'Task Assigned',
@@ -239,7 +240,7 @@ export function NotificationsPage() {
                       {n.fields.Title}
                     </div>
                     <div className="text-[11px] text-gray-500 font-mono-data mt-0.5">
-                      {n.createdDateTime && new Date(n.createdDateTime).toLocaleString()}
+                      {n.createdDateTime && formatDateTime(n.createdDateTime)}
                     </div>
                   </div>
                   <button

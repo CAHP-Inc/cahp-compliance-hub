@@ -19,6 +19,7 @@ import {
   type CorrespondencePropertyLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
 import {
   BreadcrumbBar,
   Section,
@@ -251,7 +252,7 @@ export function CorrespondenceDetail() {
                 </Link>
               </>
             )}
-            {corr.fields.DateReceived && ` · ${new Date(corr.fields.DateReceived).toLocaleDateString()}`}
+            {corr.fields.DateReceived && ` · ${formatDateET(corr.fields.DateReceived)}`}
           </p>
         </div>
         <div className="flex items-center gap-2">

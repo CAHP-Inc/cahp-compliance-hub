@@ -8,6 +8,7 @@ import {
   type AuditLog,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { EASTERN_TZ } from '../lib/dates';
 
 export function Portfolio() {
   const navigate = useNavigate();
@@ -370,5 +371,5 @@ function formatRelative(iso: string): string {
   if (diffHr < 24) return `${diffHr}h`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, month: 'short', day: 'numeric' });
 }
