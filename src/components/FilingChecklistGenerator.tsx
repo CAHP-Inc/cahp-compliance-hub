@@ -176,15 +176,42 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         return true;
       };
 
+      // Extract multi-value Lookup IDs (Graph surfaces them under the base
+      // column name as an array of {LookupId, LookupValue}, not under
+      // the *LookupId suffixed name). Falls back to the scalar shape too.
+      const extractLookupIds = (
+        fields: Record<string, unknown> | undefined,
+        base: 'Owner' | 'Property',
+      ): string[] => {
+        if (!fields) return [];
+        const ids: string[] = [];
+        const scalar = fields[`${base}LookupId`];
+        if (typeof scalar === 'string' || typeof scalar === 'number') {
+          const s = String(scalar);
+          if (s) ids.push(s);
+        } else if (Array.isArray(scalar)) {
+          for (const v of scalar) ids.push(String(v));
+        }
+        const arr = fields[base];
+        if (Array.isArray(arr)) {
+          for (const entry of arr) {
+            if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+              ids.push(String((entry as { LookupId: unknown }).LookupId));
+            }
+          }
+        }
+        return ids;
+      };
+
       // CAHP-scoped items: check the dedicated CAHP Entity Documents library first by filename match
       // Filter by OwnerLookupId state-scope; untagged docs count as shared (visible everywhere)
       let candidateDoc: DocItemRaw | undefined;
       if (template.scope === 'cahp' && cahpLib.data && cahpLib.data.length > 0) {
         const keywords = extractKeywords(template.title);
         candidateDoc = cahpLib.data.find((doc) => {
-          const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+          const ownerTags = extractLookupIds(doc.fields as unknown as Record<string, unknown>, 'Owner');
           // Skip docs tagged to entities NOT in scope (e.g. NC LLC docs when filing an SC property)
-          if (ownerTag && !cahpOwnerIds.has(ownerTag)) return false;
+          if (ownerTags.length > 0 && !ownerTags.some((id) => cahpOwnerIds.has(id))) return false;
           const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
           if (!matchesStateFilter(filename)) return false;
           return keywords.some((kw) => filename.includes(kw));
@@ -205,13 +232,13 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         const lib = libraries[libIdx];
         if (lib?.data) {
           const candidates = lib.data.filter((doc) => {
-            const propTag = doc.fields.PropertyLookupId ? String(doc.fields.PropertyLookupId) : null;
-            const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+            const propTags = extractLookupIds(doc.fields as unknown as Record<string, unknown>, 'Property');
+            const ownerTags = extractLookupIds(doc.fields as unknown as Record<string, unknown>, 'Owner');
             const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
             if (!matchesStateFilter(filename)) return false;
-            if (template.scope === 'property') return propTag === propertyId;
-            if (template.scope === 'cahp') return ownerTag !== null && cahpOwnerIds.has(ownerTag);
-            if (template.scope === 'owner') return ownerTag !== null && propertyOwnerIds.has(ownerTag);
+            if (template.scope === 'property') return propTags.includes(propertyId);
+            if (template.scope === 'cahp') return ownerTags.some((id) => cahpOwnerIds.has(id));
+            if (template.scope === 'owner') return ownerTags.some((id) => propertyOwnerIds.has(id));
             return false;
           });
           if (candidates.length > 0 && candidates[0].webUrl) {
@@ -227,16 +254,13 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       }
 
       // Determine whether the matched doc is already correctly tagged for this filing.
-      // - property scope: needs PropertyLookupId === propertyId
-      // - owner scope:    needs OwnerLookupId in propertyOwnerIds
-      // - cahp scope:     needs OwnerLookupId in cahpOwnerIds (or untagged = shared)
       let alreadyTagged = false;
       if (candidateDoc) {
-        const propTag = candidateDoc.fields.PropertyLookupId ? String(candidateDoc.fields.PropertyLookupId) : null;
-        const ownerTag = candidateDoc.fields.OwnerLookupId ? String(candidateDoc.fields.OwnerLookupId) : null;
-        if (template.scope === 'property') alreadyTagged = propTag === propertyId;
-        else if (template.scope === 'owner') alreadyTagged = ownerTag !== null && propertyOwnerIds.has(ownerTag);
-        else if (template.scope === 'cahp') alreadyTagged = ownerTag === null || cahpOwnerIds.has(ownerTag);
+        const propTags = extractLookupIds(candidateDoc.fields as unknown as Record<string, unknown>, 'Property');
+        const ownerTags = extractLookupIds(candidateDoc.fields as unknown as Record<string, unknown>, 'Owner');
+        if (template.scope === 'property') alreadyTagged = propTags.includes(propertyId);
+        else if (template.scope === 'owner') alreadyTagged = ownerTags.some((id) => propertyOwnerIds.has(id));
+        else if (template.scope === 'cahp') alreadyTagged = ownerTags.length === 0 || ownerTags.some((id) => cahpOwnerIds.has(id));
       }
 
       items.push({
