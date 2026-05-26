@@ -91,6 +91,10 @@ export function OutstandingItems() {
   // Specific-day filter — set by clicking a day on the Calendar view to drill
   // into the list. Stored as YYYY-MM-DD; empty string = no filter.
   const [dueDateFilter, setDueDateFilter] = useState<string>('');
+  // "Missing data" filter — quick triage toggles for items that need an
+  // assignee or a due date set. 'none' = no filter; the other two narrow
+  // to rows missing the respective field.
+  const [missingFilter, setMissingFilter] = useState<'none' | 'noAssignee' | 'noDueDate'>('none');
   const [showClosed, setShowClosed] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [newItemOpen, setNewItemOpen] = useState(false);
@@ -106,7 +110,7 @@ export function OutstandingItems() {
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, showClosed]);
+  }, [search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, missingFilter, showClosed]);
 
   const loading = items.loading || properties.loading;
   const error = items.error || properties.error;
@@ -154,6 +158,8 @@ export function OutstandingItems() {
         const itemDate = f.DueDate ? String(f.DueDate).slice(0, 10) : '';
         if (itemDate !== dueDateFilter) return false;
       }
+      if (missingFilter === 'noAssignee' && (f.AssignedTo ?? '').trim() !== '') return false;
+      if (missingFilter === 'noDueDate' && (f.DueDate ?? '').trim() !== '') return false;
       return true;
     }).sort((a, b) => {
       // Sort by due date ascending (oldest first). Items with no due date
@@ -167,7 +173,7 @@ export function OutstandingItems() {
       if (bDate === null) return 1;
       return aDate - bDate;
     });
-  }, [items.data, search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, showClosed, propertiesById]);
+  }, [items.data, search, priorityFilter, assigneeFilter, propertyFilter, dueDateFilter, missingFilter, showClosed, propertiesById]);
 
   const stats = useMemo(() => {
     if (!items.data) return null;
@@ -407,6 +413,16 @@ export function OutstandingItems() {
             {properties.data.map((p) => (<option key={p.id} value={p.id}>{p.fields.Title}</option>))}
           </select>
         )}
+        <select
+          value={missingFilter}
+          onChange={(e) => setMissingFilter(e.target.value as 'none' | 'noAssignee' | 'noDueDate')}
+          className="px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-teal-500 bg-white"
+          title="Quick triage: narrow to items missing key fields"
+        >
+          <option value="none">All items</option>
+          <option value="noAssignee">No assignee</option>
+          <option value="noDueDate">No due date</option>
+        </select>
         <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer px-2">
           <input
             type="checkbox"
