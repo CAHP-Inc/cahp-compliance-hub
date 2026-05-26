@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, isCahpEntity, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 /** One entity in the nested Properties tree. Children sit below this entity in the
@@ -78,15 +78,18 @@ export function Properties() {
     return map;
   }, [ownership.data, owners.data]);
 
-  // For each owner, find their parent LLC (the largest-% LLC/entity member of
-  // this entity). Used to nest sub-entities like VanRock Fund I under their
-  // parent VanRock Holdings on the Properties listing.
+  // For each owner, find their parent in the corporate hierarchy. Used to
+  // nest the Properties listing arbitrarily deep (Stan -> IV Fund Global ->
+  // IV 3 LLC -> Property all roll up into one tree under Stan).
   //
   // Schema: a row "Holdings owns N% of Fund I" has OwnerLookupId=Holdings,
   // ParentOwnerLookupId=Fund I. So to find Fund I's parents, filter by
   // ParentOwnerLookupId=Fund I and look at OwnerLookupId.
   //
-  // Individuals are excluded so a property doesn't get nested under a person.
+  // What counts as a parent: the largest-% holder of this entity, INCLUDING
+  // individuals (so Stan can sit at the top of his own chain). CAHP-flagged
+  // entities are explicitly skipped — CAHP SC LLC at 0.01% is on every
+  // property, but it isn't the operating parent the user wants to group by.
   const parentLLCByOwner = useMemo(() => {
     const map = new Map<string, Owner>();
     const ownersById = new Map<string, Owner>();
@@ -106,7 +109,11 @@ export function Properties() {
         const oid = String(row.fields.OwnerLookupId);
         const owner = ownersById.get(oid);
         if (!owner) continue;
-        if (owner.fields.OwnerType === 'Individual') continue;
+        // Skip CAHP-flagged entities entirely — they're a compliance affiliate,
+        // not an operating parent. Without this, CAHP nonprofit ends up as the
+        // root of every property in the system because CAHP SC LLC sits on
+        // every property at 0.01%.
+        if (isCahpEntity(owner)) continue;
         map.set(heldId, owner);
         break;
       }
