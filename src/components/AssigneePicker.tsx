@@ -1,6 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { TEAM_MEMBERS } from '../lib/roleMap';
-import { useSharePointList, LIST_NAMES, type Contact } from '../lib/sharepoint';
+import { getListItems, LIST_NAMES, type Contact } from '../lib/sharepoint';
+
+// Module-level cache so the contacts list survives across picker mounts.
+// Without this, every time the user opens the bulk-assignee modal the
+// dropdown showed only TEAM_MEMBERS for the first second or two while
+// the per-instance useSharePointList re-fetched from SharePoint.
+//
+// Pattern: stale-while-revalidate — render the cached list immediately,
+// then refresh in the background on every mount so newly-added contacts
+// show up without forcing a hard reload.
+let cachedContacts: Contact[] | null = null;
+let inflightFetch: Promise<Contact[]> | null = null;
+
+async function loadContacts(): Promise<Contact[]> {
+  if (inflightFetch) return inflightFetch;
+  inflightFetch = getListItems<Contact>(LIST_NAMES.Contacts, { top: 500 })
+    .then((items) => {
+      cachedContacts = items;
+      return items;
+    })
+    .finally(() => {
+      inflightFetch = null;
+    });
+  return inflightFetch;
+}
 
 /**
  * Assignee picker — text input + custom dropdown drawn from:
@@ -32,7 +56,19 @@ export function AssigneePicker({
   placeholder?: string;
   className?: string;
 }) {
-  const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
+  // Seed from the module cache so the first render shows every option
+  // immediately (no flicker, no "team only" interim state). Background-refresh
+  // on mount picks up newly-added contacts without forcing a hard reload.
+  const [contacts, setContacts] = useState<Contact[] | null>(cachedContacts);
+  const [contactsLoading, setContactsLoading] = useState(cachedContacts === null);
+  useEffect(() => {
+    let cancelled = false;
+    loadContacts()
+      .then((items) => { if (!cancelled) setContacts(items); })
+      .catch(() => { /* network blip — keep stale cache */ })
+      .finally(() => { if (!cancelled) setContactsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,7 +97,7 @@ export function AssigneePicker({
       seen.add(key);
       out.push({ name: m.name, sub: m.email, kind: 'team' });
     }
-    for (const c of contacts.data ?? []) {
+    for (const c of contacts ?? []) {
       const name = (c.fields.Title ?? '').trim();
       if (!name) continue;
       const key = name.toLowerCase();
@@ -73,7 +109,7 @@ export function AssigneePicker({
       out.push({ name, sub: subParts.join(' · ') || 'contact', kind: 'contact' });
     }
     return out;
-  }, [contacts.data]);
+  }, [contacts]);
 
   // Live filter against whatever the user has typed
   const filtered = useMemo(() => {
@@ -124,6 +160,11 @@ export function AssigneePicker({
               )}
               {contactOptions.length > 0 && (
                 <Section label="Contacts" options={contactOptions} onPick={(n) => { onChange(n); setOpen(false); }} />
+              )}
+              {contactsLoading && contacts === null && (
+                <div className="px-3 py-1.5 text-[11px] text-gray-500 italic border-t border-gray-100">
+                  Loading contacts…
+                </div>
               )}
             </>
           )}
