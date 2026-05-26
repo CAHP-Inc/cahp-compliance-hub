@@ -2411,20 +2411,17 @@ function PropertyDocumentsTab({
       .map((o) => String(o.id)) ?? [];
   }, [owners.data, propertyState, propertyOwnerChain]);
 
-  // Identify property's direct-owner entity IDs (the LLCs that hold this property)
+  // Full operator/owner chain — direct owners of the property + every ancestor
+  // up the corporate hierarchy. So a doc tagged to Stan (grandparent) or
+  // 'VanRock Holdings, LLC' (parent of the direct owner LLC) surfaces on the
+  // child property's Reference Documents section without needing to re-tag.
+  // CAHP entities are filtered out here because they get their own section.
   const propertyOwnerIds = useMemo(() => {
     if (!ownership?.data) return [] as string[];
-    const ids = new Set<string>();
-    ownership.data.forEach((rel) => {
-      if (String(rel.fields.LinkedPropertyLookupId) !== String(propertyId)) return;
-      if (rel.fields.OwnerLookupId) {
-        const ownerId = String(rel.fields.OwnerLookupId);
-        // Don't double-count CAHP entities — they get their own section
-        if (!cahpEntityIds.includes(ownerId)) ids.add(ownerId);
-      }
-    });
-    return Array.from(ids);
-  }, [ownership?.data, propertyId, cahpEntityIds]);
+    const upstream = propertyOwnerChain; // already the full upstream Set from earlier fix
+    const cahpSet = new Set(cahpEntityIds);
+    return Array.from(upstream).filter((id) => !cahpSet.has(id));
+  }, [ownership?.data, propertyOwnerChain, cahpEntityIds]);
 
   if (loading) return <TabLoading label={`documents across ${PROPERTY_LINKED_LIBRARIES.length} libraries`} />;
   if (errors.length > 0) return <TabError error={new Error(errors[0])} />;
@@ -2564,31 +2561,31 @@ function PropertyDocumentsTab({
 
           {referenceDocsOpen && (
             <div className="border-t border-gray-100">
-              {/* CAHP entity reference docs — only entities in this property's ownership chain */}
-              {cahpEntityIds.length > 0 && (
-                <EntityDocumentsSection
-                  ownerIds={cahpEntityIds}
-                  title="CAHP Entity Documents"
-                  subtitle="Filtered to entities in this property's ownership chain only."
-                  variant="inline"
-                  useCahpEntityLibrary
-                />
-              )}
+              {/* CAHP entity docs — entities in chain + untagged 'shared' docs from the
+                  CAHP Entity Documents library. Always rendered so untagged shared
+                  docs surface even when no CAHP entity sits directly in the chain. */}
+              <EntityDocumentsSection
+                ownerIds={cahpEntityIds}
+                title="CAHP Entity Documents"
+                subtitle="CAHP-family docs (the parent nonprofit, CAHP SC LLC, CAHP NC LLC). Untagged docs in the CAHP library are treated as shared and surface here too."
+                variant="inline"
+                useCahpEntityLibrary
+              />
 
-              {/* Property-owner reference docs */}
-              {propertyOwnerIds.length > 0 && (
-                <EntityDocumentsSection
-                  ownerIds={propertyOwnerIds}
-                  title="Property-Owner Entity Documents"
-                  subtitle="Formation docs for the LLC that holds this property — EIN, Articles, COE, Cert of Authorization."
-                  variant="inline"
-                />
-              )}
+              {/* Property-owner reference docs — walks the FULL upstream chain so a doc
+                  tagged to any ancestor LLC (or Stan as an individual) shows up here
+                  on the property page without needing to re-tag at every level. */}
+              <EntityDocumentsSection
+                ownerIds={propertyOwnerIds}
+                title="Property-Owner Entity Documents"
+                subtitle="Formation + ownership docs (EIN, Articles, COE, Operating Agreement, Assignment of Interest…) for every entity in this property's ownership chain. Tag a doc once at the holding-company level and it shows up here on every property below it."
+                variant="inline"
+              />
 
               {cahpEntityIds.length === 0 && propertyOwnerIds.length === 0 && (
                 <div className="px-4 py-6 text-center text-xs text-gray-500">
-                  No reference documents found. Make sure this property has Ownership records linking
-                  it to its owner entities.
+                  No ownership chain wired for this property yet — add Ownership Structure rows from the Ownership tab.
+                  Any untagged 'shared' CAHP docs (above) still surface here in the meantime.
                 </div>
               )}
             </div>
