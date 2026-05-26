@@ -412,10 +412,16 @@ async function patchListItemFieldsWithFallback(
   // Helper — does a single PATCH-then-readback cycle, returning whether the
   // value persisted. Tries both single-value and multi-value (array) shapes
   // since the column might be either.
+  //
+  // Multi-value Lookup readback gotcha: Graph returns the field under its
+  // base name (e.g. "Owner") as an array of {LookupId, LookupValue} objects,
+  // NOT under "OwnerLookupId". So we check several candidate readback keys
+  // and inspect both scalars and object-arrays.
   const tryWriteAndVerify = async (
     fieldName: string,
     rawValue: unknown,
     asArray: boolean,
+    candidateReadbackKeys: string[],
   ): Promise<{ persisted: boolean; readBack: unknown }> => {
     const payload: Record<string, unknown> = asArray
       ? {
@@ -434,16 +440,36 @@ async function patchListItemFieldsWithFallback(
       return { persisted: false, readBack: undefined };
     }
 
-    // Read back and check
+    // Read back
     const verify: { fields: Record<string, unknown> } = await graphClient
       .api(`/drives/${driveId}/items/${driveItemId}/listItem`)
       .get();
-    const readBack = verify.fields[fieldName];
     const expected = String(rawValue ?? '');
-    const persisted = Array.isArray(readBack)
-      ? readBack.map((v) => String(v)).includes(expected)
-      : String(readBack ?? '') === expected;
-    return { persisted, readBack };
+
+    // Check every candidate readback key; first match wins. Each value can be:
+    //   - a scalar (single-value LookupId)
+    //   - an array of scalars (some multi-value shapes)
+    //   - an array of {LookupId, LookupValue} (the common multi-value shape)
+    let readBack: unknown = undefined;
+    for (const key of candidateReadbackKeys) {
+      const v = verify.fields[key];
+      if (v === undefined || v === null || v === '') continue;
+      readBack = v;
+      if (Array.isArray(v)) {
+        for (const entry of v) {
+          if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+            if (String((entry as { LookupId: unknown }).LookupId) === expected) {
+              return { persisted: true, readBack: v };
+            }
+          } else if (String(entry) === expected) {
+            return { persisted: true, readBack: v };
+          }
+        }
+      } else if (String(v) === expected) {
+        return { persisted: true, readBack: v };
+      }
+    }
+    return { persisted: false, readBack };
   };
 
   // Try each lookup field. For each, attempt every alias × {single, array}
@@ -451,11 +477,16 @@ async function patchListItemFieldsWithFallback(
   for (const [primaryKey, value] of Object.entries(lookupFields)) {
     const aliases = lookupAliases[primaryKey];
     const expected = String(value ?? '');
+    // Candidate keys to look at on readback: every alias PLUS the base column
+    // name (without the LookupId suffix). Multi-value Lookups surface under
+    // the base name, e.g. PATCH "OwnerLookupId" but read "Owner".
+    const baseName = primaryKey.replace(/LookupId$/, '');
+    const readbackKeys = Array.from(new Set([...aliases, baseName]));
     let succeededWith: string | null = null;
 
     outer: for (const alias of aliases) {
       for (const asArray of [false, true]) {
-        const { persisted, readBack } = await tryWriteAndVerify(alias, value, asArray);
+        const { persisted, readBack } = await tryWriteAndVerify(alias, value, asArray, readbackKeys);
         if (persisted) {
           succeededWith = `${alias}${asArray ? '[]' : ''}`;
           // eslint-disable-next-line no-console
