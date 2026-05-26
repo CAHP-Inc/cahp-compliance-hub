@@ -118,10 +118,10 @@ Write-Host "-> Pre-fetching existing Ownership Structure rows..." -ForegroundCol
 $existingOwnership = Get-PnPListItem -List "Ownership Structure" -PageSize 500 -Fields "ID","OwnerLookupId","LinkedPropertyLookupId"
 $existingPairs = @{}
 foreach ($r in $existingOwnership) {
-    $oid = [string]$r["OwnerLookupId"]
-    $pid = [string]$r["LinkedPropertyLookupId"]
-    if ($oid -and $pid) {
-        $existingPairs["$oid|$pid"] = $r.Id
+    $oid    = [string]$r["OwnerLookupId"]
+    $propId = [string]$r["LinkedPropertyLookupId"]
+    if ($oid -and $propId) {
+        $existingPairs["$oid|$propId"] = $r.Id
     }
 }
 Write-Host "   Indexed $($existingPairs.Count) existing Owner->Property pair(s)" -ForegroundColor Green
