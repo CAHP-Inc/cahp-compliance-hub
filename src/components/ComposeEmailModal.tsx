@@ -192,16 +192,41 @@ export function ComposeEmailModal({
           return ad - bd;
         });
 
-    const openItemsList = matchingItems.length === 0
+    // Consolidate items by title. The same document is often outstanding on
+    // many properties at once (e.g., Property Deed across 6 SFRs) — list the
+    // item once with all the property names in parentheses, instead of
+    // repeating the line for every property.
+    const byTitle = new Map<
+      string,
+      { title: string; properties: Set<string>; dueDates: Set<string> }
+    >();
+    for (const item of matchingItems) {
+      const rawTitle = (item.fields.Title ?? 'Untitled').trim();
+      const key = rawTitle.toLowerCase();
+      let group = byTitle.get(key);
+      if (!group) {
+        group = { title: rawTitle, properties: new Set(), dueDates: new Set() };
+        byTitle.set(key, group);
+      }
+      const propName = item.fields.PropertyLookupId
+        ? propsById.get(String(item.fields.PropertyLookupId))?.fields.Title
+        : null;
+      if (propName) group.properties.add(propName);
+      if (item.fields.DueDate) group.dueDates.add(formatDateOnly(item.fields.DueDate));
+    }
+
+    const openItemsList = byTitle.size === 0
       ? '(no pending items for this recipient)'
-      : matchingItems
-          .map((item) => {
-            const prop = item.fields.PropertyLookupId
-              ? propsById.get(String(item.fields.PropertyLookupId))?.fields.Title
-              : null;
-            const due = item.fields.DueDate ? ` (due ${formatDateOnly(item.fields.DueDate)})` : '';
-            const propPart = prop ? ` — ${prop}` : '';
-            return `  • ${item.fields.Title ?? 'Untitled'}${propPart}${due}`;
+      : Array.from(byTitle.values())
+          .map((g) => {
+            const props = Array.from(g.properties).sort();
+            const propPart = props.length > 0 ? ` (${props.join(', ')})` : '';
+            // When every instance of this item shares the same due date, surface
+            // it. With mixed due dates we leave the date off the grouped line
+            // and let the user inspect via the Outstanding tab if needed.
+            const dueDates = Array.from(g.dueDates);
+            const duePart = dueDates.length === 1 ? ` — due ${dueDates[0]}` : '';
+            return `  • ${g.title}${propPart}${duePart}`;
           })
           .join('\n');
 
@@ -598,10 +623,24 @@ export function ComposeEmailModal({
               className={inputClass + ' font-mono text-xs resize-y'}
             />
             {body !== resolvedBody && (
-              <details className="mt-1 text-[11px] text-gray-500">
-                <summary className="cursor-pointer hover:text-gray-700">Preview with variables resolved</summary>
-                <pre className="mt-1 p-2 bg-gray-50 border border-gray-200 rounded whitespace-pre-wrap font-mono text-[11px]">{resolvedBody}</pre>
-              </details>
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <details className="text-[11px] text-gray-500 flex-1 min-w-0">
+                  <summary className="cursor-pointer hover:text-gray-700">Preview with variables resolved</summary>
+                  <pre className="mt-1 p-2 bg-gray-50 border border-gray-200 rounded whitespace-pre-wrap font-mono text-[11px]">{resolvedBody}</pre>
+                </details>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBody(resolvedBody);
+                    setSubject(resolvedSubject);
+                  }}
+                  disabled={sending}
+                  className="text-[11px] text-teal-700 hover:text-teal-900 font-medium px-2 py-1 rounded hover:bg-teal-50 flex-shrink-0 disabled:opacity-50"
+                  title="Replace all {{tokens}} in the subject + body with their resolved values so you can edit the final text directly"
+                >
+                  Expand variables ↓
+                </button>
+              </div>
             )}
           </Field>
         </div>
