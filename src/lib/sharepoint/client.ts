@@ -324,24 +324,28 @@ export async function uploadDocument(options: DocumentUploadOptions): Promise<Do
     uploaded = await uploadInChunks(driveId, encodedName, file, onProgress);
   }
 
-  // Set metadata if provided. Failure to patch is now surfaced as an error so
-  // the user knows the file landed in SharePoint but is missing its
-  // Owner/Property tag — without the tag, EntityDocumentsSection's filter
-  // hides the doc and it looks like the upload silently failed.
+  // Set metadata if provided. Different libraries have inconsistent lookup
+  // column internal names ('OwnerLookupId', 'Owner', 'OwnerId' — same for
+  // Property), so we try each variant and verify the value actually persisted
+  // by re-reading. Without this, a PATCH against a non-existent column quietly
+  // succeeds, the file lands tagged-as-nothing, and EntityDocumentsSection's
+  // filter hides it — exactly the 'upload disappears into the void' symptom.
   let listItemId: string | null = null;
   if (metadata && Object.keys(metadata).length > 0) {
     try {
-      const updated: { id: string } = await graphClient
-        .api(`/drives/${driveId}/items/${uploaded.id}/listItem/fields`)
-        .patch(metadata);
-      listItemId = updated.id ?? null;
+      listItemId = await patchListItemFieldsWithFallback(
+        driveId,
+        uploaded.id,
+        metadata,
+        libraryName,
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // eslint-disable-next-line no-console
       console.warn('Metadata patch failed after upload:', e);
       throw new Error(
-        `File uploaded to ${libraryName} but its Owner/Property tag couldn't be saved — without the tag the doc won't appear on the entity's Documents tab. ` +
-        `Open the library directly in SharePoint to set the tag, or delete the upload and retry. (Cause: ${msg})`,
+        `File uploaded to "${libraryName}" but its Owner/Property tag couldn't be saved — without the tag the doc won't appear on the entity's Documents tab. ` +
+        `Run scripts/provision-document-library-columns.ps1 to add the missing lookup columns to your libraries, then re-upload. (Cause: ${msg})`,
       );
     }
   }
@@ -374,6 +378,90 @@ export async function uploadDocument(options: DocumentUploadOptions): Promise<Do
     filename: uploaded.name,
     size: uploaded.size,
   };
+}
+
+/**
+ * PATCH a freshly-uploaded driveItem's listItem fields, trying alternate
+ * internal names for the lookup columns. SharePoint document libraries have
+ * been provisioned inconsistently across the deployment, so the same logical
+ * tag ('owner = 42') might map to a column named 'Owner', 'OwnerLookupId',
+ * or 'OwnerId' depending on the library. We try each, then verify the value
+ * actually persisted by reading the item back.
+ */
+async function patchListItemFieldsWithFallback(
+  driveId: string,
+  driveItemId: string,
+  metadata: Record<string, unknown>,
+  libraryName: string,
+): Promise<string | null> {
+  // Split metadata into "needs-fallback" (lookup IDs) and "static" (everything else)
+  const lookupAliases: Record<string, string[]> = {
+    OwnerLookupId: ['OwnerLookupId', 'Owner', 'OwnerId'],
+    PropertyLookupId: ['PropertyLookupId', 'Property', 'PropertyId'],
+  };
+
+  const staticFields: Record<string, unknown> = {};
+  const lookupFields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (key in lookupAliases) lookupFields[key] = value;
+    else staticFields[key] = value;
+  }
+
+  let listItemId: string | null = null;
+
+  // Try each lookup field. For each, attempt every alias until one
+  // PATCH succeeds AND the value reads back correctly.
+  for (const [primaryKey, value] of Object.entries(lookupFields)) {
+    const aliases = lookupAliases[primaryKey];
+    const expected = String(value ?? '');
+    let succeededWith: string | null = null;
+
+    for (const alias of aliases) {
+      try {
+        const updated: { id: string } = await graphClient
+          .api(`/drives/${driveId}/items/${driveItemId}/listItem/fields`)
+          .patch({ [alias]: value });
+        listItemId = updated.id ?? listItemId;
+
+        // Verify the value persisted (PATCH against a missing column quietly returns OK)
+        const verify: { fields: Record<string, unknown> } = await graphClient
+          .api(`/drives/${driveId}/items/${driveItemId}/listItem`)
+          .get();
+        const readBack =
+          verify.fields[primaryKey] ??
+          verify.fields[aliases[1]] ??
+          verify.fields[aliases[2]];
+
+        if (String(readBack ?? '') === expected) {
+          succeededWith = alias;
+          // eslint-disable-next-line no-console
+          console.log(`[upload] ${libraryName}: tagged ${primaryKey}=${expected} via field "${alias}"`);
+          break;
+        }
+        // eslint-disable-next-line no-console
+        console.warn(`[upload] ${libraryName}: PATCH "${alias}" returned OK but value did not persist (read back: ${String(readBack ?? '')})`);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[upload] ${libraryName}: PATCH "${alias}" threw:`, e);
+      }
+    }
+
+    if (!succeededWith) {
+      throw new Error(
+        `Tried [${aliases.join(', ')}] on library "${libraryName}" — none persisted the ${primaryKey} value.`,
+      );
+    }
+  }
+
+  // Apply any remaining non-lookup static fields in one PATCH
+  if (Object.keys(staticFields).length > 0) {
+    const updated: { id: string } = await graphClient
+      .api(`/drives/${driveId}/items/${driveItemId}/listItem/fields`)
+      .patch(staticFields);
+    listItemId = updated.id ?? listItemId;
+  }
+
+  return listItemId;
 }
 
 /**
