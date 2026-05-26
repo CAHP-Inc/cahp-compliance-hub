@@ -444,13 +444,19 @@ export type Notification = SharePointListItem<NotificationFields>;
 
 export type ItemCategory =
   | 'Operating Agreement'
-  | 'Articles of Incorporation'      // NEW — nonprofit + LLC formation
-  | 'EIN Confirmation'               // NEW
-  | 'Certificate of Existence'       // NEW — state-issued
-  | 'Certificate of Authorization'   // NEW — state-issued
-  | '501(c)(3) Determination'        // NEW — nonprofit-specific
+  | 'Partnership Agreement'          // SC PT-401-O — for partnership-owned properties
+  | 'Articles of Incorporation'      // nonprofit + LLC formation
+  | 'Bylaws'                         // SC PT-401-O — nonprofit corp bylaws
+  | 'EIN Confirmation'
+  | 'Certificate of Existence'       // state-issued
+  | 'Certificate of Authorization'   // state-issued
+  | '501(c)(3) Determination'        // nonprofit-specific
+  | 'Exemption Application'          // SC PT-401-O form itself
   | 'Deed'
-  | 'Rent Roll'                      // NEW
+  | 'Rent Roll'
+  | 'Restrictive Covenants'          // recorded covenants w/ SC State Housing
+  | 'Compliance Certificate'         // SC State Housing compliance certificate
+  | 'Reassignment of Interest'       // when re-filing under a new nonprofit
   | 'LURA'
   | 'AMI Certification'
   | 'Org Chart'

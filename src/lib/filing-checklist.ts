@@ -40,83 +40,144 @@ export interface FilingChecklistItem {
   state?: CahpState;
 }
 
+/**
+ * SC PT-401-O exemption application checklist. Mirrors the official SC DOR
+ * filing requirements as of 2026:
+ *
+ *   For the applicant + property-owning entity:
+ *     - PT-401-O exemption application (the form itself)
+ *     - Recorded deed
+ *     - Partnership agreement (or Operating Agreement for LLCs)
+ *     - Organizational structure chart
+ *     - Stamped SC Articles of Organization
+ *     - Rent rolls and/or restrictive covenants w/ SC State Housing
+ *     - Compliance certificate from SC State Housing (if applicable)
+ *
+ *   For the wholly-owned LLC affiliate of the nonprofit (e.g. CAHP SC LLC):
+ *     - Operating Agreement between the LLC and its sole member
+ *     - Stamped SC Articles of Organization
+ *
+ *   For the nonprofit housing corporation (e.g. CAHP Inc):
+ *     - IRS 501(c)(3) determination letter
+ *     - Bylaws
+ *     - Stamped SC Articles of Incorporation
+ *
+ *   Conditional:
+ *     - Reassignment of interest sign-off (when refiling under a new nonprofit)
+ *
+ * NC filings have a different document set; items here are tagged `state: 'SC'`
+ * so they only auto-create for SC properties. Add NC-specific items when
+ * NC requirements are confirmed.
+ */
 export const DOR_FILING_CHECKLIST: FilingChecklistItem[] = [
-  // ─── CAHP / Nonprofit entity docs (5) — one-time setup, reused across all filings ───
-  {
-    title: 'CAHP Operating Agreement (Non Profit OA)',
-    category: 'Operating Agreement',
-    scope: 'cahp',
-    notes: "CAHP SC LLC Operating Agreement. Lives at the CAHP entity level — should be reusable across all filings.",
-  },
+  // ─── CAHP nonprofit corporation docs (3) — reused across every SC filing ───
   {
     title: 'CAHP 501(c)(3) Determination Letter',
     category: '501(c)(3) Determination',
     scope: 'cahp',
-    notes: 'IRS determination letter for Carolina Affordable Housing Project (501(c)(3) status).',
+    state: 'SC',
+    notes: 'IRS exempt determination letter for Carolina Affordable Housing Project.',
   },
   {
-    title: 'CAHP EIN Confirmation',
-    category: 'EIN Confirmation',
+    title: 'CAHP Bylaws',
+    category: 'Bylaws',
     scope: 'cahp',
-    notes: 'IRS EIN letter for the nonprofit.',
+    state: 'SC',
+    notes: 'Bylaws of the nonprofit housing corporation.',
   },
   {
-    title: 'CAHP Articles of Incorporation',
+    title: 'CAHP Articles of Incorporation (Stamped SC)',
     category: 'Articles of Incorporation',
     scope: 'cahp',
-    notes: 'Nonprofit Articles of Incorporation.',
-  },
-  {
-    title: 'CAHP Certificate of Existence (COE)',
-    category: 'Certificate of Existence',
-    scope: 'cahp',
-    notes: 'State-issued Certificate of Existence / Good Standing for the nonprofit.',
+    state: 'SC',
+    notes: 'Stamped SC Articles of Incorporation for the nonprofit corporation.',
   },
 
-  // ─── Property-Owner Entity docs (4) — uploaded once per LLC, reused per filing ───
+  // ─── CAHP SC LLC (wholly-owned affiliate of the nonprofit) docs (2) ───
   {
-    title: 'Entity Certification Letter (Cert of Authorization)',
-    category: 'Certificate of Authorization',
-    scope: 'owner',
-    notes: "State-issued Cert of Authorization for the property-owning LLC.",
-  },
-  {
-    title: 'Entity EIN Confirmation',
-    category: 'EIN Confirmation',
-    scope: 'owner',
-    notes: 'IRS EIN letter for the property-owning LLC.',
-  },
-  {
-    title: 'Entity Operating Agreement',
+    title: 'CAHP SC LLC Operating Agreement (LLC ↔ sole member)',
     category: 'Operating Agreement',
-    scope: 'owner',
-    notes: 'Operating Agreement for the property-owning LLC.',
+    scope: 'cahp',
+    state: 'SC',
+    notes: 'Operating agreement between CAHP SC LLC and its sole member (the nonprofit). Demonstrates wholly-owned-affiliate relationship.',
   },
   {
-    title: 'Entity Articles of Organization',
+    title: 'CAHP SC LLC Articles of Organization (Stamped SC)',
     category: 'Articles of Incorporation',
-    scope: 'owner',
-    notes: 'Articles of Organization for the property-owning LLC.',
+    scope: 'cahp',
+    state: 'SC',
+    notes: 'Stamped SC Articles of Organization for the wholly-owned LLC affiliate.',
   },
 
-  // ─── Property-specific docs (4) — needed per filing ───
+  // ─── Property-Owner Entity docs (3) — one upload per LLC, reused per filing ───
   {
-    title: 'Property Deed(s)',
+    title: 'Entity Partnership Agreement / Operating Agreement',
+    category: 'Partnership Agreement',
+    scope: 'owner',
+    state: 'SC',
+    notes: 'Partnership agreement, or Operating Agreement if the property-owning entity is an LLC.',
+  },
+  {
+    title: 'Entity Articles of Organization (Stamped SC)',
+    category: 'Articles of Incorporation',
+    scope: 'owner',
+    state: 'SC',
+    notes: 'Stamped SC Articles of Organization for the property-owning entity.',
+  },
+  {
+    title: 'Organizational Structure Chart',
+    category: 'Org Chart',
+    scope: 'owner',
+    state: 'SC',
+    notes: 'Org chart showing the property-owning entity, its members, and the chain up to the CAHP nonprofit. The app can export this from the property detail page.',
+  },
+
+  // ─── Per-filing property docs (5) ───
+  {
+    title: 'PT-401-O Exemption Application (completed)',
+    category: 'Exemption Application',
+    scope: 'property',
+    state: 'SC',
+    notes: 'Completed SC PT-401-O exemption application form.',
+  },
+  {
+    title: 'Recorded Property Deed(s)',
     category: 'Deed',
     scope: 'property',
-    notes: 'Recorded property deed(s). Multiple parcels = multiple deeds.',
+    state: 'SC',
+    notes: 'Recorded property deed(s) from the county. Multiple parcels = multiple deeds.',
   },
   {
     title: 'Rent Roll (current year)',
     category: 'Rent Roll',
     scope: 'property',
-    notes: 'Current-year rent roll showing tenant income qualification.',
+    state: 'SC',
+    notes: 'Current-year rent roll. Required either as standalone or paired with the recorded restrictive covenants below.',
   },
   {
-    title: 'IRS Determination Letter (property-specific, if applicable)',
-    category: 'Determination Letter',
+    title: 'Recorded Restrictive Covenants (SC State Housing)',
+    category: 'Restrictive Covenants',
     scope: 'property',
-    notes: "Property-specific IRS determination, if one exists for this filing.",
+    state: 'SC',
+    notes: 'Recorded restrictive covenants filed with SC State Housing. Pair with the rent roll above (at least one of the two is required).',
+  },
+  {
+    title: 'Most Recent SC State Housing Compliance Certificate (if applicable)',
+    category: 'Compliance Certificate',
+    scope: 'property',
+    state: 'SC',
+    notes: 'Optional but recommended when one exists — supports the rent-roll/covenants documentation.',
+  },
+
+  // ─── Conditional (re-filings only) ───
+  // Not auto-added; surfaced as an empty placeholder so the user remembers to
+  // attach it when a property is being re-filed under a new nonprofit.
+  {
+    title: 'Reassignment of Interest Sign-Off (if re-filing under new nonprofit)',
+    category: 'Reassignment of Interest',
+    scope: 'property',
+    state: 'SC',
+    notes: 'Only required when the property was previously filed under a different nonprofit and is being re-assigned. Skip otherwise.',
   },
 ];
 

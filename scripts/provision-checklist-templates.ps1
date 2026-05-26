@@ -122,23 +122,33 @@ $itemCount = ($existingItems | Measure-Object).Count
 if ($itemCount -gt 0) {
     Write-Host ""
     Write-Host "  -> List has $itemCount existing item(s); skipping default seed" -ForegroundColor DarkGray
+    Write-Host "  -> To replace existing rows with the latest SC defaults, go to" -ForegroundColor DarkGray
+    Write-Host "     Settings -> Checklist Templates and click 'Load defaults' then 'Save'." -ForegroundColor DarkGray
 } else {
     Write-Host ""
-    Write-Host "-> Seeding the 12 DOR default templates..." -ForegroundColor White
+    Write-Host "-> Seeding the SC PT-401-O default templates..." -ForegroundColor White
 
+    # Mirrors DOR_FILING_CHECKLIST in src/lib/filing-checklist.ts. Keep both in sync.
     $defaults = @(
-        @{ Title="CAHP Operating Agreement (Non Profit OA)";              Category="Operating Agreement";          Scope="cahp";     Notes="CAHP SC LLC Operating Agreement. Lives at the CAHP entity level - should be reusable across all filings." }
-        @{ Title="CAHP 501(c)(3) Determination Letter";                   Category="501(c)(3) Determination";       Scope="cahp";     Notes="IRS determination letter for Carolina Affordable Housing Project (501(c)(3) status)." }
-        @{ Title="CAHP EIN Confirmation";                                  Category="EIN Confirmation";              Scope="cahp";     Notes="IRS EIN letter for the nonprofit." }
-        @{ Title="CAHP Articles of Incorporation";                         Category="Articles of Incorporation";     Scope="cahp";     Notes="Nonprofit Articles of Incorporation." }
-        @{ Title="CAHP Certificate of Existence (COE)";                    Category="Certificate of Existence";      Scope="cahp";     Notes="State-issued Certificate of Existence / Good Standing for the nonprofit." }
-        @{ Title="Entity Certification Letter (Cert of Authorization)";    Category="Certificate of Authorization";  Scope="owner";    Notes="State-issued Cert of Authorization for the property-owning LLC." }
-        @{ Title="Entity EIN Confirmation";                                Category="EIN Confirmation";              Scope="owner";    Notes="IRS EIN letter for the property-owning LLC." }
-        @{ Title="Entity Operating Agreement";                             Category="Operating Agreement";           Scope="owner";    Notes="Operating Agreement for the property-owning LLC." }
-        @{ Title="Entity Articles of Organization";                        Category="Articles of Incorporation";     Scope="owner";    Notes="Articles of Organization for the property-owning LLC." }
-        @{ Title="Property Deed(s)";                                       Category="Deed";                          Scope="property"; Notes="Recorded property deed(s). Multiple parcels = multiple deeds." }
-        @{ Title="Rent Roll (current year)";                               Category="Rent Roll";                     Scope="property"; Notes="Current-year rent roll showing tenant income qualification." }
-        @{ Title="IRS Determination Letter (property-specific, if applicable)"; Category="Determination Letter";      Scope="property"; Notes="Property-specific IRS determination, if one exists for this filing." }
+        # CAHP nonprofit corporation docs
+        @{ Title="CAHP 501(c)(3) Determination Letter";                          Category="501(c)(3) Determination";   Scope="cahp";     State="SC"; Notes="IRS exempt determination letter for Carolina Affordable Housing Project." }
+        @{ Title="CAHP Bylaws";                                                   Category="Bylaws";                    Scope="cahp";     State="SC"; Notes="Bylaws of the nonprofit housing corporation." }
+        @{ Title="CAHP Articles of Incorporation (Stamped SC)";                  Category="Articles of Incorporation"; Scope="cahp";     State="SC"; Notes="Stamped SC Articles of Incorporation for the nonprofit corporation." }
+        # CAHP SC LLC (wholly-owned affiliate)
+        @{ Title="CAHP SC LLC Operating Agreement (LLC <-> sole member)";        Category="Operating Agreement";       Scope="cahp";     State="SC"; Notes="Operating agreement between CAHP SC LLC and its sole member (the nonprofit). Demonstrates wholly-owned-affiliate relationship." }
+        @{ Title="CAHP SC LLC Articles of Organization (Stamped SC)";            Category="Articles of Incorporation"; Scope="cahp";     State="SC"; Notes="Stamped SC Articles of Organization for the wholly-owned LLC affiliate." }
+        # Property-owning entity docs
+        @{ Title="Entity Partnership Agreement / Operating Agreement";           Category="Partnership Agreement";     Scope="owner";    State="SC"; Notes="Partnership agreement, or Operating Agreement if the property-owning entity is an LLC." }
+        @{ Title="Entity Articles of Organization (Stamped SC)";                 Category="Articles of Incorporation"; Scope="owner";    State="SC"; Notes="Stamped SC Articles of Organization for the property-owning entity." }
+        @{ Title="Organizational Structure Chart";                                Category="Org Chart";                 Scope="owner";    State="SC"; Notes="Org chart showing the property-owning entity, its members, and the chain up to the CAHP nonprofit. The app can export this from the property detail page." }
+        # Per-filing property docs
+        @{ Title="PT-401-O Exemption Application (completed)";                   Category="Exemption Application";     Scope="property"; State="SC"; Notes="Completed SC PT-401-O exemption application form." }
+        @{ Title="Recorded Property Deed(s)";                                     Category="Deed";                      Scope="property"; State="SC"; Notes="Recorded property deed(s) from the county. Multiple parcels = multiple deeds." }
+        @{ Title="Rent Roll (current year)";                                      Category="Rent Roll";                 Scope="property"; State="SC"; Notes="Current-year rent roll. Required either as standalone or paired with the recorded restrictive covenants below." }
+        @{ Title="Recorded Restrictive Covenants (SC State Housing)";            Category="Restrictive Covenants";     Scope="property"; State="SC"; Notes="Recorded restrictive covenants filed with SC State Housing. Pair with the rent roll above (at least one of the two is required)." }
+        @{ Title="Most Recent SC State Housing Compliance Certificate";          Category="Compliance Certificate";    Scope="property"; State="SC"; Notes="Optional but recommended when one exists - supports the rent-roll/covenants documentation." }
+        # Conditional re-filing item
+        @{ Title="Reassignment of Interest Sign-Off (if re-filing)";             Category="Reassignment of Interest";  Scope="property"; State="SC"; Notes="Only required when the property was previously filed under a different nonprofit and is being re-assigned. Skip otherwise." }
     )
 
     $sortOrder = 0
@@ -147,13 +157,14 @@ if ($itemCount -gt 0) {
             Title             = $d.Title
             TemplateCategory  = $d.Category
             TemplateScope     = $d.Scope
+            TemplateState     = $d.State
             TemplateNotes     = $d.Notes
             TemplateSortOrder = $sortOrder
         } | Out-Null
         $sortOrder++
     }
 
-    Write-Host "  Seeded $sortOrder default template row(s)" -ForegroundColor Green
+    Write-Host "  Seeded $sortOrder default template row(s) (all tagged SC)" -ForegroundColor Green
 }
 
 Write-Host ""
