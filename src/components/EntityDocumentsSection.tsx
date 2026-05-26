@@ -101,18 +101,44 @@ export function EntityDocumentsSection({
   const docs = useMemo(() => {
     const collected: AggregatedDoc[] = [];
 
+    // Multi-value Lookup columns surface as either OwnerLookupId (single ID),
+    // OwnerLookupId@odata.type with arrays, or as an array under the raw column
+    // name. Normalize all shapes into an array of string IDs. Empty array = untagged.
+    const extractTagIds = (fields: Record<string, unknown> | undefined, key: 'Owner' | 'Property'): string[] => {
+      if (!fields) return [];
+      const lookupKey = `${key}LookupId`;
+      const direct = (fields as Record<string, unknown>)[lookupKey];
+      if (Array.isArray(direct)) {
+        return direct.map((v) => String(v)).filter(Boolean);
+      }
+      if (direct !== undefined && direct !== null && direct !== '') {
+        return [String(direct)];
+      }
+      // Some multi-value lookups expose the array under the raw name, with each
+      // entry as { LookupId, LookupValue }
+      const rawArr = (fields as Record<string, unknown>)[key];
+      if (Array.isArray(rawArr)) {
+        return rawArr
+          .map((v) => (typeof v === 'object' && v !== null && 'LookupId' in v ? String((v as { LookupId: unknown }).LookupId) : null))
+          .filter((id): id is string => !!id);
+      }
+      return [];
+    };
+
     // 1. Files from the dedicated CAHP Entity Documents library
     // Filter by OwnerLookupId match. Untagged docs are treated as "shared" (visible everywhere)
     // UNLESS strictEntityFilter is true, in which case untagged docs are hidden.
     if (useCahpEntityLibrary && cahpLib.data) {
       cahpLib.data.forEach((item) => {
-        const ownerTag = item.fields.OwnerLookupId ? String(item.fields.OwnerLookupId) : null;
+        const ownerTags = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Owner');
+        const hasAnyTag = ownerTags.length > 0;
+        const matchesScope = ownerTags.some((id) => ownerIdSet.has(id));
         // In manage mode, surface ALL docs (including untagged + out-of-scope) so they can be tagged
         const include = manageMode
           ? true
           : ownerIds.length === 0 ||                            // no scope restriction → show all
-            (ownerTag && ownerIdSet.has(ownerTag)) ||           // tagged to one of the in-scope entities
-            (!ownerTag && !strictEntityFilter);                 // untagged: include unless strict mode
+            matchesScope ||                                     // tagged to ANY in-scope entity
+            (!hasAnyTag && !strictEntityFilter);                // untagged: include unless strict mode
         if (!include) return;
         collected.push({
           id: `${CAHP_ENTITY_LIBRARY}:${item.id}`,
@@ -123,18 +149,19 @@ export function EntityDocumentsSection({
           uploadDate: item.fields.Modified || item.lastModifiedDateTime,
           uploader: item.fields.Editor?.LookupValue,
           size: item.fields.File_x0020_Size ? parseInt(item.fields.File_x0020_Size, 10) : undefined,
-          currentOwnerTag: ownerTag ?? undefined,
+          currentOwnerTag: ownerTags[0],
         });
       });
     }
 
-    // 2. OwnerLookupId-tagged files from the 8 property-linked libraries (for non-CAHP entities like LLCs, trusts)
+    // 2. Owner-tagged files from the 8 property-linked libraries (multi-value-aware)
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((item) => {
-        const ownerTag = item.fields.OwnerLookupId;
-        if (!ownerTag || !ownerIdSet.has(String(ownerTag))) return;
+        const ownerTags = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Owner');
+        if (ownerTags.length === 0) return;
+        if (!ownerTags.some((id) => ownerIdSet.has(id))) return;
         collected.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,

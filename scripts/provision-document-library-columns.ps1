@@ -106,19 +106,36 @@ foreach ($lib in $targetLibraries) {
     }
     $libsTouched++
 
-    # Owner lookup column
+    # Owner lookup column (multi-value so one doc can be tagged to multiple owners,
+    # e.g. an Assignment of LLC Interest letter that applies to both the assignor
+    # entity and the assignee entity)
     $ownerField = Get-PnPField -List $lib -Identity "Owner" -ErrorAction SilentlyContinue
+    $needsRecreate = $false
     if ($ownerField) {
-        Write-Host "   Owner lookup column already exists" -ForegroundColor DarkGray
-        $ownerColExisted++
+        # If it's not already a multi-value lookup, drop + recreate
+        if ($ownerField.TypeAsString -ne 'LookupMulti') {
+            Write-Host "   Owner column exists as single-value — recreating as multi-value" -ForegroundColor Yellow
+            try {
+                Remove-PnPField -List $lib -Identity "Owner" -Force | Out-Null
+                $needsRecreate = $true
+            } catch {
+                Write-Host "   ! Could not drop the existing single-value Owner column: $_" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "   Owner multi-value lookup column already exists" -ForegroundColor DarkGray
+            $ownerColExisted++
+        }
     } else {
+        $needsRecreate = $true
+    }
+    if ($needsRecreate) {
         try {
             $schemaXml = @"
-<Field Type="Lookup" DisplayName="Owner" Name="Owner" StaticName="Owner"
+<Field Type="LookupMulti" Mult="TRUE" DisplayName="Owner" Name="Owner" StaticName="Owner"
        List="{$($ownersList.Id)}" ShowField="Title" />
 "@
             Add-PnPFieldFromXml -List $lib -FieldXml $schemaXml | Out-Null
-            Write-Host "   + Added Owner lookup column" -ForegroundColor Cyan
+            Write-Host "   + Added Owner multi-value lookup column" -ForegroundColor Cyan
             $ownerColAdded++
         } catch {
             Write-Host "   ! Failed to add Owner lookup: $_" -ForegroundColor Red
@@ -133,17 +150,31 @@ foreach ($lib in $targetLibraries) {
     }
 
     $propField = Get-PnPField -List $lib -Identity "Property" -ErrorAction SilentlyContinue
+    $needsRecreate = $false
     if ($propField) {
-        Write-Host "   Property lookup column already exists" -ForegroundColor DarkGray
-        $propColExisted++
+        if ($propField.TypeAsString -ne 'LookupMulti') {
+            Write-Host "   Property column exists as single-value — recreating as multi-value" -ForegroundColor Yellow
+            try {
+                Remove-PnPField -List $lib -Identity "Property" -Force | Out-Null
+                $needsRecreate = $true
+            } catch {
+                Write-Host "   ! Could not drop the existing single-value Property column: $_" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "   Property multi-value lookup column already exists" -ForegroundColor DarkGray
+            $propColExisted++
+        }
     } else {
+        $needsRecreate = $true
+    }
+    if ($needsRecreate) {
         try {
             $schemaXml = @"
-<Field Type="Lookup" DisplayName="Property" Name="Property" StaticName="Property"
+<Field Type="LookupMulti" Mult="TRUE" DisplayName="Property" Name="Property" StaticName="Property"
        List="{$($propertiesList.Id)}" ShowField="Title" />
 "@
             Add-PnPFieldFromXml -List $lib -FieldXml $schemaXml | Out-Null
-            Write-Host "   + Added Property lookup column" -ForegroundColor Cyan
+            Write-Host "   + Added Property multi-value lookup column" -ForegroundColor Cyan
             $propColAdded++
         } catch {
             Write-Host "   ! Failed to add Property lookup: $_" -ForegroundColor Red
