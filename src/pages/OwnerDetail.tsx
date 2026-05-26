@@ -24,6 +24,7 @@ import {
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { LoggedCommunicationsSection } from '../components/LoggedCommunicationsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { ExportOutstandingItemsModal } from '../components/ExportOutstandingItemsModal';
@@ -533,6 +534,13 @@ export function OwnerDetail() {
         ownership={ownership.data ?? []}
         owners={owners.data ?? []}
         properties={properties.data ?? []}
+      />
+
+      {/* Emails + manually-logged communications tied to this owner */}
+      <LoggedCommunicationsSection
+        ownerId={String(owner.id)}
+        title="Email Log"
+        subtitle="Emails sent to this owner's contacts via the Compose modal auto-log here, plus any manual log entries."
       />
 
       {/* Outstanding items across every property this owner has an interest in */}

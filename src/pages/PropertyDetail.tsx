@@ -49,6 +49,7 @@ import { parseCounties } from '../lib/counties';
 import { LinkOrUploadDocumentModal } from '../components/LinkOrUploadDocumentModal';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { EntityDocumentsSection } from '../components/EntityDocumentsSection';
+import { LoggedCommunicationsSection } from '../components/LoggedCommunicationsSection';
 import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
@@ -860,6 +861,15 @@ function PropertyCorrespondenceTab({ propertyId }: { propertyId: string }) {
           </table>
         </div>
       )}
+
+      {/* Sent emails + manually-logged communications tied to this property */}
+      <div className="mt-6">
+        <LoggedCommunicationsSection
+          propertyId={propertyId}
+          title="Email Log"
+          subtitle="Emails sent via the Compose modal auto-log here; one row per message with the recipients, subject, and a click-through to the full body."
+        />
+      </div>
 
       {logModalOpen && (
         <LogLetterModal
