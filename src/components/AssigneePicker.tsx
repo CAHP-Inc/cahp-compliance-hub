@@ -68,9 +68,6 @@ export function AssigneePicker({
             </option>
           );
         })}
-        <option value="Owner" />
-        <option value="DOR" />
-        <option value="Vendor" />
       </datalist>
     </>
   );
