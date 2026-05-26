@@ -1,8 +1,9 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { Icon } from '../ui/Icon';
 import { useSharePointList, LIST_NAMES, type Submittal } from '../../lib/sharepoint';
+import { UnfiledParcelsModal } from './UnfiledParcelsModal';
 
-export const SC_FILING_FREEZE = new Date('2026-06-25T23:59:59');
+export const SC_FILING_FREEZE = new Date('2026-06-25T23:59:59-04:00');
 
 export interface FilingFreezeStatus {
   propertyCount: number;
@@ -43,16 +44,13 @@ interface FilingFreezeBannerProps {
 }
 
 export function FilingFreezeBanner({ status }: FilingFreezeBannerProps) {
+  const [modalOpen, setModalOpen] = useState(false);
   const { propertyCount, parcelCount, daysLeft, isPastFreeze } = status;
 
   const palette = isPastFreeze ? 'bg-red-600 text-white' : 'bg-amber-500 text-amber-950';
   const buttonClass = isPastFreeze
     ? 'bg-white text-red-700 hover:bg-red-50'
     : 'bg-amber-950 text-amber-50 hover:bg-amber-900';
-
-  const scopeLabel = parcelCount > 0
-    ? `${parcelCount} parcel${parcelCount === 1 ? '' : 's'}${propertyCount > 0 ? ` across ${propertyCount} propert${propertyCount === 1 ? 'y' : 'ies'}` : ''}`
-    : `${propertyCount} propert${propertyCount === 1 ? 'y' : 'ies'}`;
 
   const deadlineLabel = isPastFreeze
     ? 'past the June 25 SC freeze'
@@ -61,24 +59,30 @@ export function FilingFreezeBanner({ status }: FilingFreezeBannerProps) {
       : `${daysLeft} day${daysLeft === 1 ? '' : 's'} until June 25 SC freeze`;
 
   return (
-    <div
-      className={`fixed top-14 left-0 right-0 z-30 h-10 ${palette} shadow-sm flex items-center px-4 gap-3`}
-      role="alert"
-    >
-      <Icon name="alert" size={16} />
-      <div className="flex-1 min-w-0 text-sm font-semibold truncate">
-        <span className="font-mono-data">{scopeLabel}</span>{' '}
-        <span className="font-normal">still in Draft</span>
-        <span className="mx-2 opacity-50">·</span>
-        <span>{deadlineLabel}</span>
-      </div>
-      <Link
-        to="/submittals"
-        className={`flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold ${buttonClass} transition-colors`}
+    <>
+      <div
+        className={`fixed top-14 left-0 right-0 z-30 h-10 ${palette} shadow-sm flex items-center px-4 gap-3`}
+        role="alert"
       >
-        Review Drafts
-        <Icon name="chevron-right" size={12} />
-      </Link>
-    </div>
+        <Icon name="alert" size={16} />
+        <div className="flex-1 min-w-0 text-sm font-semibold truncate">
+          <span className="font-mono-data">{propertyCount}</span>{' '}
+          <span className="font-normal">propert{propertyCount === 1 ? 'y' : 'ies'} still in Draft</span>
+          <span className="mx-1.5 opacity-50">-</span>
+          <span className="font-mono-data">{parcelCount}</span>{' '}
+          <span className="font-normal">parcel{parcelCount === 1 ? '' : 's'} unfiled</span>
+          <span className="mx-2 opacity-50">·</span>
+          <span>{deadlineLabel}</span>
+        </div>
+        <button
+          onClick={() => setModalOpen(true)}
+          className={`flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold ${buttonClass} transition-colors`}
+        >
+          View Parcels
+          <Icon name="chevron-right" size={12} />
+        </button>
+      </div>
+      {modalOpen && <UnfiledParcelsModal onClose={() => setModalOpen(false)} />}
+    </>
   );
 }
