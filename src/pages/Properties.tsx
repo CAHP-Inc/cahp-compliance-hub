@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership } from '../lib/sharepoint';
+import { useSharePointList, LIST_NAMES, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
@@ -32,6 +32,7 @@ export function Properties() {
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 1000 });
+  const outstanding = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 2000 });
   const [expandedOwnerIds, setExpandedOwnerIds] = useState<Set<string>>(new Set());
 
   const toggleExpand = (ownerId: string) =>
@@ -147,6 +148,29 @@ export function Properties() {
     });
     return map;
   }, [taxMapIDs.data, submittals.data]);
+
+  /**
+   * Per-property open Outstanding Items count. "Open" excludes closed statuses
+   * (Done / Received / Not Applicable). Also tracks overdue (DueDate < now and
+   * still open) so the column can flag properties that need attention.
+   */
+  const openItemsByProperty = useMemo(() => {
+    const closed = new Set(['Done', 'Received', 'Not Applicable']);
+    const now = Date.now();
+    const map = new Map<string, { open: number; overdue: number }>();
+    (outstanding.data ?? []).forEach((i) => {
+      const pid = i.fields.PropertyLookupId ? String(i.fields.PropertyLookupId) : '';
+      if (!pid) return;
+      if (closed.has(i.fields.ItemStatus ?? '')) return;
+      const cur = map.get(pid) ?? { open: 0, overdue: 0 };
+      cur.open++;
+      if (i.fields.DueDate && new Date(i.fields.DueDate).getTime() < now) {
+        cur.overdue++;
+      }
+      map.set(pid, cur);
+    });
+    return map;
+  }, [outstanding.data]);
 
   /**
    * For each property's latest year+filing-type, count submittals by status.
@@ -287,11 +311,18 @@ export function Properties() {
     if (!data) return null;
     let totalParcels = 0;
     let filedParcels = 0;
+    let openItems = 0;
+    let overdueItems = 0;
     for (const p of data) {
       const ps = parcelStatsByProperty.get(p.id);
       if (ps) {
         totalParcels += ps.totalParcels;
         filedParcels += ps.filedParcels;
+      }
+      const oi = openItemsByProperty.get(p.id);
+      if (oi) {
+        openItems += oi.open;
+        overdueItems += oi.overdue;
       }
     }
     return {
@@ -302,8 +333,10 @@ export function Properties() {
       units: data.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0),
       parcels: totalParcels,
       filedParcels,
+      openItems,
+      overdueItems,
     };
-  }, [data, parcelStatsByProperty]);
+  }, [data, parcelStatsByProperty, openItemsByProperty]);
 
   /**
    * Two-level nested grouping:
@@ -400,7 +433,7 @@ export function Properties() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
         <KPICard label="Total Properties" value={stats.total} />
         <KPICard label="Active" value={stats.active} accent="success" />
         <KPICard label="Total Units" value={stats.units.toLocaleString()} />
@@ -409,6 +442,11 @@ export function Properties() {
           label="Filed Parcels"
           value={stats.parcels > 0 ? `${stats.filedParcels} / ${stats.parcels}` : '—'}
           accent={stats.parcels > 0 && stats.filedParcels === stats.parcels ? 'success' : undefined}
+        />
+        <KPICard
+          label={stats.overdueItems > 0 ? `Open Items (${stats.overdueItems} overdue)` : 'Open Items'}
+          value={stats.openItems.toLocaleString()}
+          accent={stats.overdueItems > 0 ? 'error' : undefined}
         />
         <KPICard label="SC" value={stats.sc} />
         <KPICard label="NC" value={stats.nc} />
@@ -478,6 +516,7 @@ export function Properties() {
                 <th className="px-4 py-3 text-right">Units</th>
                 <th className="px-4 py-3 text-left">AMI</th>
                 <th className="px-4 py-3 text-left">Owner Contact</th>
+                <th className="px-4 py-3 text-right" title="Open Outstanding Items">Open</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Filing Status</th>
               </tr>
@@ -528,6 +567,17 @@ export function Properties() {
                       <div className="text-gray-900 truncate">{contact.fields.Title}</div>
                       {contact.fields.ContactEmail && (
                         <div className="text-[11px] text-gray-500 font-mono-data truncate">{contact.fields.ContactEmail}</div>
+                      )}
+                    </div>
+                  );
+                };
+                const renderOpenItemsCell = (open: number, overdue: number) => {
+                  if (open === 0) return <span className="text-gray-300">—</span>;
+                  return (
+                    <div className="flex flex-col items-end" title={`${open} open${overdue > 0 ? ` (${overdue} overdue)` : ''}`}>
+                      <span className={`font-mono-data font-semibold ${overdue > 0 ? 'text-error' : 'text-gray-800'}`}>{open}</span>
+                      {overdue > 0 && (
+                        <span className="text-[10px] text-error font-mono-data">{overdue} overdue</span>
                       )}
                     </div>
                   );
@@ -601,36 +651,41 @@ export function Properties() {
 
                 // Property rows: either at child depth (depth 1, under parent group)
                 // or grandchild depth (depth 2, under a nested sub-entity).
-                const renderPropertyRow = (p: Property, depth: 1 | 2, viaSubEntity?: string) => (
-                  <tr
-                    key={`prop-${ownerKey}-${depth}-${p.id}`}
-                    onClick={() => navigate(`/properties/${p.id}`)}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                  >
-                    <td className="px-4 py-3"></td>
-                    <td className={`px-4 py-3 ${depth === 2 ? 'pl-14' : 'pl-8'} text-gray-400 text-xs`}>
-                      ↳ {viaSubEntity && <span className="text-gray-500 italic ml-1">via {viaSubEntity}</span>}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
-                    <td className="px-4 py-3">
-                      <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
-                    <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
-                    <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
-                    <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
-                    <td className="px-4 py-3">
-                      {p.fields.PropertyStatus ? (
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
-                  </tr>
-                );
+                const renderPropertyRow = (p: Property, depth: 1 | 2, viaSubEntity?: string) => {
+                  const oi = openItemsByProperty.get(p.id) ?? { open: 0, overdue: 0 };
+                  return (
+                    <tr
+                      key={`prop-${ownerKey}-${depth}-${p.id}`}
+                      onClick={() => navigate(`/properties/${p.id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3"></td>
+                      <td className={`px-4 py-3 ${depth === 2 ? 'pl-14' : 'pl-8'} text-gray-400 text-xs`}>
+                        ↳ {viaSubEntity && <span className="text-gray-500 italic ml-1">via {viaSubEntity}</span>}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{renderPropertyNameCell(p)}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono-data text-xs font-semibold text-teal-700">{p.fields.cahpState || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 text-xs">{renderCountyCell(p)}</td>
+                      <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
+                      <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
+                      <td className="px-4 py-3 text-right">{renderOpenItemsCell(oi.open, oi.overdue)}</td>
+                      <td className="px-4 py-3">
+                        {p.fields.PropertyStatus ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                    </tr>
+                  );
+                };
 
                 // ─── Single-property entity: render as one flat row ───
                 if (isSingle) {
                   const p = allProps[0];
+                  const oi = openItemsByProperty.get(p.id) ?? { open: 0, overdue: 0 };
                   return [
                     <tr
                       key={`single-${ownerKey}-${p.id}`}
@@ -658,6 +713,7 @@ export function Properties() {
                       <td className="px-4 py-3 text-right">{renderUnitsCell(p)}</td>
                       <td className="px-4 py-3 text-gray-700 text-xs">{p.fields.AMIProgram || '—'}</td>
                       <td className="px-4 py-3 text-xs">{renderContactCell(p)}</td>
+                      <td className="px-4 py-3 text-right">{renderOpenItemsCell(oi.open, oi.overdue)}</td>
                       <td className="px-4 py-3">
                         {p.fields.PropertyStatus ? (
                           <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_STYLES[p.fields.PropertyStatus] || 'bg-gray-100 text-gray-700'}`}>{p.fields.PropertyStatus}</span>
@@ -672,6 +728,8 @@ export function Properties() {
                 const totalUnits = allProps.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
                 const totalParcels = allProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
                 const filedParcels = allProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
+                const totalOpenItems = allProps.reduce((sum, p) => sum + (openItemsByProperty.get(p.id)?.open ?? 0), 0);
+                const totalOverdueItems = allProps.reduce((sum, p) => sum + (openItemsByProperty.get(p.id)?.overdue ?? 0), 0);
                 const stateAgg = countBy(allProps, (p) => p.fields.cahpState);
                 const countyAgg = countBy(
                   allProps.flatMap((p) => (p.fields.cahpCounty ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((c) => ({ c }))),
@@ -738,6 +796,7 @@ export function Properties() {
                     </td>
                     <td className="px-4 py-3"><AggregateChips entries={amiAgg} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={contactAgg} /></td>
+                    <td className="px-4 py-3 text-right">{renderOpenItemsCell(totalOpenItems, totalOverdueItems)}</td>
                     <td className="px-4 py-3"><AggregateChips entries={statusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
                     <td className="px-4 py-3"><AggregateChips entries={filingAgg} styleMap={FILING_STATUS_STYLES as Record<string, string>} /></td>
                   </tr>
@@ -756,6 +815,8 @@ export function Properties() {
                     const subUnits = subProps.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0);
                     const subParcels = subProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
                     const subFiled = subProps.reduce((sum, p) => sum + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
+                    const subOpenItems = subProps.reduce((sum, p) => sum + (openItemsByProperty.get(p.id)?.open ?? 0), 0);
+                    const subOverdueItems = subProps.reduce((sum, p) => sum + (openItemsByProperty.get(p.id)?.overdue ?? 0), 0);
                     const subStateAgg = countBy(subProps, (p) => p.fields.cahpState);
                     const subStatusAgg = countBy(subProps, (p) => p.fields.PropertyStatus);
                     const subFilingAgg = countBy(
@@ -801,6 +862,7 @@ export function Properties() {
                         </td>
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3 text-right">{renderOpenItemsCell(subOpenItems, subOverdueItems)}</td>
                         <td className="px-4 py-3"><AggregateChips entries={subStatusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
                         <td className="px-4 py-3"><AggregateChips entries={subFilingAgg} styleMap={FILING_STATUS_STYLES as Record<string, string>} /></td>
                       </tr>,
@@ -816,7 +878,7 @@ export function Properties() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500 text-sm">
                     No properties match the current filters.
                   </td>
                 </tr>
@@ -874,8 +936,11 @@ function AggregateChips({
   );
 }
 
-function KPICard({ label, value, accent }: { label: string; value: string | number; accent?: 'success' }) {
-  const accentClass = accent === 'success' ? 'text-success' : 'text-teal-700';
+function KPICard({ label, value, accent }: { label: string; value: string | number; accent?: 'success' | 'error' }) {
+  const accentClass =
+    accent === 'success' ? 'text-success' :
+    accent === 'error' ? 'text-error' :
+    'text-teal-700';
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
       <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
