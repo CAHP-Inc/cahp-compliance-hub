@@ -26,6 +26,7 @@ import {
   type ItemStatus,
   type ItemPriority,
   getBeneficialOwnershipTree,
+  getUpstreamOwnerIds,
   computeBeneficialOwnership,
   annotateCahpChain,
   getExemptionSources,
@@ -2365,15 +2366,14 @@ function PropertyDocumentsTab({
   }, [propertyId, lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data]);
 
   // Property's actual ownership chain — every owner + parent-owner reachable from this property's Ownership records
+  // Full upstream chain — direct owners of this property + every entity that
+  // sits above them in the ownership tree, recursively. Without the upstream
+  // walk, CAHP entities like the parent nonprofit get filtered out of the
+  // CAHP Documents section because they're never a *direct* member of the
+  // property, only an ancestor of CAHP SC LLC.
   const propertyOwnerChain = useMemo(() => {
     if (!ownership?.data) return new Set<string>();
-    const ids = new Set<string>();
-    ownership.data.forEach((rel) => {
-      if (String(rel.fields.LinkedPropertyLookupId) !== String(propertyId)) return;
-      if (rel.fields.OwnerLookupId) ids.add(String(rel.fields.OwnerLookupId));
-      if (rel.fields.ParentOwnerLookupId) ids.add(String(rel.fields.ParentOwnerLookupId));
-    });
-    return ids;
+    return getUpstreamOwnerIds(String(propertyId), ownership.data);
   }, [ownership?.data, propertyId]);
 
   // CAHP entities to surface on this property — strict chain-based:

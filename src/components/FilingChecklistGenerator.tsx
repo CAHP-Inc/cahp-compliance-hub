@@ -155,6 +155,18 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       let matched = false;
       let matchedDoc: { filename: string; url: string; library: string } | undefined;
 
+      // Detect required state from the template — either explicit (template.state)
+      // or implicit in the title (e.g., "CAHP NC LLC Operating Agreement"). This
+      // prevents a CAHP SC doc from matching a CAHP NC template.
+      const requiredState = inferRequiredState(template);
+      const oppositeState = requiredState === 'SC' ? 'nc' : requiredState === 'NC' ? 'sc' : null;
+      const matchesStateFilter = (filename: string): boolean => {
+        if (!oppositeState) return true; // template is state-agnostic
+        // Reject docs that mention the opposite state token in their filename
+        if (new RegExp(`\\b${oppositeState}\\b`, 'i').test(filename)) return false;
+        return true;
+      };
+
       // CAHP-scoped items: check the dedicated CAHP Entity Documents library first by filename match
       // Filter by OwnerLookupId state-scope; untagged docs count as shared (visible everywhere)
       let candidateDoc: DocItemRaw | undefined;
@@ -165,6 +177,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
           // Skip docs tagged to entities NOT in scope (e.g. NC LLC docs when filing an SC property)
           if (ownerTag && !cahpOwnerIds.has(ownerTag)) return false;
           const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
+          if (!matchesStateFilter(filename)) return false;
           return keywords.some((kw) => filename.includes(kw));
         });
         if (candidateDoc && candidateDoc.webUrl) {
@@ -185,6 +198,8 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
           const candidates = lib.data.filter((doc) => {
             const propTag = doc.fields.PropertyLookupId ? String(doc.fields.PropertyLookupId) : null;
             const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+            const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
+            if (!matchesStateFilter(filename)) return false;
             if (template.scope === 'property') return propTag === propertyId;
             if (template.scope === 'cahp') return ownerTag !== null && cahpOwnerIds.has(ownerTag);
             if (template.scope === 'owner') return ownerTag !== null && propertyOwnerIds.has(ownerTag);
@@ -536,6 +551,21 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
       </div>
     </div>
   );
+}
+
+/**
+ * Detect whether a template implies SC- or NC-specificity, so the matcher can
+ * reject docs from the opposite state. Honors the explicit `template.state`
+ * field first; falls back to scanning the title for standalone SC/NC tokens
+ * (e.g., "CAHP NC LLC Operating Agreement", "(Stamped SC)").
+ */
+function inferRequiredState(template: FilingChecklistItem): 'SC' | 'NC' | undefined {
+  if (template.state === 'SC' || template.state === 'NC') return template.state;
+  const upper = template.title.toUpperCase();
+  // Word-boundary checks so we don't match "SCAN" or "INCONSC".
+  if (/\bNC\b/.test(upper)) return 'NC';
+  if (/\bSC\b/.test(upper)) return 'SC';
+  return undefined;
 }
 
 /**
