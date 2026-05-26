@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   useSharePointList,
   useSharePointItem,
   createListItem,
+  updateListItem,
   LIST_NAMES,
   getUpstreamOwnerIds,
   type Owner,
@@ -53,6 +54,10 @@ interface PreviewItem {
   matchedDocFilename?: string;
   matchedDocUrl?: string;
   matchedDocLibrary?: string;
+  /** SharePoint item ID of the matched doc — needed to PATCH its tag when generating */
+  matchedDocId?: string;
+  /** Whether the matched doc already has a tag (PropertyLookupId / OwnerLookupId) that lines up */
+  matchedDocAlreadyTagged?: boolean;
 }
 
 export interface FilingChecklistGeneratorProps {
@@ -88,8 +93,12 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const loading = libraries.some((l) => l.loading) || owners.loading || ownership.loading || cahpLib.loading;
 
   const [creating, setCreating] = useState(false);
-  const [createOnlyUnmatched, setCreateOnlyUnmatched] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Per-row selection: titles are unique within a template so we key by title.
+  const [selectedTitles, setSelectedTitles] = useState<Set<string>>(new Set());
+  // Whether to also pull matched docs into the entity by tagging them (when
+  // they're missing the proper Owner/Property tag). Defaults on.
+  const [tagMatchedDocs, setTagMatchedDocs] = useState(true);
 
   // Identify CAHP-scope owners: every entity upstream of this property in the
   // ownership chain (direct LLC, parent nonprofit, etc.), plus any CAHP-named
@@ -148,20 +157,21 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
 
       // CAHP-scoped items: check the dedicated CAHP Entity Documents library first by filename match
       // Filter by OwnerLookupId state-scope; untagged docs count as shared (visible everywhere)
+      let candidateDoc: DocItemRaw | undefined;
       if (template.scope === 'cahp' && cahpLib.data && cahpLib.data.length > 0) {
         const keywords = extractKeywords(template.title);
-        const candidate = cahpLib.data.find((doc) => {
+        candidateDoc = cahpLib.data.find((doc) => {
           const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
           // Skip docs tagged to entities NOT in scope (e.g. NC LLC docs when filing an SC property)
           if (ownerTag && !cahpOwnerIds.has(ownerTag)) return false;
           const filename = (doc.fields.FileLeafRef || doc.fields.Title || '').toLowerCase();
           return keywords.some((kw) => filename.includes(kw));
         });
-        if (candidate && candidate.webUrl) {
+        if (candidateDoc && candidateDoc.webUrl) {
           matched = true;
           matchedDoc = {
-            filename: candidate.fields.FileLeafRef || candidate.fields.Title || '(unnamed)',
-            url: candidate.webUrl,
+            filename: candidateDoc.fields.FileLeafRef || candidateDoc.fields.Title || '(unnamed)',
+            url: candidateDoc.webUrl,
             library: CAHP_ENTITY_LIBRARY,
           };
         }
@@ -182,6 +192,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
           });
           if (candidates.length > 0 && candidates[0].webUrl) {
             matched = true;
+            candidateDoc = candidates[0];
             matchedDoc = {
               filename: candidates[0].fields.FileLeafRef || candidates[0].fields.Title || '(unnamed)',
               url: candidates[0].webUrl,
@@ -191,12 +202,27 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         }
       }
 
+      // Determine whether the matched doc is already correctly tagged for this filing.
+      // - property scope: needs PropertyLookupId === propertyId
+      // - owner scope:    needs OwnerLookupId in propertyOwnerIds
+      // - cahp scope:     needs OwnerLookupId in cahpOwnerIds (or untagged = shared)
+      let alreadyTagged = false;
+      if (candidateDoc) {
+        const propTag = candidateDoc.fields.PropertyLookupId ? String(candidateDoc.fields.PropertyLookupId) : null;
+        const ownerTag = candidateDoc.fields.OwnerLookupId ? String(candidateDoc.fields.OwnerLookupId) : null;
+        if (template.scope === 'property') alreadyTagged = propTag === propertyId;
+        else if (template.scope === 'owner') alreadyTagged = ownerTag !== null && propertyOwnerIds.has(ownerTag);
+        else if (template.scope === 'cahp') alreadyTagged = ownerTag === null || cahpOwnerIds.has(ownerTag);
+      }
+
       items.push({
         template,
         matched,
         matchedDocFilename: matchedDoc?.filename,
         matchedDocUrl: matchedDoc?.url,
         matchedDocLibrary: matchedDoc?.library,
+        matchedDocId: candidateDoc?.id,
+        matchedDocAlreadyTagged: alreadyTagged,
       });
     });
     return items;
@@ -206,6 +232,29 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const matchedCount = preview.filter((p) => p.matched).length;
   const unmatchedCount = preview.filter((p) => !p.matched).length;
 
+  // Seed selection with every preview row the first time the preview lands.
+  // Re-runs only if titles set changes (e.g. user toggled state filters).
+  useEffect(() => {
+    if (preview.length === 0) return;
+    setSelectedTitles((prev) => {
+      if (prev.size > 0) return prev;
+      return new Set(preview.map((p) => p.template.title));
+    });
+  }, [preview]);
+
+  const selectedCount = preview.filter((p) => selectedTitles.has(p.template.title)).length;
+  const toggleOne = (title: string) =>
+    setSelectedTitles((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  const selectAll = () => setSelectedTitles(new Set(preview.map((p) => p.template.title)));
+  const selectNone = () => setSelectedTitles(new Set());
+  const selectUnmatchedOnly = () =>
+    setSelectedTitles(new Set(preview.filter((p) => !p.matched).map((p) => p.template.title)));
+
   const handleGenerate = async () => {
     if (!propertyId) {
       setError("No property context — can't create checklist items.");
@@ -214,9 +263,23 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
     setCreating(true);
     setError(null);
 
-    const itemsToCreate = createOnlyUnmatched ? preview.filter((p) => !p.matched) : preview;
+    // Pick a target owner tag for owner-scope items: prefer the property's
+    // primary direct-owner LLC (largest %). Falls back to the first direct
+    // owner if percentages aren't set.
+    const ownerForOwnerScope = (() => {
+      if (!ownership.data) return undefined;
+      const rows = ownership.data.filter(
+        (rel) => String(rel.fields.LinkedPropertyLookupId) === propertyId && rel.fields.OwnerLookupId,
+      );
+      if (rows.length === 0) return undefined;
+      rows.sort((a, b) => (b.fields.OwnershipPercent ?? 0) - (a.fields.OwnershipPercent ?? 0));
+      return String(rows[0].fields.OwnerLookupId);
+    })();
+
+    const itemsToCreate = preview.filter((p) => selectedTitles.has(p.template.title));
     let createdSuccess = 0;
     let matchedSuccess = 0;
+    let taggedSuccess = 0;
 
     try {
       for (const p of itemsToCreate) {
@@ -241,13 +304,44 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         }
         await createListItem(LIST_NAMES.Outstanding, fields);
         createdSuccess++;
+
+        // Pull the matched doc into the entity's Documents view by tagging it.
+        // Only touches docs that don't already have the right tag (we never
+        // overwrite a tag that's already set to a different entity).
+        if (
+          tagMatchedDocs &&
+          p.matched &&
+          p.matchedDocId &&
+          p.matchedDocLibrary &&
+          !p.matchedDocAlreadyTagged
+        ) {
+          const patch: Record<string, unknown> = {};
+          if (p.template.scope === 'property') {
+            patch.PropertyLookupId = propertyId;
+          } else if (p.template.scope === 'owner' && ownerForOwnerScope) {
+            patch.OwnerLookupId = ownerForOwnerScope;
+          }
+          // CAHP-scope docs stay untagged so they remain shared across filings.
+          if (Object.keys(patch).length > 0) {
+            try {
+              await updateListItem(p.matchedDocLibrary, p.matchedDocId, patch, {
+                reason: 'Tagged via Filing Checklist generator so this doc appears in the entity Documents view',
+              });
+              taggedSuccess++;
+            } catch (e) {
+              // Don't fail the whole generation on a single tag failure — log only.
+              // eslint-disable-next-line no-console
+              console.warn(`Failed to tag '${p.matchedDocFilename}' in '${p.matchedDocLibrary}':`, e);
+            }
+          }
+        }
       }
-      // Also count auto-matches that we skipped (when createOnlyUnmatched=true)
-      if (createOnlyUnmatched) {
-        // matchedCount items were skipped because they already exist
-        onSuccess(createdSuccess, matchedCount);
-      } else {
-        onSuccess(createdSuccess, matchedSuccess);
+      // Report counts back to the caller (existing handler shows a toast).
+      onSuccess(createdSuccess, matchedSuccess);
+      // Surface the tag count in console for now — caller's signature is fixed.
+      if (taggedSuccess > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[FilingChecklist] Tagged ${taggedSuccess} matched doc(s) into the entity Documents view.`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -291,12 +385,43 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
               </div>
             </div>
 
+            {/* Bulk selection toolbar */}
+            <div className="flex items-center justify-between gap-2 mb-2 text-xs">
+              <div className="text-gray-600">
+                <span className="font-semibold">{selectedCount}</span> of {preview.length} selected for generation
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={selectAll}
+                  className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                  title="Include every template row in the generation"
+                >
+                  All
+                </button>
+                <button
+                  onClick={selectUnmatchedOnly}
+                  className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                  title="Only generate items for documents not yet on file"
+                >
+                  Unmatched only
+                </button>
+                <button
+                  onClick={selectNone}
+                  className="px-2 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                  title="Clear selection"
+                >
+                  None
+                </button>
+              </div>
+            </div>
+
             {/* Preview list */}
             <div className="border border-gray-200 rounded-md max-h-96 overflow-y-auto mb-4">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-semibold text-gray-600 uppercase tracking-wider sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left w-8"></th>
+                    <th className="px-3 py-2 text-center w-8"></th>
+                    <th className="px-3 py-2 text-left w-6"></th>
                     <th className="px-3 py-2 text-left">Required Document</th>
                     <th className="px-3 py-2 text-left">Scope</th>
                     <th className="px-3 py-2 text-left">Match</th>
@@ -312,8 +437,17 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
                       p.template.scope === 'cahp' ? 'CAHP Entity' :
                       p.template.scope === 'owner' ? 'Property Owner' :
                       'Property';
+                    const isSelected = selectedTitles.has(p.template.title);
                     return (
-                      <tr key={idx} className={p.matched ? 'bg-green-50/40' : ''}>
+                      <tr key={idx} className={`${p.matched ? 'bg-green-50/40' : ''} ${isSelected ? '' : 'opacity-50'}`}>
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOne(p.template.title)}
+                            title={isSelected ? 'Uncheck to skip this item when generating' : 'Check to include this item in generation'}
+                          />
+                        </td>
                         <td className="px-3 py-2 text-center">
                           {p.matched ? (
                             <Icon name="check" size={12} className="text-success" />
@@ -332,9 +466,14 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
                         </td>
                         <td className="px-3 py-2 text-[10px] text-gray-600">
                           {p.matched ? (
-                            <span className="text-success truncate" title={p.matchedDocFilename}>
-                              {p.matchedDocFilename}
-                            </span>
+                            <div className="flex flex-col">
+                              <span className="text-success truncate" title={p.matchedDocFilename}>
+                                {p.matchedDocFilename}
+                              </span>
+                              {tagMatchedDocs && isSelected && !p.matchedDocAlreadyTagged && p.template.scope !== 'cahp' && (
+                                <span className="text-[10px] text-teal-700 italic">will tag into entity docs</span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-warning italic">missing</span>
                           )}
@@ -346,22 +485,27 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
               </table>
             </div>
 
-            <label className="flex items-center gap-2 text-xs text-gray-700 mb-3 cursor-pointer">
+            <label className="flex items-start gap-2 text-xs text-gray-700 mb-3 cursor-pointer">
               <input
                 type="checkbox"
-                checked={createOnlyUnmatched}
-                onChange={(e) => setCreateOnlyUnmatched(e.target.checked)}
+                checked={tagMatchedDocs}
+                onChange={(e) => setTagMatchedDocs(e.target.checked)}
+                className="mt-0.5"
               />
-              Only create items for missing documents ({unmatchedCount} items). Uncheck to also create
-              already-fulfilled tracking items ({preview.length} total).
+              <span>
+                For matched docs, also tag them with the right Owner/Property ID so they show up in the
+                entity's <strong>Documents</strong> view on the property page. Only touches docs that
+                aren't already tagged to a specific entity (never overwrites an existing tag).
+              </span>
             </label>
 
             <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-900 mb-3">
               <div className="font-semibold mb-1">On Generate:</div>
               <ul className="space-y-0.5 list-disc list-inside">
-                <li>{createOnlyUnmatched ? unmatchedCount : preview.length} Outstanding Items created, all linked to this submittal</li>
-                <li>Auto-matched items pre-linked to their fulfilling docs and marked Received</li>
-                <li>Unmatched items show on the property's Outstanding tab with Link/Upload action ready</li>
+                <li>{selectedCount} Outstanding Item{selectedCount === 1 ? '' : 's'} created, linked to this submittal</li>
+                <li>Auto-matched selections pre-linked to their fulfilling docs and marked Received</li>
+                <li>Unmatched selections show on the Outstanding tab with Link/Upload ready</li>
+                <li>Unchecked rows are skipped entirely (use this for items that don't apply, e.g., Reassignment of Interest when not re-filing)</li>
                 <li>All actions audit-logged</li>
               </ul>
             </div>
@@ -382,11 +526,11 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
           </button>
           <button
             onClick={handleGenerate}
-            disabled={creating || loading}
-            className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
+            disabled={creating || loading || selectedCount === 0}
+            className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creating && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
-            {creating ? 'Generating…' : `Generate ${createOnlyUnmatched ? unmatchedCount : preview.length} Items`}
+            {creating ? 'Generating…' : `Generate ${selectedCount} Item${selectedCount === 1 ? '' : 's'}`}
           </button>
         </div>
       </div>
