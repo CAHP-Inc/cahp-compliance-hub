@@ -143,8 +143,8 @@ for ($i = 0; $i -lt $sampleSize; $i++) {
     $m = $matches[$i]
     $title  = [string]$m["Title"]
     $status = [string]$m["ItemStatus"]
-    $pid    = [string]$m["PropertyLookupId"]
-    Write-Host ("  [{0}] {1}  (status: {2}, propertyId: {3})" -f $m.Id, $title, $status, $pid) -ForegroundColor DarkGray
+    $propId = [string]$m["PropertyLookupId"]
+    Write-Host ("  [{0}] {1}  (status: {2}, propertyId: {3})" -f $m.Id, $title, $status, $propId) -ForegroundColor DarkGray
 }
 if ($matches.Count -gt 20) {
     Write-Host "  ... and $($matches.Count - 20) more" -ForegroundColor DarkGray
