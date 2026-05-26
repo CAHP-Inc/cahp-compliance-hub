@@ -2343,13 +2343,39 @@ function PropertyDocumentsTab({
 
   const refetchAll = () => libraries.forEach((l) => l.refetch?.());
 
+  // Extract LookupId(s) from a multi-value Lookup field. Graph returns the
+  // value under the base column name ("Property") as an array of
+  // {LookupId, LookupValue}, NOT under PropertyLookupId. Earlier single-value
+  // versions still surface under PropertyLookupId as a scalar. Handle both.
+  const extractPropertyIds = (fields: Record<string, unknown> | undefined): string[] => {
+    if (!fields) return [];
+    const ids: string[] = [];
+    const scalar = fields['PropertyLookupId'];
+    if (typeof scalar === 'string' || typeof scalar === 'number') {
+      const s = String(scalar);
+      if (s) ids.push(s);
+    } else if (Array.isArray(scalar)) {
+      for (const v of scalar) ids.push(String(v));
+    }
+    const arr = fields['Property'];
+    if (Array.isArray(arr)) {
+      for (const entry of arr) {
+        if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+          ids.push(String((entry as { LookupId: unknown }).LookupId));
+        }
+      }
+    }
+    return ids;
+  };
+
   const documents = useMemo(() => {
     const docs: PropertyDocument[] = [];
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((item) => {
-        if (String(item.fields.PropertyLookupId) !== String(propertyId)) return;
+        const propIds = extractPropertyIds(item.fields as unknown as Record<string, unknown>);
+        if (!propIds.includes(String(propertyId))) return;
         docs.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,
