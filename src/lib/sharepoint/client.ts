@@ -409,46 +409,67 @@ async function patchListItemFieldsWithFallback(
 
   let listItemId: string | null = null;
 
-  // Try each lookup field. For each, attempt every alias until one
-  // PATCH succeeds AND the value reads back correctly.
+  // Helper — does a single PATCH-then-readback cycle, returning whether the
+  // value persisted. Tries both single-value and multi-value (array) shapes
+  // since the column might be either.
+  const tryWriteAndVerify = async (
+    fieldName: string,
+    rawValue: unknown,
+    asArray: boolean,
+  ): Promise<{ persisted: boolean; readBack: unknown }> => {
+    const payload: Record<string, unknown> = asArray
+      ? {
+          [`${fieldName}@odata.type`]: 'Collection(Edm.Int32)',
+          [fieldName]: [Number(rawValue)],
+        }
+      : { [fieldName]: rawValue };
+    try {
+      const updated: { id: string } = await graphClient
+        .api(`/drives/${driveId}/items/${driveItemId}/listItem/fields`)
+        .patch(payload);
+      listItemId = updated.id ?? listItemId;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[upload] ${libraryName}: PATCH "${fieldName}" (${asArray ? 'array' : 'single'}) threw:`, e);
+      return { persisted: false, readBack: undefined };
+    }
+
+    // Read back and check
+    const verify: { fields: Record<string, unknown> } = await graphClient
+      .api(`/drives/${driveId}/items/${driveItemId}/listItem`)
+      .get();
+    const readBack = verify.fields[fieldName];
+    const expected = String(rawValue ?? '');
+    const persisted = Array.isArray(readBack)
+      ? readBack.map((v) => String(v)).includes(expected)
+      : String(readBack ?? '') === expected;
+    return { persisted, readBack };
+  };
+
+  // Try each lookup field. For each, attempt every alias × {single, array}
+  // shape until one combo persists.
   for (const [primaryKey, value] of Object.entries(lookupFields)) {
     const aliases = lookupAliases[primaryKey];
     const expected = String(value ?? '');
     let succeededWith: string | null = null;
 
-    for (const alias of aliases) {
-      try {
-        const updated: { id: string } = await graphClient
-          .api(`/drives/${driveId}/items/${driveItemId}/listItem/fields`)
-          .patch({ [alias]: value });
-        listItemId = updated.id ?? listItemId;
-
-        // Verify the value persisted (PATCH against a missing column quietly returns OK)
-        const verify: { fields: Record<string, unknown> } = await graphClient
-          .api(`/drives/${driveId}/items/${driveItemId}/listItem`)
-          .get();
-        const readBack =
-          verify.fields[primaryKey] ??
-          verify.fields[aliases[1]] ??
-          verify.fields[aliases[2]];
-
-        if (String(readBack ?? '') === expected) {
-          succeededWith = alias;
+    outer: for (const alias of aliases) {
+      for (const asArray of [false, true]) {
+        const { persisted, readBack } = await tryWriteAndVerify(alias, value, asArray);
+        if (persisted) {
+          succeededWith = `${alias}${asArray ? '[]' : ''}`;
           // eslint-disable-next-line no-console
-          console.log(`[upload] ${libraryName}: tagged ${primaryKey}=${expected} via field "${alias}"`);
-          break;
+          console.log(`[upload] ${libraryName}: tagged ${primaryKey}=${expected} via field "${succeededWith}"`);
+          break outer;
         }
         // eslint-disable-next-line no-console
-        console.warn(`[upload] ${libraryName}: PATCH "${alias}" returned OK but value did not persist (read back: ${String(readBack ?? '')})`);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn(`[upload] ${libraryName}: PATCH "${alias}" threw:`, e);
+        console.warn(`[upload] ${libraryName}: PATCH "${alias}" (${asArray ? 'array' : 'single'}) returned OK but value did not persist (read back: ${JSON.stringify(readBack)})`);
       }
     }
 
     if (!succeededWith) {
       throw new Error(
-        `Tried [${aliases.join(', ')}] on library "${libraryName}" — none persisted the ${primaryKey} value.`,
+        `Tried [${aliases.join(', ')}] in both single and array form on library "${libraryName}" — none persisted the ${primaryKey} value. The column may be missing or read-only.`,
       );
     }
   }
