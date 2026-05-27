@@ -10,14 +10,17 @@ import {
   type Deed,
   type DeedParcelLink,
   type ParcelStatus,
+  type CahpState,
 } from '../lib/sharepoint';
 import { Icon } from './ui/Icon';
 import { formatDateOnly } from '../lib/dates';
 import { DeedModal } from './DeedsSection';
+import { CURRENT_FILING_YEAR } from './layout/FilingFreezeBanner';
 
 interface TaxMapIDsSectionProps {
   propertyId: string;
   propertyTitle: string;
+  propertyState?: CahpState;
 }
 
 const STATUS_STYLES: Record<ParcelStatus, string> = {
@@ -32,7 +35,7 @@ const STATUS_STYLES: Record<ParcelStatus, string> = {
  * add/edit/delete them. Each parcel can have its own submittals (DOR requires
  * one submission per tax map ID for properties spanning multiple parcels).
  */
-export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSectionProps) {
+export function TaxMapIDsSection({ propertyId, propertyTitle, propertyState }: TaxMapIDsSectionProps) {
   const taxMapIds = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const deeds = useSharePointList<Deed>(LIST_NAMES.Deeds, { top: 500 });
@@ -228,8 +231,12 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
         <TaxMapIDModal
           propertyId={propertyId}
           propertyTitle={propertyTitle}
+          propertyState={propertyState}
           onClose={() => setAddOpen(false)}
-          onSaved={() => taxMapIds.refetch?.()}
+          onSaved={() => {
+            taxMapIds.refetch?.();
+            submittals.refetch?.();
+          }}
         />
       )}
 
@@ -238,6 +245,7 @@ export function TaxMapIDsSection({ propertyId, propertyTitle }: TaxMapIDsSection
           parcelId={editingParcelId}
           propertyId={propertyId}
           propertyTitle={propertyTitle}
+          propertyState={propertyState}
           onClose={() => setEditingParcelId(null)}
           onSaved={() => taxMapIds.refetch?.()}
         />
@@ -263,11 +271,12 @@ interface TaxMapIDModalProps {
   parcelId?: string;
   propertyId: string;
   propertyTitle: string;
+  propertyState?: CahpState;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }: TaxMapIDModalProps) {
+function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onClose, onSaved }: TaxMapIDModalProps) {
   const taxMapIds = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const existing = parcelId ? taxMapIds.data?.find((t) => t.id === parcelId) : undefined;
 
@@ -320,7 +329,23 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, onClose, onSaved }
       if (parcelId) {
         await updateListItem(LIST_NAMES.TaxMapIDs, parcelId, payload);
       } else {
-        await createListItem(LIST_NAMES.TaxMapIDs, payload);
+        const newParcel = await createListItem<{ id: string }>(LIST_NAMES.TaxMapIDs, payload);
+        // Auto-start a Draft submittal for the current filing year so every new
+        // parcel shows up in the SC freeze tracker without manual setup.
+        try {
+          await createListItem(LIST_NAMES.Submittals, {
+            Title: `${propertyTitle} — ${taxMapID.trim()} — Initial ${CURRENT_FILING_YEAR}`,
+            PropertyLookupId: Number(propertyId),
+            TaxMapIDLookupId: Number(newParcel.id),
+            cahpTaxYear: CURRENT_FILING_YEAR,
+            cahpState: propertyState,
+            SubmittalStatus: 'Draft',
+            FilingType: 'Initial',
+          });
+        } catch (draftErr) {
+          // Don't fail the parcel save if the auto-draft fails — surface a soft warning.
+          console.warn('Auto-create Draft submittal failed for new parcel', draftErr);
+        }
       }
       onSaved();
       onClose();

@@ -361,7 +361,7 @@ export function PropertyDetail() {
       {activeTab === 'overview' && (
         <>
           <OverviewTab display={display} editing={editing} onChange={handleFieldChange} />
-          {id && <TaxMapIDsSection propertyId={id} propertyTitle={property.fields.Title} />}
+          {id && <TaxMapIDsSection propertyId={id} propertyTitle={property.fields.Title} propertyState={property.fields.cahpState} />}
           {id && <DeedsSection propertyId={id} propertyTitle={property.fields.Title} />}
         </>
       )}
