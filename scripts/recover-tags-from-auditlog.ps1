@@ -59,8 +59,14 @@ Write-Host "  Mode: $(if ($Execute) { 'EXECUTE (will write tags)' } else { 'DRY 
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Reuse the existing PnP connection if one is open
-$existing = Get-PnPConnection -ErrorAction SilentlyContinue
+# Try to reuse an existing PnP connection; otherwise open one.
+# Get-PnPConnection throws (not just errors) when there's no session, so wrap it.
+$existing = $null
+try {
+    $existing = Get-PnPConnection -ErrorAction Stop
+} catch {
+    $existing = $null
+}
 if (-not $existing) {
     try {
         Connect-PnPOnline -Url $SiteUrl -Interactive -ClientId $ClientId -ErrorAction Stop
