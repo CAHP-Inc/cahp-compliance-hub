@@ -138,19 +138,26 @@ foreach ($p in $properties) { $propertyByTitle[$p.Title.ToLower()] = $p }
 $primaryOwnerByPropertyId = @{}
 if ($DeriveOwnerFromProperty) {
     Write-Host "-> Building property → primary-owner map from Ownership Structure..." -ForegroundColor White
-    $ownership = Get-PnPListItem -List "Ownership Structure" -PageSize 500 `
-        -Fields "ID","LinkedPropertyLookupId","OwnerLookupId","OwnershipPercent"
+    # In PnP, Lookup fields read back as { LookupId, LookupValue } objects.
+    # The *LookupId suffix shortcut Graph API uses for writes doesn't reliably
+    # populate on read, so go through the underlying field object directly.
+    $ownership = Get-PnPListItem -List "Ownership Structure" -PageSize 500
     $byProp = @{}
     foreach ($row in $ownership) {
-        $propId = [string]$row["LinkedPropertyLookupId"]
-        $ownId  = [string]$row["OwnerLookupId"]
-        if (-not $propId -or -not $ownId) { continue }
+        $propField = $row["LinkedProperty"]
+        $ownField  = $row["Owner"]
+        $propIdVal = $null
+        $ownIdVal  = $null
+        if ($propField -and $propField.LookupId) { $propIdVal = [string]$propField.LookupId }
+        if ($ownField  -and $ownField.LookupId)  { $ownIdVal  = [string]$ownField.LookupId }
+        if (-not $propIdVal -or -not $ownIdVal) { continue }
         $pct = $row["OwnershipPercent"]
-        if (-not $byProp.ContainsKey($propId)) { $byProp[$propId] = @() }
-        $byProp[$propId] += [PSCustomObject]@{ OwnerId = $ownId; Percent = [double]($pct ?? 0) }
+        if (-not $byProp.ContainsKey($propIdVal)) { $byProp[$propIdVal] = @() }
+        $byProp[$propIdVal] += [PSCustomObject]@{ OwnerId = $ownIdVal; Percent = [double]($pct ?? 0) }
     }
-    foreach ($pid in $byProp.Keys) {
-        $primaryOwnerByPropertyId[$pid] = ($byProp[$pid] | Sort-Object Percent -Descending | Select-Object -First 1).OwnerId
+    # Note: avoid $pid as a loop variable — PowerShell reserves it.
+    foreach ($propIdKey in $byProp.Keys) {
+        $primaryOwnerByPropertyId[$propIdKey] = ($byProp[$propIdKey] | Sort-Object Percent -Descending | Select-Object -First 1).OwnerId
     }
     Write-Host "   primary owner resolved for $($primaryOwnerByPropertyId.Count) propert$(if ($primaryOwnerByPropertyId.Count -eq 1) {'y'} else {'ies'})" -ForegroundColor Green
 }
@@ -302,7 +309,11 @@ foreach ($lib in $libraries) {
             # Works whether the Property is already set on the file OR we're
             # about to set it via $propWrite.
             if ($DeriveOwnerFromProperty -and -not $hasOwner -and -not $ownerWrite) {
-                $effectivePropId = if ($propWrite) { [string]$propWrite.Id } elseif ($hasProperty) { [string]$it["Property"][0].LookupId } else { $null }
+                $existingPropTag = $it["Property"]
+                $existingPropId = if ($existingPropTag -and $existingPropTag.Count -gt 0 -and $existingPropTag[0].LookupId) {
+                    [string]$existingPropTag[0].LookupId
+                } else { $null }
+                $effectivePropId = if ($propWrite) { [string]$propWrite.Id } elseif ($existingPropId) { $existingPropId } else { $null }
                 if ($effectivePropId -and $primaryOwnerByPropertyId.ContainsKey($effectivePropId)) {
                     $derivedOwnerId = $primaryOwnerByPropertyId[$effectivePropId]
                     $derivedOwner = $owners | Where-Object { [string]$_.Id -eq $derivedOwnerId } | Select-Object -First 1
