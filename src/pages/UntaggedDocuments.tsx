@@ -67,17 +67,44 @@ export function UntaggedDocuments() {
   const [applyError, setApplyError] = useState<string | null>(null);
   const [appliedCount, setAppliedCount] = useState<number | null>(null);
 
+  // Multi-value Lookup readback: Graph returns the value under the base name
+  // ('Property', 'Owner') as an array of {LookupId, LookupValue} objects, or
+  // (legacy single-value) under the *LookupId suffix as a scalar. Normalize.
+  const extractTagIds = (
+    fields: Record<string, unknown> | undefined,
+    base: 'Owner' | 'Property',
+  ): string[] => {
+    if (!fields) return [];
+    const ids: string[] = [];
+    const scalar = fields[`${base}LookupId`];
+    if (typeof scalar === 'string' || typeof scalar === 'number') {
+      const s = String(scalar);
+      if (s && s !== '0') ids.push(s);
+    } else if (Array.isArray(scalar)) {
+      for (const v of scalar) ids.push(String(v));
+    }
+    const arr = fields[base];
+    if (Array.isArray(arr)) {
+      for (const entry of arr) {
+        if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+          ids.push(String((entry as { LookupId: unknown }).LookupId));
+        }
+      }
+    }
+    return ids;
+  };
+
   const untagged = useMemo(() => {
     const docs: UntaggedDoc[] = [];
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((item) => {
-        const propertyTag = item.fields.PropertyLookupId;
-        const ownerTag = item.fields.OwnerLookupId;
-        const noProperty = !propertyTag || propertyTag === '' || propertyTag === '0';
-        const noOwner = !ownerTag || ownerTag === '' || ownerTag === '0';
-        if (!noProperty || !noOwner) return; // tagged to at least one — skip
+        const propIds = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Property');
+        const ownIds = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Owner');
+        // Surface anything missing at least one of the two — shows files
+        // with Property-but-no-Owner so the user can fill in the gap.
+        if (propIds.length > 0 && ownIds.length > 0) return;
         docs.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,
@@ -164,16 +191,23 @@ export function UntaggedDocuments() {
     const queue = [...itemsToUpdate];
     const concurrency = 5;
 
+    // Multi-value Lookup writes need the array shape + an @odata.type hint.
+    // Sending the legacy single-value PATCH against a multi-value column
+    // returns 200 OK but persists nothing — the same trap that broke uploads.
+    const buildMetadata = (mode: TagMode, id: string): Record<string, unknown> => {
+      const field = mode === 'property' ? 'PropertyLookupId' : 'OwnerLookupId';
+      return {
+        [`${field}@odata.type`]: 'Collection(Edm.Int32)',
+        [field]: [Number(id)],
+      };
+    };
+
     async function worker() {
       while (queue.length > 0) {
         const doc = queue.shift();
         if (!doc) break;
         try {
-          const metadata =
-            tagMode === 'property'
-              ? { PropertyLookupId: targetId }
-              : { OwnerLookupId: targetId };
-          await updateListItem(doc.library, doc.itemId, metadata);
+          await updateListItem(doc.library, doc.itemId, buildMetadata(tagMode, targetId));
           succeeded++;
         } catch (e) {
           failures.push(`${doc.filename}: ${e instanceof Error ? e.message : String(e)}`);
