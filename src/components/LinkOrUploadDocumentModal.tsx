@@ -184,6 +184,12 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
         if (propertyId && propTag === propertyId) {
           scope = 'this-property';
           scopeLabel = 'This Property';
+        } else if (propTag) {
+          // Doc is explicitly scoped to a different property — don't fall through
+          // to the owner-chain bucket, otherwise sibling properties under the
+          // same parent (e.g. all IV Fund Global SFRs) would pull each other's
+          // property-specific docs into this picker.
+          return;
         } else if (ownerTag && upstreamOwnerIds.has(ownerTag)) {
           scope = 'upstream-owner';
           scopeLabel = ownerNameById.get(ownerTag) ?? 'Upstream owner';

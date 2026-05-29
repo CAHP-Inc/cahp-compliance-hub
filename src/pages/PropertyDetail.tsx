@@ -2442,7 +2442,12 @@ function PropertyDocumentsTab({
         const propIds = extractPropertyIds(item.fields as unknown as Record<string, unknown>);
         const ownerIds = extractOwnerIds(item.fields as unknown as Record<string, unknown>);
         const matchesProperty = propIds.includes(String(propertyId));
-        const matchingOwnerId = !matchesProperty
+        // Owner-chain fallback only fires when the doc has NO property tag at all.
+        // If it's been explicitly scoped to specific properties (even after the
+        // scrub-script Owner back-fill), respect that scoping — otherwise every
+        // property under a shared parent (e.g. IV Fund Global) would surface every
+        // sibling property's docs.
+        const matchingOwnerId = !matchesProperty && propIds.length === 0
           ? ownerIds.find((id) => upstreamOwnerInfo.has(id))
           : undefined;
         if (!matchesProperty && !matchingOwnerId) return;

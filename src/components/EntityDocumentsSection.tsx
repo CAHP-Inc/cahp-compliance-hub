@@ -163,6 +163,13 @@ export function EntityDocumentsSection({
         const ownerTags = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Owner');
         if (ownerTags.length === 0) return;
         if (!ownerTags.some((id) => ownerIdSet.has(id))) return;
+        // If the doc is also property-scoped, it belongs on a property page, not
+        // an owner page. Without this guard, the scrub-script Owner back-fill
+        // (which sets Owner from each property's primary direct owner) causes
+        // every sibling entity under a shared parent to surface every other
+        // sibling's property-specific docs as if they were owner-level files.
+        const propTags = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Property');
+        if (propTags.length > 0) return;
         collected.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,
