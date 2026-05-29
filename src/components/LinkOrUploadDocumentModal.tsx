@@ -110,6 +110,36 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
     return t.includes('cahp') || t.includes('carolina affordable housing project');
   };
 
+  // Multi-value Lookup readback: Graph returns the value under the base name
+  // ('Property', 'Owner') as an array of {LookupId, LookupValue}, or (legacy
+  // single-value) under the *LookupId suffix as a scalar. Both shapes coexist
+  // because the 8 document libraries were migrated mid-flight; older docs
+  // still surface via the scalar. Without this, multi-value-tagged docs look
+  // untagged and the picker shows only the CAHP shared docs.
+  const extractTagIds = (
+    fields: Record<string, unknown> | undefined,
+    base: 'Owner' | 'Property',
+  ): string[] => {
+    if (!fields) return [];
+    const ids: string[] = [];
+    const scalar = fields[`${base}LookupId`];
+    if (typeof scalar === 'string' || typeof scalar === 'number') {
+      const s = String(scalar);
+      if (s && s !== '0') ids.push(s);
+    } else if (Array.isArray(scalar)) {
+      for (const v of scalar) ids.push(String(v));
+    }
+    const arr = fields[base];
+    if (Array.isArray(arr)) {
+      for (const entry of arr) {
+        if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+          ids.push(String((entry as { LookupId: unknown }).LookupId));
+        }
+      }
+    }
+    return ids;
+  };
+
   // Fetch all 8 libraries
   const lib0 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[0], { top: 500 });
   const lib1 = useSharePointList<DocItemRaw>(PROPERTY_LINKED_LIBRARIES[1], { top: 500 });
@@ -142,21 +172,20 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
     if (cahpLib.data) {
       cahpLib.data.forEach((doc) => {
         if (!doc.webUrl) return;
-        const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+        const ownerIds = extractTagIds(doc.fields as unknown as Record<string, unknown>, 'Owner');
         let scope: AvailableDoc['scope'] = 'cahp-entity';
-        let scopeLabel = 'CAHP Entity';
-        if (ownerTag) {
-          if (upstreamOwnerIds.has(ownerTag)) {
+        let scopeLabel = 'CAHP Entity (shared)';
+        if (ownerIds.length > 0) {
+          const upstreamMatch = ownerIds.find((id) => upstreamOwnerIds.has(id));
+          if (upstreamMatch) {
             scope = 'upstream-owner';
-            scopeLabel = ownerNameById.get(ownerTag) ?? 'Upstream owner';
+            scopeLabel = ownerNameById.get(upstreamMatch) ?? 'Upstream owner';
           } else {
-            // Not an upstream owner — only include if it looks like a CAHP entity
-            const isCahp = isCahpEntityName(ownerNameById.get(ownerTag));
-            if (!isCahp) return;
-            scopeLabel = ownerNameById.get(ownerTag) ?? 'CAHP Entity';
+            // Not an upstream owner — only include if any tag looks like a CAHP entity
+            const cahpMatch = ownerIds.find((id) => isCahpEntityName(ownerNameById.get(id)));
+            if (!cahpMatch) return;
+            scopeLabel = ownerNameById.get(cahpMatch) ?? 'CAHP Entity';
           }
-        } else {
-          scopeLabel = 'CAHP Entity (shared)';
         }
         docs.push({
           id: `${CAHP_ENTITY_LIBRARY}:${doc.id}`,
@@ -175,32 +204,38 @@ export function LinkOrUploadDocumentModal({ item, onClose, onSuccess }: LinkOrUp
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((doc) => {
-        const propTag = doc.fields.PropertyLookupId ? String(doc.fields.PropertyLookupId) : null;
-        const ownerTag = doc.fields.OwnerLookupId ? String(doc.fields.OwnerLookupId) : null;
+        const propIds = extractTagIds(doc.fields as unknown as Record<string, unknown>, 'Property');
+        const ownerIds = extractTagIds(doc.fields as unknown as Record<string, unknown>, 'Owner');
 
         let scope: AvailableDoc['scope'] | null = null;
         let scopeLabel = '';
 
-        if (propertyId && propTag === propertyId) {
+        if (propertyId && propIds.includes(propertyId)) {
           scope = 'this-property';
           scopeLabel = 'This Property';
-        } else if (propTag) {
-          // Doc is explicitly scoped to a different property — don't fall through
-          // to the owner-chain bucket, otherwise sibling properties under the
-          // same parent (e.g. all IV Fund Global SFRs) would pull each other's
-          // property-specific docs into this picker.
+        } else if (propIds.length > 0) {
+          // Doc is explicitly scoped to one or more other properties — don't
+          // fall through to the owner-chain bucket, otherwise sibling
+          // properties under the same parent (e.g. all IV Fund Global SFRs)
+          // would pull each other's property-specific docs into this picker.
           return;
-        } else if (ownerTag && upstreamOwnerIds.has(ownerTag)) {
-          scope = 'upstream-owner';
-          scopeLabel = ownerNameById.get(ownerTag) ?? 'Upstream owner';
-        } else if (ownerTag && isCahpEntityName(ownerNameById.get(ownerTag))) {
-          // Catch CAHP-named entities even if they're not in this property's chain
-          // (helps when ownership rows haven't been fully wired up yet).
-          scope = 'cahp-entity';
-          scopeLabel = ownerNameById.get(ownerTag) ?? 'CAHP Entity';
-        } else if (ownerTag) {
-          scope = 'owner';
-          scopeLabel = ownerNameById.get(ownerTag) ?? 'Owner';
+        } else if (ownerIds.length > 0) {
+          const upstreamMatch = ownerIds.find((id) => upstreamOwnerIds.has(id));
+          const cahpMatch = !upstreamMatch
+            ? ownerIds.find((id) => isCahpEntityName(ownerNameById.get(id)))
+            : undefined;
+          if (upstreamMatch) {
+            scope = 'upstream-owner';
+            scopeLabel = ownerNameById.get(upstreamMatch) ?? 'Upstream owner';
+          } else if (cahpMatch) {
+            // Catch CAHP-named entities even if they're not in this property's chain
+            // (helps when ownership rows haven't been fully wired up yet).
+            scope = 'cahp-entity';
+            scopeLabel = ownerNameById.get(cahpMatch) ?? 'CAHP Entity';
+          } else {
+            scope = 'owner';
+            scopeLabel = ownerNameById.get(ownerIds[0]) ?? 'Owner';
+          }
         } else {
           return; // untagged — don't surface in link picker
         }
