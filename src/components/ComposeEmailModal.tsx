@@ -10,7 +10,7 @@ import {
   type Property,
 } from '../lib/sharepoint';
 import { formatDateOnly, parseDateOnly } from '../lib/dates';
-import { sendEmail, applyTemplateVars, type EmailRecipient } from '../lib/email';
+import { sendEmail, applyTemplateVars, type EmailAttachment, type EmailRecipient } from '../lib/email';
 import { useSession } from '../lib/session';
 import { TEAM_MEMBERS } from '../lib/roleMap';
 
@@ -40,6 +40,8 @@ export interface ComposeEmailModalProps {
   defaultSubject?: string;
   /** Pre-fill body. */
   defaultBody?: string;
+  /** Pre-attach files (used by the Reports page Send via Email handoff). */
+  defaultAttachments?: EmailAttachment[];
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -51,6 +53,7 @@ export function ComposeEmailModal({
   defaultPropertyIds,
   defaultSubject,
   defaultBody,
+  defaultAttachments,
 }: ComposeEmailModalProps) {
   const { user } = useSession();
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
@@ -365,6 +368,7 @@ export function ComposeEmailModal({
         cc: ccRecipients.length > 0 ? ccRecipients : undefined,
         subject: resolvedSubject,
         bodyText: resolvedBody,
+        attachments: defaultAttachments && defaultAttachments.length > 0 ? defaultAttachments : undefined,
       });
 
       // 2. Auto-log as an Owner Communication
@@ -444,6 +448,21 @@ export function ComposeEmailModal({
         </p>
 
         <div className="space-y-3">
+          {defaultAttachments && defaultAttachments.length > 0 && (
+            <div className="border border-teal-200 bg-teal-50 rounded-md p-2 text-xs">
+              <div className="font-semibold text-teal-900 uppercase tracking-wider text-[10px] mb-1">
+                Attached ({defaultAttachments.length})
+              </div>
+              <ul className="space-y-0.5 text-teal-900">
+                {defaultAttachments.map((a) => (
+                  <li key={a.filename} className="font-mono-data truncate">
+                    📎 {a.filename}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <Field label={`Recipients (${recipients.length})`} required>
             <input
               type="text"
