@@ -59,8 +59,41 @@ param(
     [Parameter(Mandatory = $true)] [string]$ClientId,
     [switch]$Execute,
     [switch]$Interactive,
-    [int]$MinScoreToAutoTag = 5
+    [int]$MinScoreToAutoTag = 5,
+    # When set, for any file we successfully Property-tag, also look up the
+    # property's primary direct owner via Ownership Structure and set Owner
+    # too. Off by default to keep dry-run output predictable.
+    [switch]$DeriveOwnerFromProperty
 )
+
+# Known filename → property-title aliases. Filenames in your libraries
+# reference street addresses or legacy entity names that don't always match
+# the canonical Property Title in SharePoint. Add to this map as you discover
+# more aliases.
+$FilenameAliases = @{
+    "1200 college pointe" = "Fusion Pointe"
+    "1200 cp"             = "Fusion Pointe"
+    "144 w henry"         = "City View"
+    "144 whenry"          = "City View"
+    "arlington 16"        = "Arlington Townes"
+    "hampton 101"         = "Hampton Avenue"
+    "hampton ave"         = "Hampton Avenue"
+    "greenwood gardens"   = "Greensboro Greenwood Gardens"
+    "iv fund global ii"   = "IV Fund Global II LLC"
+    "iv fund global"      = "IV Fund Global SFR Portfolio"
+    "iv 3"                = "IV 3 LLC"
+    "iv 4"                = "IV 4 LLC"
+    "iv 5"                = "IV 5 LLC"
+    "iv spb 3"            = "IV SPB 3 LLC"
+    "iv spb 4"            = "IV SPB 4 LLC"
+    "iv spb 5"            = "IV SPB 5 LLC"
+    "iv spb 6"            = "IV SPB 6 LLC"
+    "iv spb 7"            = "IV SPB 7 LLC"
+    "iv spb ii"           = "IV SPB II LLC"
+    "iv spb,"             = "IV SPB LLC"
+    "iv spb llc"          = "IV SPB LLC"
+    "iv mobile 5"         = "IV Mobile 5 LLC"
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -95,25 +128,78 @@ $owners = Get-PnPListItem -List "Owners" -PageSize 500 -Fields "ID","Title" |
     Where-Object { $_.Title } |
     Sort-Object { $_.Title.Length } -Descending
 Write-Host "   $($properties.Count) properties, $($owners.Count) owners" -ForegroundColor Green
+
+# Lookup tables for fast id→title and title→id
+$propertyByTitle = @{}
+foreach ($p in $properties) { $propertyByTitle[$p.Title.ToLower()] = $p }
+
+# If -DeriveOwnerFromProperty, pre-fetch Ownership Structure rows so we can
+# resolve property → primary direct owner ID for each property-tagged file.
+$primaryOwnerByPropertyId = @{}
+if ($DeriveOwnerFromProperty) {
+    Write-Host "-> Building property → primary-owner map from Ownership Structure..." -ForegroundColor White
+    $ownership = Get-PnPListItem -List "Ownership Structure" -PageSize 500 `
+        -Fields "ID","LinkedPropertyLookupId","OwnerLookupId","OwnershipPercent"
+    $byProp = @{}
+    foreach ($row in $ownership) {
+        $propId = [string]$row["LinkedPropertyLookupId"]
+        $ownId  = [string]$row["OwnerLookupId"]
+        if (-not $propId -or -not $ownId) { continue }
+        $pct = $row["OwnershipPercent"]
+        if (-not $byProp.ContainsKey($propId)) { $byProp[$propId] = @() }
+        $byProp[$propId] += [PSCustomObject]@{ OwnerId = $ownId; Percent = [double]($pct ?? 0) }
+    }
+    foreach ($pid in $byProp.Keys) {
+        $primaryOwnerByPropertyId[$pid] = ($byProp[$pid] | Sort-Object Percent -Descending | Select-Object -First 1).OwnerId
+    }
+    Write-Host "   primary owner resolved for $($primaryOwnerByPropertyId.Count) propert$(if ($primaryOwnerByPropertyId.Count -eq 1) {'y'} else {'ies'})" -ForegroundColor Green
+}
 Write-Host ""
 
 # Match helper — scores by length of the matched Title token. Returns top 3.
+# Also honors the $FilenameAliases map so e.g. "144 W Henry" → "City View"
+# even though "City View" doesn't appear in the filename literally.
 function Find-Matches {
-    param([string]$Filename, [object[]]$Candidates)
+    param(
+        [string]$Filename,
+        [object[]]$Candidates,
+        [hashtable]$Aliases = @{},
+        [hashtable]$CandidatesByTitle = @{}
+    )
     $hits = @()
     $low = $Filename.ToLower()
+
+    # First check aliases — these win regardless of length since they're hand-curated
+    foreach ($aliasKey in $Aliases.Keys) {
+        if ($low.Contains($aliasKey)) {
+            $targetTitle = $Aliases[$aliasKey]
+            $match = $CandidatesByTitle[$targetTitle.ToLower()]
+            if ($match) {
+                $hits += [PSCustomObject]@{
+                    Id    = $match.Id
+                    Title = $match.Title
+                    Score = $aliasKey.Length + 100   # bias aliases above substring matches
+                    ViaAlias = $aliasKey
+                }
+            }
+        }
+    }
+
     foreach ($c in $Candidates) {
         $t = $c.Title.ToLower()
         # Skip super-short titles (1-2 chars) to avoid junk matches
         if ($t.Length -lt 3) { continue }
         if ($low.Contains($t)) {
             $hits += [PSCustomObject]@{
-                Id = $c.Id
+                Id    = $c.Id
                 Title = $c.Title
                 Score = $t.Length
+                ViaAlias = $null
             }
         }
     }
+    # Dedupe by Id, keeping the highest score
+    $hits = $hits | Group-Object Id | ForEach-Object { $_.Group | Sort-Object Score -Descending | Select-Object -First 1 }
     $hits | Sort-Object Score -Descending | Select-Object -First 3
 }
 
@@ -154,8 +240,10 @@ foreach ($lib in $libraries) {
         if ($hasOwner -and $hasProperty) { continue }
         $totalOrphans++
 
-        # Look for property + owner matches in the filename
-        $propMatches = if (-not $hasProperty) { Find-Matches -Filename $filename -Candidates $properties } else { @() }
+        # Look for property + owner matches in the filename (aliases applied for property)
+        $propMatches = if (-not $hasProperty) {
+            Find-Matches -Filename $filename -Candidates $properties -Aliases $FilenameAliases -CandidatesByTitle $propertyByTitle
+        } else { @() }
         $ownerMatches = if (-not $hasOwner) { Find-Matches -Filename $filename -Candidates $owners } else { @() }
 
         Write-Host "  $filename" -ForegroundColor White
@@ -207,6 +295,21 @@ foreach ($lib in $libraries) {
                     $totalAmbiguous++
                 } else {
                     $ownerWrite = $ownerMatches[0]
+                }
+            }
+
+            # Derive Owner from Property's primary direct owner when asked.
+            # Works whether the Property is already set on the file OR we're
+            # about to set it via $propWrite.
+            if ($DeriveOwnerFromProperty -and -not $hasOwner -and -not $ownerWrite) {
+                $effectivePropId = if ($propWrite) { [string]$propWrite.Id } elseif ($hasProperty) { [string]$it["Property"][0].LookupId } else { $null }
+                if ($effectivePropId -and $primaryOwnerByPropertyId.ContainsKey($effectivePropId)) {
+                    $derivedOwnerId = $primaryOwnerByPropertyId[$effectivePropId]
+                    $derivedOwner = $owners | Where-Object { [string]$_.Id -eq $derivedOwnerId } | Select-Object -First 1
+                    if ($derivedOwner) {
+                        $ownerWrite = $derivedOwner
+                        Write-Host ("     Owner: derived from property's chain → {0}" -f $derivedOwner.Title) -ForegroundColor Cyan
+                    }
                 }
             }
 
