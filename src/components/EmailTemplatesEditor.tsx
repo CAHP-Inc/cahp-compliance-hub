@@ -39,7 +39,7 @@ const DEFAULT_TEMPLATES: Omit<EditorRow, 'rowId'>[] = [
       "{{open_items}}\n\n" +
       "Let me know if you have any questions, or send these over at your earliest convenience.\n\n" +
       "Thanks,\n{{user}}",
-    notes: 'Auto-fills {{open_items}} with the recipient\'s pending Outstanding Items for the linked properties.',
+    notes: 'Auto-fills {{open_items}} with the recipient\'s pending Outstanding Items for the linked properties, including each item\'s Notes so the recipient knows exactly what\'s being asked for.',
   },
   {
     title: 'Status Update',

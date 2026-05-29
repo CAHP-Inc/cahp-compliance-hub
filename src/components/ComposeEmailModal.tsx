@@ -201,14 +201,14 @@ export function ComposeEmailModal({
     // repeating the line for every property.
     const byTitle = new Map<
       string,
-      { title: string; properties: Set<string>; dueDates: Set<string> }
+      { title: string; properties: Set<string>; dueDates: Set<string>; notes: Set<string> }
     >();
     for (const item of matchingItems) {
       const rawTitle = (item.fields.Title ?? 'Untitled').trim();
       const key = rawTitle.toLowerCase();
       let group = byTitle.get(key);
       if (!group) {
-        group = { title: rawTitle, properties: new Set(), dueDates: new Set() };
+        group = { title: rawTitle, properties: new Set(), dueDates: new Set(), notes: new Set() };
         byTitle.set(key, group);
       }
       const propName = item.fields.PropertyLookupId
@@ -216,6 +216,8 @@ export function ComposeEmailModal({
         : null;
       if (propName) group.properties.add(propName);
       if (item.fields.DueDate) group.dueDates.add(formatDateOnly(item.fields.DueDate));
+      const note = (item.fields.ItemNotes ?? '').trim();
+      if (note) group.notes.add(note);
     }
 
     const openItemsList = byTitle.size === 0
@@ -229,7 +231,12 @@ export function ComposeEmailModal({
             // and let the user inspect via the Outstanding tab if needed.
             const dueDates = Array.from(g.dueDates);
             const duePart = dueDates.length === 1 ? ` — due ${dueDates[0]}` : '';
-            return `  • ${g.title}${propPart}${duePart}`;
+            // Per-item notes clarify *what* the item actually is for the
+            // recipient (e.g. "2023 K-1, all members"). Distinct notes across
+            // a grouped row get joined so the recipient sees every variant.
+            const notes = Array.from(g.notes);
+            const notePart = notes.length === 0 ? '' : `\n    — Note: ${notes.join(' / ')}`;
+            return `  • ${g.title}${propPart}${duePart}${notePart}`;
           })
           .join('\n');
 
