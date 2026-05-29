@@ -96,6 +96,11 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const [error, setError] = useState<string | null>(null);
   // Per-row selection: titles are unique within a template so we key by title.
   const [selectedTitles, setSelectedTitles] = useState<Set<string>>(new Set());
+  // Per-row "this match is wrong" overrides. When a title is in here, the
+  // generator pretends the row was never matched — useful when the loose
+  // filename match grabs a similarly-named doc that doesn't actually satisfy
+  // the requirement (e.g. last year's LURA matched against this year's row).
+  const [rejectedMatches, setRejectedMatches] = useState<Set<string>>(new Set());
   // Whether to also pull matched docs into the entity by tagging them (when
   // they're missing the proper Owner/Property tag). Defaults on.
   const [tagMatchedDocs, setTagMatchedDocs] = useState(true);
@@ -277,8 +282,20 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lib0.data, lib1.data, lib2.data, lib3.data, lib4.data, lib5.data, lib6.data, lib7.data, cahpLib.data, propertyId, cahpOwnerIds, propertyOwnerIds, activeChecklist]);
 
-  const matchedCount = preview.filter((p) => p.matched).length;
-  const unmatchedCount = preview.filter((p) => !p.matched).length;
+  // Effective match state respects the user's per-row rejections. A row whose
+  // match was rejected behaves like an unmatched row for both the summary
+  // counts and the generation step.
+  const isEffectivelyMatched = (p: PreviewItem) =>
+    p.matched && !rejectedMatches.has(p.template.title);
+  const matchedCount = preview.filter(isEffectivelyMatched).length;
+  const unmatchedCount = preview.length - matchedCount;
+  const toggleRejectMatch = (title: string) =>
+    setRejectedMatches((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
 
   // Seed selection with every preview row the first time the preview lands.
   // Re-runs only if titles set changes (e.g. user toggled state filters).
@@ -301,7 +318,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
   const selectAll = () => setSelectedTitles(new Set(preview.map((p) => p.template.title)));
   const selectNone = () => setSelectedTitles(new Set());
   const selectUnmatchedOnly = () =>
-    setSelectedTitles(new Set(preview.filter((p) => !p.matched).map((p) => p.template.title)));
+    setSelectedTitles(new Set(preview.filter((p) => !isEffectivelyMatched(p)).map((p) => p.template.title)));
 
   const handleGenerate = async () => {
     if (!propertyId) {
@@ -331,11 +348,12 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
 
     try {
       for (const p of itemsToCreate) {
+        const effectivelyMatched = isEffectivelyMatched(p);
         const fields: Record<string, unknown> = {
           Title: p.template.title,
           PropertyLookupId: propertyId,
           ItemCategory: p.template.category,
-          ItemStatus: (p.matched ? 'Received' : 'Not Started') as ItemStatus,
+          ItemStatus: (effectivelyMatched ? 'Received' : 'Not Started') as ItemStatus,
           Priority: 'High' as ItemPriority,
           DateRequested: new Date().toISOString(),
           ItemNotes: p.template.notes ?? '',
@@ -343,7 +361,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         if (submittal) {
           fields.RelatedSubmittalLookupId = submittal.id;
         }
-        if (p.matched) {
+        if (effectivelyMatched) {
           fields.RelatedDocUrl = p.matchedDocUrl;
           fields.RelatedDocFilename = p.matchedDocFilename;
           fields.RelatedDocLibrary = p.matchedDocLibrary;
@@ -358,7 +376,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
         // overwrite a tag that's already set to a different entity).
         if (
           tagMatchedDocs &&
-          p.matched &&
+          effectivelyMatched &&
           p.matchedDocId &&
           p.matchedDocLibrary &&
           !p.matchedDocAlreadyTagged
@@ -486,8 +504,10 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
                       p.template.scope === 'owner' ? 'Property Owner' :
                       'Property';
                     const isSelected = selectedTitles.has(p.template.title);
+                    const isRejected = p.matched && rejectedMatches.has(p.template.title);
+                    const effectivelyMatched = isEffectivelyMatched(p);
                     return (
-                      <tr key={idx} className={`${p.matched ? 'bg-green-50/40' : ''} ${isSelected ? '' : 'opacity-50'}`}>
+                      <tr key={idx} className={`${effectivelyMatched ? 'bg-green-50/40' : ''} ${isSelected ? '' : 'opacity-50'}`}>
                         <td className="px-3 py-2 text-center">
                           <input
                             type="checkbox"
@@ -497,7 +517,7 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
                           />
                         </td>
                         <td className="px-3 py-2 text-center">
-                          {p.matched ? (
+                          {effectivelyMatched ? (
                             <Icon name="check" size={12} className="text-success" />
                           ) : (
                             <Icon name="alert" size={12} className="text-warning" />
@@ -514,13 +534,36 @@ export function FilingChecklistGenerator({ submittal, propertyId, propertyTitle,
                         </td>
                         <td className="px-3 py-2 text-[10px] text-gray-600">
                           {p.matched ? (
-                            <div className="flex flex-col">
-                              <span className="text-success truncate" title={p.matchedDocFilename}>
+                            <div className="flex flex-col gap-0.5">
+                              <span
+                                className={`truncate ${isRejected ? 'text-gray-500 line-through' : 'text-success'}`}
+                                title={p.matchedDocFilename}
+                              >
                                 {p.matchedDocFilename}
                               </span>
-                              {tagMatchedDocs && isSelected && !p.matchedDocAlreadyTagged && p.template.scope !== 'cahp' && (
-                                <span className="text-[10px] text-teal-700 italic">will tag into entity docs</span>
+                              {isRejected ? (
+                                <span className="text-warning italic">match rejected — will create as missing</span>
+                              ) : (
+                                tagMatchedDocs && isSelected && !p.matchedDocAlreadyTagged && p.template.scope !== 'cahp' && (
+                                  <span className="text-teal-700 italic">will tag into entity docs</span>
+                                )
                               )}
+                              <button
+                                type="button"
+                                onClick={() => toggleRejectMatch(p.template.title)}
+                                className={`self-start mt-0.5 px-1.5 py-0.5 rounded border text-[10px] font-medium ${
+                                  isRejected
+                                    ? 'border-teal-300 text-teal-700 hover:bg-teal-50'
+                                    : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                                }`}
+                                title={
+                                  isRejected
+                                    ? 'Re-accept this auto-match and treat the row as Received'
+                                    : "This isn't the right document — drop the match and create this row as a missing item instead"
+                                }
+                              >
+                                {isRejected ? 'Restore match' : 'Unmatch'}
+                              </button>
                             </div>
                           ) : (
                             <span className="text-warning italic">missing</span>
