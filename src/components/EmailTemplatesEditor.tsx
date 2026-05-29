@@ -63,6 +63,18 @@ const DEFAULT_TEMPLATES: Omit<EditorRow, 'rowId'>[] = [
       "Thanks for your help,\n{{user}}\n{{user_email}}",
     notes: 'Use when contacting DOR with a procedural question.',
   },
+  {
+    title: 'DOR Status Follow-Up',
+    subject: 'CAHP filing status request — pending submittals',
+    body:
+      "Hello,\n\n" +
+      "I'm following up on the status of the CAHP property tax abatement filings listed below. " +
+      "Each is currently showing as either filed and awaiting initial review, or pending DOR response after our reply.\n\n" +
+      "{{dor_pending_filings}}\n\n" +
+      "Could you confirm the current status of each, and let me know if anything additional is needed from our end?\n\n" +
+      "Thank you,\n{{user}}\n{{user_email}}",
+    notes: 'Auto-fills {{dor_pending_filings}} with Property name, Owner, EIN, and DOR Confirmation # for every submittal in "Filed" or "Responded - Awaiting DOR" status. Honors the modal\'s property selection when set; otherwise spans the portfolio.',
+  },
 ];
 
 export function EmailTemplatesEditor() {
@@ -214,7 +226,9 @@ export function EmailTemplatesEditor() {
         <code className="bg-white px-1 rounded">{'{{user}}'}</code>,{' '}
         <code className="bg-white px-1 rounded">{'{{user_email}}'}</code>,{' '}
         <code className="bg-white px-1 rounded">{'{{open_items}}'}</code>{' '}
-        <span className="text-gray-500">(bulleted list of the recipient's pending Outstanding Items, scoped to the linked properties)</span>.{' '}
+        <span className="text-gray-500">(bulleted list of the recipient's pending Outstanding Items, scoped to the linked properties)</span>,{' '}
+        <code className="bg-white px-1 rounded">{'{{dor_pending_filings}}'}</code>{' '}
+        <span className="text-gray-500">(property + owner + EIN + DOR confirmation # for every submittal currently Filed or Responded - Awaiting DOR)</span>.{' '}
         Unknown variables pass through unchanged.
       </div>
 

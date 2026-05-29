@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   useSharePointList,
   createListItem,
+  getDirectOwnersOf,
   LIST_NAMES,
   type Contact,
   type ContactOwnerLink,
   type EmailTemplate,
   type OutstandingItem,
+  type Owner,
+  type Ownership,
   type Property,
+  type Submittal,
 } from '../lib/sharepoint';
 import { formatDateOnly, parseDateOnly } from '../lib/dates';
 import { sendEmail, applyTemplateVars, type EmailAttachment, type EmailRecipient } from '../lib/email';
@@ -63,6 +67,12 @@ export function ComposeEmailModal({
   // For {{open_items}} substitution — Outstanding Items assigned to the
   // selected contact(s), optionally filtered to the linked properties.
   const outstandingItems = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
+  // For {{dor_pending_filings}} substitution — Submittals currently in
+  // "Filed" or "Responded - Awaiting DOR" status, joined with Property +
+  // Owner data so the DOR follow-up letter can list each filing concretely.
+  const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 1000 });
+  const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
+  const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 1000 });
 
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(
     new Set(defaultContactIds ?? []),
@@ -240,6 +250,82 @@ export function ComposeEmailModal({
           })
           .join('\n');
 
+    // ---- {{dor_pending_filings}} ----
+    // Submittals currently awaiting DOR action: "Filed" (we're waiting for an
+    // initial response) or "Responded - Awaiting DOR" (we replied to a DOR
+    // letter and are waiting for their next move). Honors the modal's property
+    // filter when set so the user can send a per-property reminder; otherwise
+    // covers the entire portfolio.
+    const PENDING_DOR_STATUSES = new Set<string>([
+      'Filed',
+      'Responded - Awaiting DOR',
+    ]);
+    const pendingSubmittals = (submittals.data ?? []).filter((s) => {
+      if (!PENDING_DOR_STATUSES.has(s.fields.SubmittalStatus ?? '')) return false;
+      if (propertyFilter) {
+        const pid = String(s.fields.PropertyLookupId ?? '');
+        if (!propertyFilter.has(pid)) return false;
+      }
+      return true;
+    });
+
+    // Group submittals by property so each property is listed once with all of
+    // its pending filings underneath. A single property can have multiple
+    // pending submittals (e.g. 2024 Filed + 2025 Responded - Awaiting DOR);
+    // DOR needs to see every confirmation number, not just one.
+    const filingsByProperty = new Map<
+      string,
+      { propertyId: string; lines: { taxYear: string; status: string; confirmation: string }[] }
+    >();
+    for (const s of pendingSubmittals) {
+      const pid = String(s.fields.PropertyLookupId ?? '');
+      if (!pid) continue;
+      let bucket = filingsByProperty.get(pid);
+      if (!bucket) {
+        bucket = { propertyId: pid, lines: [] };
+        filingsByProperty.set(pid, bucket);
+      }
+      bucket.lines.push({
+        taxYear: s.fields.cahpTaxYear ?? '',
+        status: s.fields.SubmittalStatus ?? '',
+        confirmation: (s.fields.ConfirmationNumber ?? '').trim(),
+      });
+    }
+
+    const ownershipData = ownership.data ?? [];
+    const ownersData = owners.data ?? [];
+    const propertyRows = Array.from(filingsByProperty.values())
+      .map((bucket) => {
+        const prop = propsById.get(bucket.propertyId);
+        const propName = prop?.fields.Title ?? '(unnamed property)';
+        const ein = (prop?.fields.PropertyEIN ?? '').trim() || '(not on file)';
+        const directOwners = ownershipData.length > 0 && ownersData.length > 0
+          ? getDirectOwnersOf('property', bucket.propertyId, ownershipData, ownersData)
+              .map((r) => r.owner?.fields.Title)
+              .filter((t): t is string => !!t)
+          : [];
+        const ownerLabel = directOwners.length > 0 ? directOwners.join(' / ') : '(owner not on file)';
+        // Sort the per-property filings by tax year so the oldest pending one
+        // surfaces first — that's typically the most urgent follow-up.
+        const sortedLines = [...bucket.lines].sort((a, b) => a.taxYear.localeCompare(b.taxYear));
+        const detailLines = sortedLines
+          .map((l) => {
+            const yearPart = l.taxYear ? `${l.taxYear} ` : '';
+            const conf = l.confirmation || '(none on file)';
+            return `    — ${yearPart}${l.status}, Confirmation # ${conf}`;
+          })
+          .join('\n');
+        return {
+          sortKey: propName.toLowerCase(),
+          text: `  • ${propName} — Owner: ${ownerLabel}, EIN: ${ein}\n${detailLines}`,
+        };
+      })
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+    const dorPendingFilingsList = propertyRows.length === 0
+      ? '(no filings currently awaiting DOR response)'
+      : propertyRows.map((r) => r.text).join('\n');
+
     return {
       contactName: primaryContact?.fields.Title,
       contactEmail: primaryContact?.fields.ContactEmail,
@@ -248,11 +334,15 @@ export function ComposeEmailModal({
       userName: user?.name,
       userEmail: user?.email,
       openItemsList,
+      dorPendingFilingsList,
     };
   }, [
     contacts.data,
     properties.data,
     outstandingItems.data,
+    submittals.data,
+    owners.data,
+    ownership.data,
     selectedContactIds,
     selectedPropertyIds,
     user?.name,

@@ -99,7 +99,8 @@ function toGraphRecipient(r: EmailRecipient): Record<string, unknown> {
 // Variable substitution for templates
 //
 // Supports {{contact}}, {{contact_email}}, {{property}}, {{properties}},
-// {{owner}}, {{date}}, {{user}}, {{user_email}}, {{open_items}}.
+// {{owner}}, {{date}}, {{user}}, {{user_email}}, {{open_items}},
+// {{dor_pending_filings}}.
 // Unknown variables pass through unchanged so the user notices and can fix
 // the template.
 // =============================================================================
@@ -121,6 +122,13 @@ export interface TemplateContext {
    * if no items match.
    */
   openItemsList?: string;
+  /**
+   * Bulleted list of submittals currently in "Filed" or "Responded - Awaiting
+   * DOR" status, with Property name, Owner, EIN, and DOR Confirmation # per
+   * line. Used by the DOR status follow-up template. Honors the modal's
+   * property filter when set; otherwise spans the entire portfolio.
+   */
+  dorPendingFilingsList?: string;
 }
 
 /**
@@ -141,6 +149,7 @@ export function applyTemplateVars(text: string, ctx: TemplateContext): string {
     user: ctx.userName,
     user_email: ctx.userEmail,
     open_items: ctx.openItemsList,
+    dor_pending_filings: ctx.dorPendingFilingsList,
   };
   return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (match, key: string) => {
     const value = map[key.toLowerCase()];
