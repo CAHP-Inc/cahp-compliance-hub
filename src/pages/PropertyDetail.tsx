@@ -2309,6 +2309,9 @@ interface PropertyDocument {
   uploadDate?: string;
   size?: number;
   docType?: string;
+  /** Why this doc is here: 'property' = direct tag on this property; 'owner' = tagged
+   *  to an entity in the property's ownership chain (with the entity's title); undefined = direct. */
+  viaOwner?: string;
 }
 
 function PropertyDocumentsTab({
@@ -2368,21 +2371,92 @@ function PropertyDocumentsTab({
     return ids;
   };
 
+  // Mirror extractPropertyIds for Owner tags (multi-value-aware)
+  const extractOwnerIds = (fields: Record<string, unknown> | undefined): string[] => {
+    if (!fields) return [];
+    const ids: string[] = [];
+    const scalar = fields['OwnerLookupId'];
+    if (typeof scalar === 'string' || typeof scalar === 'number') {
+      const s = String(scalar);
+      if (s) ids.push(s);
+    } else if (Array.isArray(scalar)) {
+      for (const v of scalar) ids.push(String(v));
+    }
+    const arr = fields['Owner'];
+    if (Array.isArray(arr)) {
+      for (const entry of arr) {
+        if (entry && typeof entry === 'object' && 'LookupId' in entry) {
+          ids.push(String((entry as { LookupId: unknown }).LookupId));
+        }
+      }
+    }
+    return ids;
+  };
+
+  // Walk the property's upstream chain to find every owner whose docs should
+  // surface here. Docs uploaded from any of these owner pages will appear on
+  // this property's Documents tab too, so users don't have to chase paperwork
+  // across multiple pages when preparing a submission.
+  const upstreamOwnerInfo = useMemo(() => {
+    if (!ownership.data || !owners.data) return new Map<string, string>(); // id → title
+    const titleById = new Map<string, string>();
+    for (const o of owners.data) {
+      titleById.set(String(o.id), o.fields.Title ?? '(unnamed)');
+    }
+    const upstream = new Set<string>();
+    const queue: string[] = [];
+    // Seed with direct owners of the property
+    for (const rel of ownership.data) {
+      if (String(rel.fields.LinkedPropertyLookupId) === String(propertyId) && rel.fields.OwnerLookupId) {
+        const id = String(rel.fields.OwnerLookupId);
+        if (!upstream.has(id)) {
+          upstream.add(id);
+          queue.push(id);
+        }
+      }
+    }
+    // BFS up
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const rel of ownership.data) {
+        if (String(rel.fields.ParentOwnerLookupId) !== current) continue;
+        if (!rel.fields.OwnerLookupId) continue;
+        const parent = String(rel.fields.OwnerLookupId);
+        if (upstream.has(parent)) continue;
+        upstream.add(parent);
+        queue.push(parent);
+      }
+    }
+    const result = new Map<string, string>();
+    for (const id of upstream) result.set(id, titleById.get(id) ?? '(unknown owner)');
+    return result;
+  }, [ownership.data, owners.data, propertyId]);
+
   const documents = useMemo(() => {
     const docs: PropertyDocument[] = [];
+    const seen = new Set<string>();
     libraries.forEach((lib, idx) => {
       if (!lib.data) return;
       const libraryName = PROPERTY_LINKED_LIBRARIES[idx];
       lib.data.forEach((item) => {
         const propIds = extractPropertyIds(item.fields as unknown as Record<string, unknown>);
-        if (!propIds.includes(String(propertyId))) return;
+        const ownerIds = extractOwnerIds(item.fields as unknown as Record<string, unknown>);
+        const matchesProperty = propIds.includes(String(propertyId));
+        const matchingOwnerId = !matchesProperty
+          ? ownerIds.find((id) => upstreamOwnerInfo.has(id))
+          : undefined;
+        if (!matchesProperty && !matchingOwnerId) return;
+        const key = `${libraryName}:${item.id}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         docs.push({
-          id: `${libraryName}:${item.id}`,
+          id: key,
           itemId: item.id,
           library: libraryName,
           filename: item.fields.FileLeafRef || item.fields.Title || '(unnamed)',
           webUrl: item.webUrl,
           uploadDate: item.fields.Modified || item.lastModifiedDateTime,
+          viaOwner: matchesProperty ? undefined : upstreamOwnerInfo.get(matchingOwnerId!),
           docType:
             item.fields.LetterType ||
             item.fields.PackageComponent ||
@@ -2527,18 +2601,23 @@ function PropertyDocumentsTab({
                 return (
                 <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900">
-                    {doc.webUrl ? (
-                      <a
-                        href={doc.webUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-teal-700 hover:text-teal-900 underline"
-                      >
-                        {doc.filename}
-                      </a>
-                    ) : (
-                      doc.filename
-                    )}
+                    <div className="flex flex-col">
+                      {doc.webUrl ? (
+                        <a
+                          href={doc.webUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-teal-700 hover:text-teal-900 underline"
+                        >
+                          {doc.filename}
+                        </a>
+                      ) : (
+                        doc.filename
+                      )}
+                      {doc.viaOwner && (
+                        <span className="text-[10px] text-gray-500 italic mt-0.5">via {doc.viaOwner}</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-700 text-xs">{doc.library}</td>
                   <td className="px-4 py-3 text-gray-700 text-xs">{doc.docType || '—'}</td>
