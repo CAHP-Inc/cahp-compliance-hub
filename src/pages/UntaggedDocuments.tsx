@@ -102,9 +102,12 @@ export function UntaggedDocuments() {
       lib.data.forEach((item) => {
         const propIds = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Property');
         const ownIds = extractTagIds(item.fields as unknown as Record<string, unknown>, 'Owner');
-        // Surface anything missing at least one of the two — shows files
-        // with Property-but-no-Owner so the user can fill in the gap.
-        if (propIds.length > 0 && ownIds.length > 0) return;
+        // Property OR Owner being set is enough to consider the doc tagged.
+        // Most property docs (deeds, rent rolls, AMI certs, DOR correspondence)
+        // only need a Property tag — they're not entity-level docs. Conversely,
+        // entity formation docs only need an Owner tag. We only surface files
+        // here when BOTH tags are empty — i.e. genuinely orphaned.
+        if (propIds.length > 0 || ownIds.length > 0) return;
         docs.push({
           id: `${libraryName}:${item.id}`,
           itemId: item.id,
