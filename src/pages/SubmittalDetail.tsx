@@ -35,6 +35,7 @@ import {
   EditingActionButtons,
 } from '../components/detail';
 import { SubmittalOrgChartSnapshot } from '../components/SubmittalOrgChartSnapshot';
+import { DeleteSubmittalModal } from '../components/DeleteSubmittalModal';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -187,7 +188,8 @@ const TRANSITION_STYLES: Record<Transition['style'], string> = {
 
 export function SubmittalDetail() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useSession();
+  const { user, role } = useSession();
+  const isAdmin = role === 'Admin';
 
   const { data: submittal, loading, error, refetch } = useSharePointItem<Submittal>(
     LIST_NAMES.Submittals,
@@ -222,6 +224,9 @@ export function SubmittalDetail() {
   const [taxSavingsAmount, setTaxSavingsAmount] = useState('');
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSaving, setApprovalSaving] = useState(false);
+
+  // Delete (Admin only) — for submittals created in error
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (submittal && !editing) setDraft({ ...submittal.fields });
@@ -532,13 +537,25 @@ export function SubmittalDetail() {
         </div>
         <div className="flex items-center gap-2">
           {!editing ? (
-            <button
-              onClick={handleEdit}
-              className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5"
-            >
-              <Icon name="settings" size={14} />
-              Edit
-            </button>
+            <>
+              <button
+                onClick={handleEdit}
+                className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium flex items-center gap-1.5"
+              >
+                <Icon name="settings" size={14} />
+                Edit
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setDeleteOpen(true)}
+                  className="px-3 py-1.5 border-2 border-red-400 bg-red-50 text-error hover:bg-red-100 hover:border-red-500 rounded-md text-sm font-bold flex items-center gap-1.5 transition-colors"
+                  title="Permanently delete this submittal (Admin only) — use for records created in error"
+                >
+                  <Icon name="alert" size={14} />
+                  Delete
+                </button>
+              )}
+            </>
           ) : (
             <EditingActionButtons saving={saving} onCancel={handleCancel} onSave={handleSave} />
           )}
@@ -976,6 +993,14 @@ export function SubmittalDetail() {
           onConfirm={confirmApproval}
           saving={approvalSaving}
           error={approvalError}
+        />
+      )}
+      {/* Delete (Admin only) */}
+      {deleteOpen && (
+        <DeleteSubmittalModal
+          submittal={submittal}
+          propertyTitle={property?.fields.Title}
+          onClose={() => setDeleteOpen(false)}
         />
       )}
       {/* Filing Checklist Generator */}
