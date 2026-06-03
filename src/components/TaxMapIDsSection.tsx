@@ -7,6 +7,7 @@ import {
   LIST_NAMES,
   type TaxMapID,
   type Submittal,
+  type Property,
   type Deed,
   type DeedParcelLink,
   type ParcelStatus,
@@ -247,7 +248,10 @@ export function TaxMapIDsSection({ propertyId, propertyTitle, propertyState }: T
           propertyTitle={propertyTitle}
           propertyState={propertyState}
           onClose={() => setEditingParcelId(null)}
-          onSaved={() => taxMapIds.refetch?.()}
+          onSaved={() => {
+            taxMapIds.refetch?.();
+            submittals.refetch?.();
+          }}
         />
       )}
 
@@ -278,9 +282,19 @@ interface TaxMapIDModalProps {
 
 function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onClose, onSaved }: TaxMapIDModalProps) {
   const taxMapIds = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
+  const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const existing = parcelId ? taxMapIds.data?.find((t) => t.id === parcelId) : undefined;
 
+  const sortedProperties = useMemo(
+    () => [...(properties.data ?? [])].sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')),
+    [properties.data],
+  );
+
   const [taxMapID, setTaxMapID] = useState(existing?.fields.Title ?? '');
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>(
+    String(existing?.fields.LinkedPropertyLookupId ?? propertyId),
+  );
   const [parcelAddress, setParcelAddress] = useState(existing?.fields.ParcelAddress ?? '');
   const [county, setCounty] = useState(existing?.fields.County ?? '');
   const [acreage, setAcreage] = useState<string>(existing?.fields.Acreage?.toString() ?? '');
@@ -304,6 +318,7 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
       setLegalDesc(existing.fields.LegalDescription ?? '');
       setStatus(existing.fields.ParcelStatus ?? 'Active');
       setNotes(existing.fields.ParcelNotes ?? '');
+      setSelectedPropertyId(String(existing.fields.LinkedPropertyLookupId ?? propertyId));
       setHydrated(true);
     }
   }, [parcelId, existing, hydrated]);
@@ -316,9 +331,12 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
     setSaving(true);
     setError(null);
     try {
+      // In edit mode the property is selectable (to fix mis-filed parcels);
+      // in create mode it's always the property whose page we're on.
+      const targetPropertyId = parcelId ? (selectedPropertyId || String(propertyId)) : String(propertyId);
       const payload = {
         Title: taxMapID.trim(),
-        LinkedPropertyLookupId: Number(propertyId),
+        LinkedPropertyLookupId: Number(targetPropertyId),
         ParcelAddress: parcelAddress.trim() || undefined,
         County: county.trim() || undefined,
         Acreage: acreage ? Number(acreage) : undefined,
@@ -328,6 +346,20 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
       };
       if (parcelId) {
         await updateListItem(LIST_NAMES.TaxMapIDs, parcelId, payload);
+        // If the parcel moved to a different property, its submittals must
+        // follow — each submittal carries both TaxMapIDLookupId and
+        // PropertyLookupId, and the SC freeze tracker groups by property.
+        const previousPropertyId = String(existing?.fields.LinkedPropertyLookupId ?? propertyId);
+        if (String(targetPropertyId) !== previousPropertyId) {
+          const linkedSubmittals = (submittals.data ?? []).filter(
+            (s) => String(s.fields.TaxMapIDLookupId ?? '') === String(parcelId),
+          );
+          for (const s of linkedSubmittals) {
+            await updateListItem(LIST_NAMES.Submittals, s.id, {
+              PropertyLookupId: Number(targetPropertyId),
+            });
+          }
+        }
       } else {
         const newParcel = await createListItem<{ id: string }>(LIST_NAMES.TaxMapIDs, payload);
         // Auto-start a Draft submittal for the current filing year so every new
@@ -403,6 +435,28 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
               autoFocus
             />
           </Row>
+
+          {/* Reassign — only when editing an existing parcel. Lets you fix a
+              parcel filed under the wrong property without re-entering it. */}
+          {parcelId && (
+            <Row label="Property">
+              <select
+                value={selectedPropertyId}
+                onChange={(e) => setSelectedPropertyId(e.target.value)}
+                disabled={saving || properties.loading}
+                className={INPUT + ' bg-white'}
+              >
+                {sortedProperties.map((p) => (
+                  <option key={p.id} value={String(p.id)}>{p.fields.Title}</option>
+                ))}
+              </select>
+              {selectedPropertyId !== String(existing?.fields.LinkedPropertyLookupId ?? propertyId) && (
+                <p className="text-[11px] text-amber-700 mt-1">
+                  Reassigning this parcel will also move its linked submittals to the new property.
+                </p>
+              )}
+            </Row>
+          )}
 
           <Row label="Physical Address">
             <input
