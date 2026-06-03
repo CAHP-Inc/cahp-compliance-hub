@@ -6,6 +6,8 @@ import { ROLE_PERMISSIONS } from '../lib/permissions';
 import type { Role } from '../lib/permissions';
 import { useSharePointList, LIST_NAMES, type Property, type ComplianceDeadline, type DeadlineStatus, type OutstandingItem, type Submittal } from '../lib/sharepoint';
 import { EASTERN_TZ } from '../lib/dates';
+import { useFilingFreezeStatus } from '../components/layout/FilingFreezeBanner';
+import { FilingPaceCard } from '../components/FilingPaceCard';
 
 const TODAY = new Date().toLocaleDateString('en-US', {
   timeZone: EASTERN_TZ,
@@ -32,6 +34,7 @@ export function MyDay() {
   const { data: allDeadlines } = useSharePointList<ComplianceDeadline>(LIST_NAMES.ComplianceDeadlines, { top: 500 });
   const { data: allItems } = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 500 });
   const { data: allSubmittals } = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const filingStatus = useFilingFreezeStatus();
 
   const propertiesById = useMemo(() => {
     if (!properties) return new Map<string, Property>();
@@ -145,6 +148,9 @@ export function MyDay() {
           Good morning, <span className="font-semibold">{user.name.split(' ')[0]}</span>. Welcome to the CAHP Compliance Hub.
         </p>
       </div>
+
+      {/* Filing pace — only while there are unfiled SC parcels */}
+      {filingStatus && <FilingPaceCard pace={filingStatus.pace} />}
 
       {/* Portfolio at a glance */}
       {properties && (

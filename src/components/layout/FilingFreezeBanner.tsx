@@ -8,6 +8,7 @@ import {
   type Property,
 } from '../../lib/sharepoint';
 import { UnfiledParcelsModal } from './UnfiledParcelsModal';
+import { computeFilingPace, type FilingPace } from '../../lib/filing-pace';
 
 export const SC_FILING_FREEZE = new Date('2026-06-25T23:59:59-04:00');
 export const CURRENT_FILING_YEAR = '2026';
@@ -17,6 +18,10 @@ export interface FilingFreezeStatus {
   parcelCount: number;
   daysLeft: number;
   isPastFreeze: boolean;
+  /** Filed vs total SC parcels + derived pace toward the self-imposed finish date. */
+  filed: number;
+  total: number;
+  pace: FilingPace;
 }
 
 /**
@@ -44,10 +49,12 @@ export function useFilingFreezeStatus(): FilingFreezeStatus | null {
   }
 
   const unfiledProperties = new Set<string>();
+  let totalSCParcels = 0;
   let unfiledParcelCount = 0;
   for (const t of taxMapIDs) {
     const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
     if (!pid || !scPropertyIds.has(pid)) continue;
+    totalSCParcels++;
     if (filedParcelIds.has(String(t.id))) continue;
     unfiledParcelCount++;
     unfiledProperties.add(pid);
@@ -55,12 +62,16 @@ export function useFilingFreezeStatus(): FilingFreezeStatus | null {
 
   if (unfiledParcelCount === 0) return null;
 
+  const filedSCParcels = totalSCParcels - unfiledParcelCount;
   const daysLeft = Math.ceil((SC_FILING_FREEZE.getTime() - Date.now()) / 86_400_000);
   return {
     propertyCount: unfiledProperties.size,
     parcelCount: unfiledParcelCount,
     daysLeft,
     isPastFreeze: daysLeft < 0,
+    filed: filedSCParcels,
+    total: totalSCParcels,
+    pace: computeFilingPace(filedSCParcels, totalSCParcels),
   };
 }
 
@@ -83,6 +94,18 @@ export function FilingFreezeBanner({ status }: FilingFreezeBannerProps) {
       ? 'SC freeze starts TODAY'
       : `${daysLeft} day${daysLeft === 1 ? '' : 's'} until June 25 SC freeze`;
 
+  // Condensed pace toward the self-imposed finish date.
+  const { pace } = status;
+  const paceLabel =
+    pace.status === 'behind'
+      ? `${Math.abs(pace.delta)} behind pace`
+      : pace.status === 'ahead'
+        ? `${pace.delta} ahead of pace`
+        : pace.status === 'on-pace'
+          ? 'on pace'
+          : null;
+  const paceChipClass = pace.status === 'behind' ? 'bg-red-700 text-white' : 'bg-black/15';
+
   return (
     <>
       <div
@@ -96,6 +119,19 @@ export function FilingFreezeBanner({ status }: FilingFreezeBannerProps) {
           <span className="mx-1.5 opacity-50">-</span>
           <span className="font-mono-data">{parcelCount}</span>{' '}
           <span className="font-normal">parcel{parcelCount === 1 ? '' : 's'} unfiled</span>
+          {pace.workingDaysRemaining > 0 && (
+            <>
+              <span className="mx-2 opacity-50">·</span>
+              {paceLabel && (
+                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${paceChipClass}`}>
+                  {paceLabel}
+                </span>
+              )}
+              <span className="ml-1.5 font-normal">
+                ~<span className="font-mono-data">{pace.perDayNeeded}</span>/day to hit {pace.targetDateLabel}
+              </span>
+            </>
+          )}
           <span className="mx-2 opacity-50">·</span>
           <span>{deadlineLabel}</span>
         </div>
