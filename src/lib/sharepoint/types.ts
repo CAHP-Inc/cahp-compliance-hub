@@ -132,6 +132,8 @@ export interface SubmittalFields {
   DateFiled?: string;
   ConfirmationNumber?: string;
   MailTrackingNumber?: string;
+  DateResponded?: string;                     // Date we sent our response to DOR (anchors the 12-wk response clock)
+  DateLetterReceived?: string;                // Date we received a DOR RFI letter (anchors the 30-day response clock)
   NextAction?: string;
   NextActionDue?: string;
   ApprovedAbatement?: number;

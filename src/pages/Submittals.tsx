@@ -13,6 +13,7 @@ import {
 import { Icon } from '../components/ui/Icon';
 import { formatDateOnly } from '../lib/dates';
 import { NewSubmittalModal } from '../components/NewSubmittalModal';
+import { DORDeadlinesCard } from '../components/DORDeadlinesCard';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Draft': 'bg-gray-100 text-gray-800',
@@ -226,6 +227,9 @@ export function Submittals() {
           New Submittal
         </button>
       </div>
+
+      {/* DOR Deadlines — RFI responses owed + DOR responses awaited, overdue first */}
+      <DORDeadlinesCard submittals={submittals.data} propertiesById={propertiesById} />
 
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

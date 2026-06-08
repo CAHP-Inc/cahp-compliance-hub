@@ -24,7 +24,13 @@ import {
   type DeedParcelLink,
 } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
-import { formatDateOnly, formatDateET } from '../lib/dates';
+import { formatDateOnly, formatDateET, toDateOnlyISO } from '../lib/dates';
+import {
+  DOR_RESPONSE_WEEKS,
+  DOR_RFI_RESPONSE_DAYS,
+  dorResponseDueISO,
+  dorRfiDueISO,
+} from '../lib/dor-clock';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
 import { notifyUser } from '../lib/notifications';
 import { useSession } from '../lib/session';
@@ -63,6 +69,22 @@ const PIPELINE_STAGES: { status: SubmittalStatusValue; label: string }[] = [
 ];
 
 const TERMINAL_STATUSES: SubmittalStatusValue[] = ['Approved', 'Denied', 'Withdrawn'];
+
+// Submittal fields captured at transition time that should render as date pickers.
+const DATE_TRANSITION_FIELDS = new Set<keyof SubmittalFields>([
+  'DateFiled',
+  'DateResponded',
+  'DateLetterReceived',
+]);
+
+// Friendlier labels for fields captured in the transition modal (internal names
+// are otherwise shown verbatim).
+const TRANSITION_FIELD_LABELS: Partial<Record<keyof SubmittalFields, string>> = {
+  DateFiled: 'Date Filed',
+  DateResponded: 'Date Responded',
+  DateLetterReceived: 'Date RFI Received',
+  ConfirmationNumber: 'Confirmation #',
+};
 
 const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
 const STATES: CahpState[] = ['SC', 'NC'];
@@ -110,8 +132,9 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     {
       to: 'Letter Received - Action Needed',
       label: 'Letter Received (action needed)',
-      description: 'DOR sent a letter requesting more info or clarification.',
+      description: 'DOR sent a letter requesting more info or clarification. Starts the 30-day response clock from the date received.',
       style: 'warning',
+      requiresFields: ['DateLetterReceived'],
     },
     {
       to: 'Approved',
@@ -128,6 +151,7 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
       label: 'Mark Responded',
       description: 'Response sent to DOR. Awaiting their next move.',
       style: 'primary',
+      requiresFields: ['DateResponded'],
     },
     { to: 'Withdrawn', label: 'Withdraw', description: 'Withdraw the submittal.', style: 'danger' },
   ],
@@ -135,8 +159,9 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     {
       to: 'Letter Received - Action Needed',
       label: 'Another Letter Received',
-      description: 'DOR sent another letter requiring response.',
+      description: 'DOR sent another letter requiring response. Starts the 30-day response clock from the date received.',
       style: 'warning',
+      requiresFields: ['DateLetterReceived'],
     },
     {
       to: 'Approved',
@@ -164,8 +189,9 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     {
       to: 'Letter Received - Action Needed',
       label: 'Reopen (Action Needed)',
-      description: 'Use this if Denied was set in error or a new letter came in with action items.',
+      description: 'Use this if Denied was set in error or a new letter came in with action items. Starts the 30-day response clock from the date received.',
       style: 'warning',
+      requiresFields: ['DateLetterReceived'],
     },
   ],
   'Withdrawn': [
@@ -333,6 +359,28 @@ export function SubmittalDetail() {
           changed[k] = draft[k] === '' ? null : draft[k];
         }
       });
+
+      // Backfill — keep the relevant DOR clock in sync when its anchor date is
+      // set/changed on a submittal in the matching state. Skipped if the user
+      // also hand-edited Next Action Due in this same save (manual value wins).
+      if (!('NextActionDue' in changed)) {
+        if ('DateResponded' in changed && currentStatus === 'Responded - Awaiting DOR') {
+          if (changed.DateResponded) {
+            changed.NextActionDue = dorResponseDueISO(changed.DateResponded as string);
+            changed.NextAction = `Expect DOR response (responded + ${DOR_RESPONSE_WEEKS} wks)`;
+          } else {
+            changed.NextActionDue = null;
+          }
+        } else if ('DateLetterReceived' in changed && currentStatus === 'Letter Received - Action Needed') {
+          if (changed.DateLetterReceived) {
+            changed.NextActionDue = dorRfiDueISO(changed.DateLetterReceived as string);
+            changed.NextAction = `Respond to DOR RFI (due ${DOR_RFI_RESPONSE_DAYS} days from receipt)`;
+          } else {
+            changed.NextActionDue = null;
+          }
+        }
+      }
+
       if (Object.keys(changed).length === 0) {
         setEditing(false);
         return;
@@ -393,7 +441,10 @@ export function SubmittalDetail() {
       };
       // Apply transition-time field captures
       Object.entries(transitionFields).forEach(([k, v]) => {
-        if (v) updates[k] = k === 'DateFiled' ? new Date(v).toISOString() : v;
+        if (!v) return;
+        if (k === 'DateFiled') updates[k] = new Date(v).toISOString();
+        else if (k === 'DateResponded' || k === 'DateLetterReceived') updates[k] = toDateOnlyISO(v) ?? v;
+        else updates[k] = v;
       });
 
       // Spec §3.6.6 — On Draft → Filed transition, freeze org chart snapshot
@@ -415,6 +466,35 @@ export function SubmittalDetail() {
         };
         updates.OrgChartSnapshotJSON = JSON.stringify(snapshot);
         updates.OrgChartSnapshotDate = new Date().toISOString();
+      }
+
+      // Next action — set the "expect a DOR response" clock when we file or
+      // respond (both restart DOR's ~12-week turnaround). When DOR's letter
+      // lands the ball is back in our court, so clear the DOR-response clock.
+      if (activeTransition.to === 'Filed') {
+        // Base off the filing date being applied this transition, falling back
+        // to one already on the record (Package Mailed → Filed keeps DateFiled).
+        const filedDate =
+          transitionFields.DateFiled ||
+          (typeof f.DateFiled === 'string' ? f.DateFiled : undefined);
+        updates.NextAction = `Expect DOR response (filed + ${DOR_RESPONSE_WEEKS} wks)`;
+        updates.NextActionDue = dorResponseDueISO(filedDate);
+      } else if (activeTransition.to === 'Responded - Awaiting DOR') {
+        // Anchor the clock to the date we actually responded (captured this
+        // transition, or already on the record for a reopen).
+        const respondedDate =
+          transitionFields.DateResponded ||
+          (typeof f.DateResponded === 'string' ? f.DateResponded : undefined);
+        updates.NextAction = `Expect DOR response (responded + ${DOR_RESPONSE_WEEKS} wks)`;
+        updates.NextActionDue = dorResponseDueISO(respondedDate);
+      } else if (activeTransition.to === 'Letter Received - Action Needed') {
+        // DOR sent an RFI — the ball is in our court with a 30-day deadline from
+        // the date we received the letter.
+        const receivedDate =
+          transitionFields.DateLetterReceived ||
+          (typeof f.DateLetterReceived === 'string' ? f.DateLetterReceived : undefined);
+        updates.NextAction = `Respond to DOR RFI (due ${DOR_RFI_RESPONSE_DAYS} days from receipt)`;
+        updates.NextActionDue = dorRfiDueISO(receivedDate);
       }
 
       await updateListItem(LIST_NAMES.Submittals, submittal.id, updates);
@@ -798,6 +878,22 @@ export function SubmittalDetail() {
               mono
             />
             <EditableField
+              label="Date Responded"
+              value={display.DateResponded}
+              editing={editing}
+              type="date"
+              onChange={(v) => handleFieldChange('DateResponded', v as string)}
+              mono
+            />
+            <EditableField
+              label="Date RFI Received"
+              value={display.DateLetterReceived}
+              editing={editing}
+              type="date"
+              onChange={(v) => handleFieldChange('DateLetterReceived', v as string)}
+              mono
+            />
+            <EditableField
               label="Confirmation #"
               value={display.ConfirmationNumber}
               editing={editing}
@@ -977,6 +1073,13 @@ export function SubmittalDetail() {
             (currentStatus === 'Draft' || currentStatus === 'Package Mailed (NC)') &&
             activeTransition.to === 'Filed'
           }
+          dorClockNote={
+            activeTransition.to === 'Filed' || activeTransition.to === 'Responded - Awaiting DOR'
+              ? `A response from DOR is expected within ~${DOR_RESPONSE_WEEKS} weeks. Next Action + Next Action Due will be set automatically so this submittal surfaces for follow-up if DOR goes quiet.`
+              : activeTransition.to === 'Letter Received - Action Needed'
+                ? `The ball is back in our court — Next Action + Next Action Due will be set to a ${DOR_RFI_RESPONSE_DAYS}-day response deadline from the date the RFI was received.`
+                : undefined
+          }
         />
       )}
 
@@ -1034,6 +1137,7 @@ function TransitionModal({
   saving,
   error,
   willFreezeOrgChart,
+  dorClockNote,
 }: {
   transition: Transition;
   currentFields: SubmittalFields;
@@ -1044,6 +1148,7 @@ function TransitionModal({
   saving: boolean;
   error: string | null;
   willFreezeOrgChart: boolean;
+  dorClockNote?: string;
 }) {
   const inputClass =
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
@@ -1064,19 +1169,28 @@ function TransitionModal({
           </div>
         )}
 
+        {dorClockNote && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
+            <Icon name="calendar" size={14} className="text-blue-700 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-900">{dorClockNote}</p>
+          </div>
+        )}
+
         {transition.requiresFields && transition.requiresFields.length > 0 && (
           <div className="space-y-3 mb-4">
             {transition.requiresFields.map((field) => {
+              const isDate = DATE_TRANSITION_FIELDS.has(field);
+              const label = TRANSITION_FIELD_LABELS[field] ?? String(field);
               const currentValue = currentFields[field];
               if (currentValue) {
                 // Already set — show it as a confirmation, not an input
                 return (
                   <div key={String(field)} className="text-sm">
                     <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-0.5">
-                      {String(field)} <span className="text-gray-400">(already set)</span>
+                      {label} <span className="text-gray-400">(already set)</span>
                     </label>
                     <p className="font-mono-data text-gray-900">
-                      {field === 'DateFiled' && typeof currentValue === 'string'
+                      {isDate && typeof currentValue === 'string'
                         ? formatDateET(currentValue)
                         : String(currentValue)}
                     </p>
@@ -1086,10 +1200,10 @@ function TransitionModal({
               return (
                 <div key={String(field)}>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {String(field)} <span className="text-error">*</span>
+                    {label} <span className="text-error">*</span>
                   </label>
                   <input
-                    type={field === 'DateFiled' ? 'date' : 'text'}
+                    type={isDate ? 'date' : 'text'}
                     value={inputFields[String(field)] ?? ''}
                     onChange={(e) => onFieldChange(String(field), e.target.value)}
                     className={`${inputClass} font-mono-data`}

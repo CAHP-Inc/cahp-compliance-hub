@@ -8,6 +8,8 @@ import { useSharePointList, LIST_NAMES, type Property, type ComplianceDeadline, 
 import { EASTERN_TZ } from '../lib/dates';
 import { useFilingFreezeStatus } from '../components/layout/FilingFreezeBanner';
 import { FilingPaceCard } from '../components/FilingPaceCard';
+import { DORDeadlinesCard } from '../components/DORDeadlinesCard';
+import { AWAITING_DOR_STATUSES, RFI_STATUS } from '../lib/dor-clock';
 
 const TODAY = new Date().toLocaleDateString('en-US', {
   timeZone: EASTERN_TZ,
@@ -112,14 +114,18 @@ export function MyDay() {
     [myOpenItemsByProperty],
   );
 
-  // Submittal Next Actions — submittals with a NextAction set that aren't in terminal state
+  // Submittal Next Actions — submittals with a NextAction set that aren't in
+  // terminal state. DOR-clock statuses (Filed / Responded / RFI received) are
+  // intentionally excluded: those surface in the dedicated DOR Deadlines card.
   const submittalsWithNextAction = useMemo(() => {
     if (!allSubmittals) return [];
     const terminal = ['Approved', 'Denied', 'Withdrawn'];
+    const dorClockStatuses = [...AWAITING_DOR_STATUSES, RFI_STATUS];
     return allSubmittals
       .filter((s) => {
         if (!s.fields.NextAction) return false;
         if (s.fields.SubmittalStatus && terminal.includes(s.fields.SubmittalStatus)) return false;
+        if (s.fields.SubmittalStatus && dorClockStatuses.includes(s.fields.SubmittalStatus)) return false;
         return true;
       })
       .sort((a, b) => {
@@ -151,6 +157,9 @@ export function MyDay() {
 
       {/* Filing pace — only while there are unfiled SC parcels */}
       {filingStatus && <FilingPaceCard pace={filingStatus.pace} />}
+
+      {/* DOR Deadlines — RFI responses owed + DOR responses awaited, overdue first */}
+      <DORDeadlinesCard submittals={allSubmittals} propertiesById={propertiesById} headerLink="/submittals" />
 
       {/* Portfolio at a glance */}
       {properties && (
