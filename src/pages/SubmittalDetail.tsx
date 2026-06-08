@@ -733,8 +733,16 @@ export function SubmittalDetail() {
             <div className="flex items-start gap-3">
               <Icon name={hasDeed ? 'check' : 'alert'} size={18} className={`${hasDeed ? 'text-success' : 'text-amber-700'} flex-shrink-0 mt-0.5`} />
               <div className="flex-1">
-                <div className="font-semibold text-teal-900 text-sm">
+                <div className="font-semibold text-teal-900 text-sm flex items-center gap-2 flex-wrap">
                   Deed Coverage for {linkedParcel.fields.Title}
+                  {linkedParcel.fields.PriorSAHAAbatement && (
+                    <span
+                      title={linkedParcel.fields.PriorSAHANotes || 'Previously approved for abatement under SAHA'}
+                      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gold-100 text-gold-900"
+                    >
+                      Prior SAHA abatement
+                    </span>
+                  )}
                 </div>
                 {hasDeed ? (
                   <>

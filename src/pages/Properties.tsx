@@ -142,6 +142,22 @@ export function Properties() {
   }, [taxMapIDs.data]);
 
   /**
+   * Per-property searchable parcel text — every linked tax map ID's number and
+   * physical address, concatenated and lowercased. Lets the property search box
+   * match on a parcel street address (or parcel number) and surface its property.
+   */
+  const parcelSearchByProperty = useMemo(() => {
+    const map = new Map<string, string>();
+    (taxMapIDs.data ?? []).forEach((t) => {
+      const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
+      if (!pid) return;
+      const text = `${t.fields.Title ?? ''} ${t.fields.ParcelAddress ?? ''}`.toLowerCase();
+      map.set(pid, `${map.get(pid) ?? ''} ${text}`);
+    });
+    return map;
+  }, [taxMapIDs.data]);
+
+  /**
    * Per-property parcel + filed-parcel counts. A parcel is "filed" if at
    * least one submittal points at it (via TaxMapIDLookupId) with a status
    * other than Draft / blank. Lets the entity row surface IV-Fund-style SFR
@@ -281,8 +297,10 @@ export function Properties() {
     const result = data.filter((p) => {
       const f = p.fields;
       if (search) {
+        const q = search.toLowerCase();
         const hay = `${f.Title ?? ''} ${f.LegalEntity ?? ''} ${f.PropertyAddress ?? ''}`.toLowerCase();
-        if (!hay.includes(search.toLowerCase())) return false;
+        const parcelHay = parcelSearchByProperty.get(String(p.id)) ?? '';
+        if (!hay.includes(q) && !parcelHay.includes(q)) return false;
       }
       if (stateFilter !== 'All' && f.cahpState !== stateFilter) return false;
       if (statusFilter !== 'All' && f.PropertyStatus !== statusFilter) return false;
@@ -323,7 +341,7 @@ export function Properties() {
       });
     }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter, contactFilter, sortBy, latestSubmittalByProperty]);
+  }, [data, search, stateFilter, statusFilter, contactFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -503,7 +521,7 @@ export function Properties() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search property, entity, address…"
+            placeholder="Search property, entity, address, parcel # / parcel address…"
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-teal-500"
           />
         </div>

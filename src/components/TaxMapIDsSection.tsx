@@ -165,6 +165,14 @@ export function TaxMapIDsSection({ propertyId, propertyTitle, propertyState }: T
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono-data text-xs font-medium text-gray-900">
                   {p.fields.Title}
+                  {p.fields.PriorSAHAAbatement && (
+                    <span
+                      title={p.fields.PriorSAHANotes || 'Previously approved for abatement under SAHA'}
+                      className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gold-100 text-gold-900 align-middle font-sans"
+                    >
+                      SAHA
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-700">{p.fields.ParcelAddress || '—'}</td>
                 <td className="px-4 py-3 text-xs text-gray-700">{p.fields.County || '—'}</td>
@@ -301,6 +309,8 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
   const [legalDesc, setLegalDesc] = useState(existing?.fields.LegalDescription ?? '');
   const [status, setStatus] = useState<ParcelStatus>(existing?.fields.ParcelStatus ?? 'Active');
   const [notes, setNotes] = useState(existing?.fields.ParcelNotes ?? '');
+  const [priorSAHA, setPriorSAHA] = useState<boolean>(existing?.fields.PriorSAHAAbatement ?? false);
+  const [sahaNotes, setSahaNotes] = useState(existing?.fields.PriorSAHANotes ?? '');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -318,6 +328,8 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
       setLegalDesc(existing.fields.LegalDescription ?? '');
       setStatus(existing.fields.ParcelStatus ?? 'Active');
       setNotes(existing.fields.ParcelNotes ?? '');
+      setPriorSAHA(existing.fields.PriorSAHAAbatement ?? false);
+      setSahaNotes(existing.fields.PriorSAHANotes ?? '');
       setSelectedPropertyId(String(existing.fields.LinkedPropertyLookupId ?? propertyId));
       setHydrated(true);
     }
@@ -343,6 +355,9 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
         LegalDescription: legalDesc.trim() || undefined,
         ParcelStatus: status,
         ParcelNotes: notes.trim() || undefined,
+        PriorSAHAAbatement: priorSAHA,
+        // null (not undefined) so toggling SAHA off clears any prior note.
+        PriorSAHANotes: priorSAHA ? (sahaNotes.trim() || null) : null,
       };
       if (parcelId) {
         await updateListItem(LIST_NAMES.TaxMapIDs, parcelId, payload);
@@ -505,6 +520,29 @@ function TaxMapIDModal({ parcelId, propertyId, propertyTitle, propertyState, onC
               <option value="Split">Split (legacy — replaced by other parcels)</option>
               <option value="Merged">Merged (legacy — combined into another parcel)</option>
             </select>
+          </Row>
+
+          <Row label="Prior Abatement (SAHA)">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={priorSAHA}
+                onChange={(e) => setPriorSAHA(e.target.checked)}
+                disabled={saving}
+                className="rounded border-gray-300 text-teal-700 focus:ring-teal-500"
+              />
+              Previously approved for property tax abatement under SAHA
+            </label>
+            {priorSAHA && (
+              <textarea
+                value={sahaNotes}
+                onChange={(e) => setSahaNotes(e.target.value)}
+                disabled={saving}
+                rows={2}
+                placeholder="Year approved, reference #, or other context (optional)"
+                className={INPUT + ' resize-y mt-2'}
+              />
+            )}
           </Row>
 
           <Row label="Legal Description">

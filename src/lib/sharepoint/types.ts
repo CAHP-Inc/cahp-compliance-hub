@@ -689,6 +689,10 @@ export interface TaxMapIDFields {
   LegalDescription?: string;
   ParcelStatus?: ParcelStatus;
   ParcelNotes?: string;
+  // Prior abatement history — flags a parcel previously approved for property
+  // tax abatement under SAHA. Relevant context when preparing the DOR filing.
+  PriorSAHAAbatement?: boolean;
+  PriorSAHANotes?: string;                 // Year approved / reference / context
 }
 
 export type TaxMapID = SharePointListItem<TaxMapIDFields>;
