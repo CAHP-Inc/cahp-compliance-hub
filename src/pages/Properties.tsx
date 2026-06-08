@@ -471,6 +471,12 @@ export function Properties() {
     return roots;
   }, [filtered, primaryOwnerByProperty, parentLLCByOwner, owners.data]);
 
+  // When a search or filter narrows the list, force every owner group open so
+  // matches aren't hidden inside a collapsed group (a parcel-address match often
+  // lives under a multi-property entity that's collapsed by default).
+  const anyFilterActive =
+    !!search.trim() || stateFilter !== 'All' || statusFilter !== 'All' || contactFilter !== 'All';
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={refetch} />;
   if (!data || !stats) return null;
@@ -750,7 +756,7 @@ export function Properties() {
                 const renderEntity = (node: EntityNode, depth: number): JSX.Element[] => {
                   const ownerKey = node.ownerId;
                   const ownerName = node.owner?.fields.Title ?? '(no linked owner)';
-                  const isExpanded = expandedOwnerIds.has(ownerKey);
+                  const isExpanded = anyFilterActive || expandedOwnerIds.has(ownerKey);
                   const allProps = collectAllProps(node);
                   const childCount = node.children.length;
 
