@@ -171,13 +171,14 @@ export function Properties() {
       const status = s.fields.SubmittalStatus;
       if (status && status !== 'Draft') filedTaxMapIds.add(tmid);
     });
-    const map = new Map<string, { totalParcels: number; filedParcels: number }>();
+    const map = new Map<string, { totalParcels: number; filedParcels: number; sahaParcels: number }>();
     (taxMapIDs.data ?? []).forEach((t) => {
       const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
       if (!pid) return;
-      const cur = map.get(pid) ?? { totalParcels: 0, filedParcels: 0 };
+      const cur = map.get(pid) ?? { totalParcels: 0, filedParcels: 0, sahaParcels: 0 };
       cur.totalParcels++;
       if (filedTaxMapIds.has(String(t.id))) cur.filedParcels++;
+      if (t.fields.PriorSAHAAbatement) cur.sahaParcels++;
       map.set(pid, cur);
     });
     return map;
@@ -347,6 +348,7 @@ export function Properties() {
     if (!data) return null;
     let totalParcels = 0;
     let filedParcels = 0;
+    let sahaParcels = 0;
     let openItems = 0;
     let overdueItems = 0;
     for (const p of data) {
@@ -354,6 +356,7 @@ export function Properties() {
       if (ps) {
         totalParcels += ps.totalParcels;
         filedParcels += ps.filedParcels;
+        sahaParcels += ps.sahaParcels;
       }
       const oi = openItemsByProperty.get(p.id);
       if (oi) {
@@ -369,6 +372,7 @@ export function Properties() {
       units: data.reduce((sum, p) => sum + (p.fields.UnitCount ?? 0), 0),
       parcels: totalParcels,
       filedParcels,
+      sahaParcels,
       openItems,
       overdueItems,
     };
@@ -487,7 +491,7 @@ export function Properties() {
         <div>
           <h1 className="text-2xl font-bold text-teal-700">Properties</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {stats.total} properties under CAHP management · {stats.units.toLocaleString()} units · {stats.parcels.toLocaleString()} tax map IDs ({stats.filedParcels} filed)
+            {stats.total} properties under CAHP management · {stats.units.toLocaleString()} units · {stats.parcels.toLocaleString()} tax map IDs ({stats.filedParcels} filed{stats.sahaParcels > 0 ? `, ${stats.sahaParcels} SAHA` : ''})
           </p>
         </div>
         <button
@@ -645,8 +649,9 @@ export function Properties() {
                     <div className="flex flex-col items-end">
                       <span className="font-mono-data">{p.fields.UnitCount ?? '—'}</span>
                       {ps && ps.totalParcels > 0 && (
-                        <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${ps.filedParcels} of ${ps.totalParcels} parcels filed`}>
+                        <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${ps.filedParcels} of ${ps.totalParcels} parcels filed${ps.sahaParcels > 0 ? ` · ${ps.sahaParcels} prior SAHA abatement` : ''}`}>
                           {ps.totalParcels} TMID · <span className={ps.filedParcels === ps.totalParcels ? 'text-success' : 'text-gray-600'}>{ps.filedParcels} filed</span>
+                          {ps.sahaParcels > 0 && <> · <span className="text-gold-700">{ps.sahaParcels} SAHA</span></>}
                         </span>
                       )}
                     </div>
@@ -806,6 +811,7 @@ export function Properties() {
                   const totalUnits = allProps.reduce((s, p) => s + (p.fields.UnitCount ?? 0), 0);
                   const totalParcels = allProps.reduce((s, p) => s + (parcelStatsByProperty.get(p.id)?.totalParcels ?? 0), 0);
                   const filedParcels = allProps.reduce((s, p) => s + (parcelStatsByProperty.get(p.id)?.filedParcels ?? 0), 0);
+                  const sahaParcels = allProps.reduce((s, p) => s + (parcelStatsByProperty.get(p.id)?.sahaParcels ?? 0), 0);
                   const totalOpenItems = allProps.reduce((s, p) => s + (openItemsByProperty.get(p.id)?.open ?? 0), 0);
                   const totalOverdueItems = allProps.reduce((s, p) => s + (openItemsByProperty.get(p.id)?.overdue ?? 0), 0);
                   const stateAgg = countBy(allProps, (p) => p.fields.cahpState);
@@ -879,8 +885,9 @@ export function Properties() {
                         <div className="flex flex-col items-end">
                           <span className={`font-mono-data ${depth === 0 ? 'font-semibold' : 'text-xs font-semibold'}`}>{totalUnits || '—'}</span>
                           {totalParcels > 0 && (
-                            <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${filedParcels} of ${totalParcels} parcels filed`}>
+                            <span className="text-[10px] text-gray-500 font-mono-data whitespace-nowrap" title={`${filedParcels} of ${totalParcels} parcels filed${sahaParcels > 0 ? ` · ${sahaParcels} prior SAHA abatement` : ''}`}>
                               {totalParcels} TMID · <span className={filedParcels === totalParcels ? 'text-success' : 'text-gray-600'}>{filedParcels} filed</span>
+                              {sahaParcels > 0 && <> · <span className="text-gold-700">{sahaParcels} SAHA</span></>}
                             </span>
                           )}
                         </div>

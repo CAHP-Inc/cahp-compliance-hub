@@ -37,6 +37,18 @@ const ACTIONABLE_STATUSES: SubmittalStatusValue[] = [
   'Responded - Awaiting DOR',
 ];
 
+/** Gold "SAHA" chip — parcel was previously approved for abatement under SAHA. */
+function SahaBadge() {
+  return (
+    <span
+      title="Parcel previously approved for abatement under SAHA"
+      className="ml-1.5 inline-block px-1 py-0.5 rounded text-[9px] font-semibold bg-gold-100 text-gold-900 align-middle font-sans"
+    >
+      SAHA
+    </span>
+  );
+}
+
 export function Submittals() {
   const navigate = useNavigate();
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
@@ -388,7 +400,8 @@ export function Submittals() {
                             {(() => {
                               if (!s.fields.TaxMapIDLookupId) return <span className="text-gray-400 italic font-sans">unassigned</span>;
                               const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
-                              return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
+                              if (!t) return <span className="text-gray-400 italic font-sans">missing</span>;
+                              return <>{t.fields.Title}{t.fields.PriorSAHAAbatement && <SahaBadge />}</>;
                             })()}
                           </td>
                           <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
@@ -438,7 +451,8 @@ export function Submittals() {
                             return <span className="text-gray-400 italic font-sans">unassigned</span>;
                           }
                           const t = taxMapIdsById.get(String(s.fields.TaxMapIDLookupId));
-                          return t ? t.fields.Title : <span className="text-gray-400 italic font-sans">missing</span>;
+                          if (!t) return <span className="text-gray-400 italic font-sans">missing</span>;
+                          return <>{t.fields.Title}{t.fields.PriorSAHAAbatement && <SahaBadge />}</>;
                         })()}
                       </td>
                       <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.cahpTaxYear ?? '—'}</td>
