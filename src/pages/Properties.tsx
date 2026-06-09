@@ -260,6 +260,7 @@ export function Properties() {
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
   // Owner contact filter — value is the Contact's listItem ID (string) or 'All' / 'None'.
   const [contactFilter, setContactFilter] = useState<string>('All');
+  const [sahaFilter, setSahaFilter] = useState<'All' | 'SAHA' | 'NonSAHA'>('All');
   const [sortBy, setSortBy] = useState<'name' | 'filingStatus'>('name');
 
   /**
@@ -305,6 +306,11 @@ export function Properties() {
       }
       if (stateFilter !== 'All' && f.cahpState !== stateFilter) return false;
       if (statusFilter !== 'All' && f.PropertyStatus !== statusFilter) return false;
+      if (sahaFilter !== 'All') {
+        const hasSaha = (parcelStatsByProperty.get(String(p.id))?.sahaParcels ?? 0) > 0;
+        if (sahaFilter === 'SAHA' && !hasSaha) return false;
+        if (sahaFilter === 'NonSAHA' && hasSaha) return false;
+      }
       if (contactFilter !== 'All') {
         const propContactId = f.PropertyOwnerContactLookupId ? String(f.PropertyOwnerContactLookupId) : '';
         if (contactFilter === 'None') {
@@ -342,7 +348,7 @@ export function Properties() {
       });
     }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter, contactFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty]);
+  }, [data, search, stateFilter, statusFilter, contactFilter, sahaFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty, parcelStatsByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -479,7 +485,7 @@ export function Properties() {
   // matches aren't hidden inside a collapsed group (a parcel-address match often
   // lives under a multi-property entity that's collapsed by default).
   const anyFilterActive =
-    !!search.trim() || stateFilter !== 'All' || statusFilter !== 'All' || contactFilter !== 'All';
+    !!search.trim() || stateFilter !== 'All' || statusFilter !== 'All' || contactFilter !== 'All' || sahaFilter !== 'All';
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={refetch} />;
@@ -554,6 +560,16 @@ export function Properties() {
             .map((c) => (
               <option key={c.id} value={String(c.id)}>{c.fields.Title}</option>
             ))}
+        </select>
+        <select
+          value={sahaFilter}
+          onChange={(e) => setSahaFilter(e.target.value as 'All' | 'SAHA' | 'NonSAHA')}
+          className="text-xs px-2 py-1.5 border border-gray-200 rounded-md bg-white focus:outline-none focus:border-teal-500"
+          title="Filter by prior SAHA abatement"
+        >
+          <option value="All">All parcels (SAHA)</option>
+          <option value="SAHA">SAHA only</option>
+          <option value="NonSAHA">Exclude SAHA</option>
         </select>
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Sort:</span>

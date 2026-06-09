@@ -65,6 +65,7 @@ export function Submittals() {
   const [statusFilter, setStatusFilter] = useState<SubmittalStatusValue | 'All'>('All');
   const [yearFilter, setYearFilter] = useState<CahpTaxYear | 'All'>('All');
   const [filingTypeFilter, setFilingTypeFilter] = useState<SubmittalFilingType | 'All'>('All');
+  const [sahaFilter, setSahaFilter] = useState<'All' | 'SAHA' | 'NonSAHA'>('All');
   const [newSubmittalOpen, setNewSubmittalOpen] = useState(false);
   const [groupByProperty, setGroupByProperty] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -92,6 +93,12 @@ export function Submittals() {
         if (statusFilter !== 'All' && f.SubmittalStatus !== statusFilter) return false;
         if (yearFilter !== 'All' && f.cahpTaxYear !== yearFilter) return false;
         if (filingTypeFilter !== 'All' && f.FilingType !== filingTypeFilter) return false;
+        if (sahaFilter !== 'All') {
+          const parcel = f.TaxMapIDLookupId ? taxMapIdsById.get(String(f.TaxMapIDLookupId)) : undefined;
+          const isSaha = !!parcel?.fields.PriorSAHAAbatement;
+          if (sahaFilter === 'SAHA' && !isSaha) return false;
+          if (sahaFilter === 'NonSAHA' && isSaha) return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -103,7 +110,7 @@ export function Submittals() {
         const db = b.fields.DateFiled ? new Date(b.fields.DateFiled).getTime() : Infinity;
         return db - da;
       });
-  }, [submittals.data, search, statusFilter, yearFilter, filingTypeFilter, propertiesById]);
+  }, [submittals.data, search, statusFilter, yearFilter, filingTypeFilter, sahaFilter, propertiesById, taxMapIdsById]);
 
   /**
    * Group filtered submittals by property + year + filing type.
@@ -290,6 +297,16 @@ export function Submittals() {
           <option value="Initial">Initial</option>
           <option value="Annual">Annual</option>
           <option value="Amendment">Amendment</option>
+        </select>
+        <select
+          value={sahaFilter}
+          onChange={(e) => setSahaFilter(e.target.value as 'All' | 'SAHA' | 'NonSAHA')}
+          className="px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-teal-500 bg-white"
+          title="Filter by prior SAHA abatement"
+        >
+          <option value="All">All parcels (SAHA)</option>
+          <option value="SAHA">SAHA only</option>
+          <option value="NonSAHA">Exclude SAHA</option>
         </select>
         <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer ml-2 select-none">
           <input
