@@ -191,25 +191,27 @@ def classify(units: list[Unit], limits: dict, utility_allowance: float):
             u.tier = "non-residential"
             u.notes.append("Lot/land only — excluded from residential unit count.")
             continue
+        # Units we can't classify (missing county, bedroom, or rent) default to
+        # Market — the conservative outcome (counts against qualification, never for).
         if u.county not in counties:
-            u.tier = "review"
-            u.notes.append("County could not be determined from address.")
+            u.tier = "market"
+            u.notes.append("County not determined from address — counted as Market.")
             continue
         if u.bedrooms is None:
-            u.tier = "review"
-            u.notes.append("Bedroom count missing in rent roll (BD/BA shows '--').")
+            u.tier = "market"
+            u.notes.append("Bedroom count missing (BD/BA '--') — counted as Market.")
             continue
         if u.gross_rent is None:
-            u.tier = "review"
-            u.notes.append("No contract or market rent available to test.")
+            u.tier = "market"
+            u.notes.append("No rent available to test — counted as Market.")
             continue
         if u.bedrooms > 4:
             u.notes.append(f"{u.bedrooms}BR uses the published 4BR ceiling (tables cap at 4BR).")
 
         cs = ceilings_for(counties[u.county], u.bedrooms)
         if cs is None:
-            u.tier = "review"
-            u.notes.append("No rent ceiling published for this county/bedroom.")
+            u.tier = "market"
+            u.notes.append("No rent ceiling published for this county/bedroom — counted as Market.")
             continue
         u.ceil50, u.ceil60, u.ceil80 = cs
         gr = u.gross_rent + (utility_allowance or 0)

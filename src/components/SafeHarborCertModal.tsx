@@ -7,6 +7,7 @@ import {
   type Owner,
   type Ownership,
   type Property,
+  type TaxMapID,
 } from '../lib/sharepoint';
 import {
   analyze,
@@ -59,6 +60,54 @@ function suggestChildId(source: string, children: { id: string; title: string }[
   return bestScore >= 2 ? best : '';
 }
 
+// ── Address matching (rent-roll unit -> Tax Map ID parcel -> hub LLC) ──
+const STREET_SUFFIX: Record<string, string> = {
+  street: 'st', avenue: 'ave', drive: 'dr', road: 'rd', circle: 'cir', lane: 'ln',
+  court: 'ct', boulevard: 'blvd', place: 'pl', terrace: 'ter', parkway: 'pkwy',
+  highway: 'hwy', trail: 'trl', cove: 'cv', square: 'sq', point: 'pt',
+};
+function normalizeAddr(raw: string | undefined): string {
+  let s = (raw || '').toLowerCase();
+  if (s.includes(' - ')) s = s.slice(s.lastIndexOf(' - ') + 3); // address after the display name
+  s = s.split(',')[0]; // drop ", ST ZIP" tail
+  s = s.replace(/\b\d{5}(-\d{4})?\b/g, ' '); // drop any stray zip
+  s = s.replace(/[^a-z0-9]+/g, ' ').trim();
+  return s.split(/\s+/).filter(Boolean).map((t) => STREET_SUFFIX[t] ?? t).join(' ');
+}
+interface ParcelEntry { num: string; street: string[]; propertyId: string; title: string }
+function buildParcelIndex(
+  taxmaps: { fields: { ParcelAddress?: string; LinkedPropertyLookupId?: string } }[] | null | undefined,
+  titleById: Map<string, string>,
+): ParcelEntry[] {
+  const out: ParcelEntry[] = [];
+  for (const t of taxmaps ?? []) {
+    const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
+    if (!t.fields.ParcelAddress || !pid) continue;
+    const toks = normalizeAddr(t.fields.ParcelAddress).split(' ').filter(Boolean);
+    if (!toks.length || !/^\d/.test(toks[0])) continue;
+    out.push({ num: toks[0], street: toks.slice(1), propertyId: pid, title: titleById.get(pid) || '' });
+  }
+  return out;
+}
+/** Match a rent-roll unit address to the best parcel (same house number + street overlap). */
+function matchParcel(rawUnitAddr: string, index: ParcelEntry[]): ParcelEntry | null {
+  const toks = normalizeAddr(rawUnitAddr).split(' ').filter(Boolean);
+  if (!toks.length || !/^\d/.test(toks[0])) return null;
+  const num = toks[0];
+  const street = toks.slice(1);
+  let best: ParcelEntry | null = null;
+  let bestScore = 0;
+  for (const p of index) {
+    if (p.num !== num) continue;
+    const overlap = p.street.filter((t) => street.includes(t)).length;
+    if (overlap > bestScore) {
+      bestScore = overlap;
+      best = p;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -80,6 +129,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const loading = properties.loading || owners.loading || ownership.loading;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -194,16 +244,44 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     [rolls, rollMapOverride, childOptions],
   );
 
+  // Parcel index (Tax Map ID ParcelAddress -> hub LLC), used to split a single
+  // combined rent roll across the right subsidiary LLCs by unit address.
+  const parcelIndex = useMemo(() => {
+    const titleById = new Map((properties.data ?? []).map((p) => [String(p.id), p.fields.Title || '']));
+    return buildParcelIndex(taxmaps.data, titleById);
+  }, [taxmaps.data, properties.data]);
+  const useParcelMatch = selType === 'owner' && parcelIndex.length > 0;
+
   // Units fed to the analysis. When filing for an owner, each unit's source LLC
-  // is relabeled to the registered hub name (so the document and Exhibit list the
-  // Compliance Hub's subsidiary LLCs, not the AppFolio rent-roll group label).
-  const units: Unit[] = useMemo(() => {
-    if (!useHubNames) return rolls.flatMap((r) => r.units);
-    return rolls.flatMap((r, i) => {
-      const hubName = childOptions.find((c) => c.id === rollMap[i])?.title || r.source;
-      return r.units.map((u) => ({ ...u, source: hubName, notes: [] }));
+  // is relabeled to the registered hub name so the document and Exhibit list the
+  // Compliance Hub's subsidiary LLCs. Priority per unit:
+  //   1. Tax Map ID parcel-address match (splits one combined roll by address)
+  //   2. per-rent-roll mapping dropdown
+  //   3. the rent roll's own "Property Groups" label
+  const { units, parcelMatched, parcelUnmatched } = useMemo(() => {
+    let matched = 0;
+    let unmatched = 0;
+    if (!useHubNames && !useParcelMatch) {
+      return { units: rolls.flatMap((r) => r.units), parcelMatched: 0, parcelUnmatched: 0 };
+    }
+    const out = rolls.flatMap((r, i) => {
+      const rollHubName = useHubNames ? childOptions.find((c) => c.id === rollMap[i])?.title : undefined;
+      return r.units.map((u) => {
+        let source = rollHubName || u.source;
+        if (useParcelMatch) {
+          const m = matchParcel(u.prop, parcelIndex);
+          if (m && m.title) {
+            source = m.title;
+            matched++;
+          } else {
+            unmatched++;
+          }
+        }
+        return { ...u, source, notes: [] };
+      });
     });
-  }, [rolls, useHubNames, childOptions, rollMap]);
+    return { units: out as Unit[], parcelMatched: matched, parcelUnmatched: unmatched };
+  }, [rolls, useHubNames, childOptions, rollMap, useParcelMatch, parcelIndex]);
 
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
@@ -304,6 +382,10 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const sc = analysis?.scopes;
   const p = analysis?.roll.pct;
   const cnt = analysis?.roll.counts;
+  // Units that couldn't be classified and were defaulted to Market (informational).
+  const nDefaulted = analysis
+    ? analysis.units.filter((u) => !u.nonResidential && u.notes.some((n) => n.includes('counted as Market'))).length
+    : 0;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -404,6 +486,18 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               )}
             </div>
 
+            {/* Parcel-address (Tax Map ID) match summary — splits a combined roll by LLC */}
+            {useParcelMatch && rolls.length > 0 && (
+              <div className="bg-teal-50 border border-teal-200 rounded p-2 text-xs text-teal-900">
+                Matched <strong>{parcelMatched}</strong> of {parcelMatched + parcelUnmatched} units to
+                subsidiary LLCs by parcel address (Tax Map IDs).
+                {parcelUnmatched > 0 && (
+                  <> {parcelUnmatched} unit(s) had no parcel match and kept their rent-roll label — add their
+                  Tax Map ID parcels (with addresses) in the hub to assign them.</>
+                )}
+              </div>
+            )}
+
             {/* Map each rent roll to the parent owner's subsidiary LLC in the hub */}
             {useHubNames && rolls.length > 0 && (
               <div className="border border-gray-200 rounded-md p-3">
@@ -441,7 +535,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 </div>
                 <div className="text-xs text-gray-600 mb-2">
                   {analysis.roll.denom} residential units{analysis.roll.nNonRes ? ` · ${analysis.roll.nNonRes} non-residential excluded` : ''}
-                  {analysis.roll.nReview ? ` · ${analysis.roll.nReview} need review` : ''}
                   {isGroup ? ` · ${distinctSources.length} LLCs` : ''}
                 </div>
                 <table className="w-full text-xs">
@@ -465,9 +558,9 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                     ))}
                   </tbody>
                 </table>
-                {analysis.roll.nReview > 0 && (
-                  <div className="mt-2 text-[11px] text-amber-700">
-                    {analysis.roll.nReview} unit(s) need review (missing bedroom/rent/county) — see Exhibit A. Percentages treat them conservatively.
+                {nDefaulted > 0 && (
+                  <div className="mt-2 text-[11px] text-gray-500">
+                    {nDefaulted} unit(s) were missing bedroom/rent/county and were counted as Market (the conservative default) — see the Notes column in Exhibit A.
                   </div>
                 )}
               </div>

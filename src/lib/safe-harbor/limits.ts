@@ -104,19 +104,21 @@ export function classify(units: Unit[], utilityAllowance = 0): void {
       u.notes.push('Lot/land only — excluded from residential unit count.');
       continue;
     }
+    // Units we can't classify (missing county, bedroom, or rent) default to
+    // Market — the conservative outcome (counts against qualification, never for).
     if (!u.county || !COUNTIES[u.county]) {
-      u.tier = 'review';
-      u.notes.push('County could not be determined from address.');
+      u.tier = 'market';
+      u.notes.push('County not determined from address — counted as Market.');
       continue;
     }
     if (u.bedrooms === null) {
-      u.tier = 'review';
-      u.notes.push("Bedroom count missing in rent roll (BD/BA shows '--').");
+      u.tier = 'market';
+      u.notes.push("Bedroom count missing (BD/BA '--') — counted as Market.");
       continue;
     }
     if (u.grossRent === null) {
-      u.tier = 'review';
-      u.notes.push('No contract or market rent available to test.');
+      u.tier = 'market';
+      u.notes.push('No rent available to test — counted as Market.');
       continue;
     }
     if (u.bedrooms > 4) {
@@ -124,8 +126,8 @@ export function classify(units: Unit[], utilityAllowance = 0): void {
     }
     const cs = ceilingsFor(u.county, u.bedrooms);
     if (!cs) {
-      u.tier = 'review';
-      u.notes.push('No rent ceiling published for this county/bedroom.');
+      u.tier = 'market';
+      u.notes.push('No rent ceiling published for this county/bedroom — counted as Market.');
       continue;
     }
     [u.ceil50, u.ceil60, u.ceil80] = cs;
