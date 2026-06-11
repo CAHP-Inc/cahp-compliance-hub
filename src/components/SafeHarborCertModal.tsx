@@ -542,12 +542,15 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                     <tr><th className="text-left">AMI Tier</th><th>Units</th><th>%</th><th>Required</th><th>Result</th></tr>
                   </thead>
                   <tbody>
-                    {[
-                      ['Low-Income (≤80%)', cnt.le80, p.le80, '≥75%', p.le80 >= 75],
-                      ['≤60% (40/60 scope)', cnt.le60, p.le60, '≥40%', p.le60 >= 40],
-                      ['Very Low (≤50%) (20/50 scope)', cnt.le50, p.le50, '≥20%', p.le50 >= 20],
-                      ['Market (>80%)', cnt.market, p.market, '≤25%', p.market <= 25],
-                    ].map(([label, u, pc, req, ok], i) => (
+                    {(() => {
+                      const low: [string, number, number, string, boolean] = ['Low-Income (≤80%)', cnt.le80, p.le80, '≥75%', p.le80 >= 75];
+                      const mkt: [string, number, number, string, boolean] = ['Market (>80%)', cnt.market, p.market, '≤25%', p.market <= 25];
+                      const r50: [string, number, number, string, boolean] = ['Very Low (≤50%) — 50% AMI program', cnt.le50, p.le50, '≥20%', p.le50 >= 20];
+                      const r60: [string, number, number, string, boolean] = ['≤60% — 60% AMI program', cnt.le60, p.le60, '≥40%', p.le60 >= 40];
+                      return sc.chosen === '20/50' ? [r50, low, mkt]
+                        : sc.chosen === '40/60' ? [r60, low, mkt]
+                        : [low, r60, r50, mkt];
+                    })().map(([label, u, pc, req, ok], i) => (
                       <tr key={i} className="border-t border-gray-100">
                         <td className="py-0.5">{label as string}</td>
                         <td className="text-center">{u as number}</td>

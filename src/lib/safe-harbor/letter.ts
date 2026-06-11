@@ -72,12 +72,21 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     ['HUD/SC Housing Limits', `FY${FY} (effective ${LIMITS_EFFECTIVE}); ${msaStr}`],
   ];
 
-  const tierRows: TierRow[] = [
-    { label: 'Low-Income (≤80% AMI)', units: cnt.le80, pct: p.le80, req: '≥75%', pass: p.le80 >= 75 },
-    { label: '≤60% AMI (40/60 scope)', units: cnt.le60, pct: p.le60, req: '≥40%', pass: p.le60 >= 40 },
-    { label: 'Very Low-Income (≤50% AMI) (20/50 scope)', units: cnt.le50, pct: p.le50, req: '≥20%', pass: p.le50 >= 20 },
-    { label: 'Market (>80% AMI)', units: cnt.market, pct: p.market, req: '≤25%', pass: p.market <= 25 },
-  ];
+  // Certify under a single set-aside program: prefer 20/50 (50% AMI), else
+  // 40/60 (60% AMI). Show only that program's deep tier (plus the shared 75%
+  // low-income / 25% market tests). When neither qualifies, show all tiers.
+  const lowRow: TierRow = { label: 'Low-Income (≤80% AMI)', units: cnt.le80, pct: p.le80, req: '≥75%', pass: p.le80 >= 75 };
+  const marketRow: TierRow = { label: 'Market (>80% AMI)', units: cnt.market, pct: p.market, req: '≤25%', pass: p.market <= 25 };
+  const row50: TierRow = { label: 'Very Low-Income (≤50% AMI)', units: cnt.le50, pct: p.le50, req: '≥20%', pass: p.le50 >= 20 };
+  const row60: TierRow = { label: 'Low-Income (≤60% AMI)', units: cnt.le60, pct: p.le60, req: '≥40%', pass: p.le60 >= 40 };
+  const tierRows: TierRow[] =
+    scopes.chosen === '20/50' ? [row50, lowRow, marketRow]
+    : scopes.chosen === '40/60' ? [row60, lowRow, marketRow]
+    : [lowRow, row60, row50, marketRow];
+  const programLabel =
+    scopes.chosen === '20/50' ? 'the 20%-at-50%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
+    : scopes.chosen === '40/60' ? 'the 40%-at-60%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
+    : null;
 
   const perLlcRows = isGroup
     ? sources.map((s) => {
@@ -94,6 +103,7 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     taxYear, companyName, companyClause, countiesStr, msaStr, ownerRef,
     subsidiaryDesc, params, tierRows, perLlcRows, p, roll, non,
     determination: scopes.headline,
+    programLabel,
     reviewWarning: roll.nReview
       ? `${roll.nReview} unit(s) could not be auto-classified (missing bedroom count, rent, or ` +
         `county) and are listed in Exhibit A under “NEEDS REVIEW.” The percentages above treat ` +
@@ -193,6 +203,9 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
     `the applicable county, bedroom size, and AMI tier under the HUD MTSP methodology (FY${FY} ` +
     `limits, effective ${LIMITS_EFFECTIVE}). On that basis the Property qualifies as follows:`));
   children.push(new Paragraph({ children: [new TextRun({ text: 'Set-Aside Determination: ', bold: true }), new TextRun({ text: m.determination, bold: true })] }));
+  if (m.programLabel) {
+    children.push(para(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`));
+  }
   children.push(gridTable(
     ['AMI Tier', 'Units', '% Total', 'Required', 'Result'],
     m.tierRows.map((t) => [t.label, t.units, `${t.pct}%`, t.req, t.pass ? 'PASS' : 'FAIL']),
@@ -271,6 +284,7 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
   gap();
   line('3. Safe Harbor Qualification — Revenue Procedure 96-32.', { bold: true });
   line(`Set-Aside Determination: ${m.determination}`, { bold: true });
+  if (m.programLabel) line(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`);
   m.tierRows.forEach((t) =>
     line(`  ${t.label}:  ${t.units} units (${t.pct}%)  — required ${t.req} — ${t.pass ? 'PASS' : 'FAIL'}`, { size: 9 }));
   if (m.isGroup) {

@@ -592,6 +592,20 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
     det.add_run("Set-Aside Determination: ").bold = True
     det.add_run(scopes["headline"]).bold = True
 
+    # Certify under a single set-aside program: prefer 20/50 (50% AMI), else
+    # 40/60 (60% AMI). Show only that program's deep tier + the shared 75%/25%.
+    chosen = scopes.get("chosen")
+    program_label = (
+        "the 20%-at-50%-AMI set-aside (Rev. Proc. 96-32 §3.02)" if chosen == "20/50"
+        else "the 40%-at-60%-AMI set-aside (Rev. Proc. 96-32 §3.02)" if chosen == "40/60"
+        else None
+    )
+    if program_label:
+        doc.add_paragraph(
+            f"The Property is certified under {program_label}; the test for that "
+            f"program is shown below."
+        )
+
     # Tier table
     t = doc.add_table(rows=1, cols=5)
     t.style = "Light Grid Accent 1"
@@ -599,12 +613,16 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
     hdr = t.rows[0].cells
     for i, txt in enumerate(["AMI Tier", "Units", "% Total", "Required", "Result"]):
         hdr[i].paragraphs[0].add_run(txt).bold = True
-    rows = [
-        ("Low-Income (≤80% AMI)", cnt["le80"], p["le80"], "≥75%", p["le80"] >= 75),
-        ("≤60% AMI (40/60 scope)", cnt["le60"], p["le60"], "≥40%", p["le60"] >= 40),
-        ("Very Low-Income (≤50% AMI) (20/50 scope)", cnt["le50"], p["le50"], "≥20%", p["le50"] >= 20),
-        ("Market (>80% AMI)", cnt["market"], p["market"], "≤25%", p["market"] <= 25),
-    ]
+    low_row = ("Low-Income (≤80% AMI)", cnt["le80"], p["le80"], "≥75%", p["le80"] >= 75)
+    market_row = ("Market (>80% AMI)", cnt["market"], p["market"], "≤25%", p["market"] <= 25)
+    row_50 = ("Very Low-Income (≤50% AMI)", cnt["le50"], p["le50"], "≥20%", p["le50"] >= 20)
+    row_60 = ("Low-Income (≤60% AMI)", cnt["le60"], p["le60"], "≥40%", p["le60"] >= 40)
+    if chosen == "20/50":
+        rows = [row_50, low_row, market_row]
+    elif chosen == "40/60":
+        rows = [row_60, low_row, market_row]
+    else:
+        rows = [low_row, row_60, row_50, market_row]
     for label, n, pct_v, req, ok in rows:
         c = t.add_row().cells
         c[0].text = label
