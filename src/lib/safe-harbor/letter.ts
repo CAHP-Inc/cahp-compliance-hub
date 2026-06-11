@@ -51,16 +51,31 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
   const msaStr = [...new Set(prop.counties.map((c) => COUNTIES[c]?.msa).filter(Boolean))].join('; ');
 
   const companyClause = isGroup
-    ? `${companyName} (the “Company”) and its ${subsidiaryDesc} listed in Exhibit A`
+    ? `${companyName} (the “Company”) and its ${subsidiaryDesc} listed in Section 2`
     : `${companyName} (the “Company”)`;
+
+  // Nonprofit ownership comes from the hub and varies by LLC. For a group it is
+  // shown per-subsidiary in Section 2; for a single LLC it's stated inline.
+  const members = config.portfolio?.members ?? [];
+  const groupHasOwnership = isGroup && members.length > 0;
+  const pctStr = non.ownershipPercent == null ? '____%' : `${non.ownershipPercent}%`;
+  const clsStr = non.memberClass || '____';
+  const ownershipParam = groupHasOwnership
+    ? 'Varies by subsidiary — see Section 2'
+    : `${pctStr} ${clsStr} Interest`;
+  const ownershipClause = groupHasOwnership
+    ? 'holding the membership interest in each subsidiary set forth in Section 2'
+    : non.ownershipPercent == null
+      ? 'holding the membership interest set forth in its operating agreement'
+      : `holding a ${Number.isInteger(non.ownershipPercent) ? wordsNum(non.ownershipPercent) : non.ownershipPercent} percent (${non.ownershipPercent}%) ${clsStr} Interest`;
 
   const params: [string, string][] = [
     ['Property', prop.addressLine || '_'.repeat(40)],
     ['Description', `${roll.denom} ${prop.description}` +
-      (isGroup ? ` held across ${sources.length} single-purpose LLCs (see Exhibit A)` : '')],
+      (isGroup ? ` held across ${sources.length} single-purpose LLCs (see Section 2)` : '')],
     ['Entity', `${companyName} (${companyType})` + (isGroup ? ' — portfolio / group filing' : '')],
     ['Nonprofit Managing Member', `${non.managingMemberName} (instrumentality of ${non.parentName})`],
-    ['Nonprofit Ownership', `${non.ownershipPercent}% ${non.memberClass} Interest`],
+    ['Nonprofit Ownership', ownershipParam],
     ['Certifying Party', `Property management company, as ${config.certification.relationshipToOwner}`],
     ['CAHP EIN', blank(non.parentEin, 14)],
     ['Entity EIN', blank(co.ein, 14)],
@@ -88,15 +103,18 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     : scopes.chosen === '40/60' ? 'the 40%-at-60%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
     : null;
 
+  const memberByName = new Map(members.map((m) => [m.name, m]));
   const perLlcRows = isGroup
     ? sources.map((s) => {
         const r = perSrc[s];
-        return { s, denom: r.denom, le50: r.pct.le50, le60: r.pct.le60, le80: r.pct.le80, market: r.pct.market };
+        const m = memberByName.get(s);
+        const own = m?.ownershipPercent == null ? '—' : `${m.ownershipPercent}%`;
+        return { s, denom: r.denom, le50: r.pct.le50, le60: r.pct.le60, le80: r.pct.le80, market: r.pct.market, own, cls: m?.memberClass || '—' };
       })
     : [];
 
   const ownerRef = isGroup
-    ? `${companyName} and the subsidiary LLCs listed in Exhibit A`
+    ? `${companyName} and the subsidiary LLCs listed in Section 2`
     : companyName;
 
   return {
@@ -104,6 +122,8 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     subsidiaryDesc, params, tierRows, perLlcRows, p, roll, non,
     determination: scopes.headline,
     programLabel,
+    ownershipClause,
+    groupHasOwnership,
     reviewWarning: roll.nReview
       ? `${roll.nReview} unit(s) could not be auto-classified (missing bedroom count, rent, or ` +
         `county) and are listed in Exhibit A under “NEEDS REVIEW.” The percentages above treat ` +
@@ -170,10 +190,9 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
   children.push(para(
     `${m.non.parentName} (“CAHP”) is a South Carolina nonprofit corporation exempt from federal ` +
     `income tax under Section 501(c)(3) of the Internal Revenue Code. ${m.non.managingMemberName} is ` +
-    `a wholly owned instrumentality of CAHP and serves as the managing member of the Company, holding ` +
-    `a ${wordsNum(m.non.ownershipPercent)} percent (${m.non.ownershipPercent}%) ${m.non.memberClass} ` +
-    `Interest. The Property is managed day-to-day by the undersigned property management company, ` +
-    `which executes this certification as ${config.certification.relationshipToOwner} for the Company.`));
+    `a wholly owned instrumentality of CAHP and serves as the managing member of the Company, ` +
+    `${m.ownershipClause}. The Property is managed day-to-day by the undersigned property management ` +
+    `company, which executes this certification as ${config.certification.relationshipToOwner} for the Company.`));
 
   children.push(heading('2. Property Description.'));
   if (m.isGroup) {
@@ -181,12 +200,20 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
       `The Company holds the residential rental real property through ${wordsNum(m.sources.length)} ` +
       `(${m.sources.length}) ${m.subsidiaryDesc}, together comprising ${wordsNum(m.roll.denom)} ` +
       `(${m.roll.denom}) residential rental units located in ${m.countiesStr}, South Carolina. This ` +
-      `certification is filed for the portfolio as a group; per-LLC composition (full detail in Exhibit A):`));
+      `certification is filed for the portfolio as a group; per-LLC composition is as follows (unit detail accompanies this certification in the submitted rent roll):`));
     children.push(gridTable(
-      ['Subsidiary LLC', 'Units', '≤50%', '≤60%', '≤80%', 'Market'],
+      m.groupHasOwnership
+        ? ['Subsidiary LLC', 'Nonprofit %', 'Class', 'Units', '≤50%', '≤60%', '≤80%', 'Market']
+        : ['Subsidiary LLC', 'Units', '≤50%', '≤60%', '≤80%', 'Market'],
       [
-        ...m.perLlcRows.map((r) => [r.s, r.denom, `${r.le50}%`, `${r.le60}%`, `${r.le80}%`, `${r.market}%`]),
-        ['PORTFOLIO TOTAL', m.roll.denom, `${m.p.le50}%`, `${m.p.le60}%`, `${m.p.le80}%`, `${m.p.market}%`],
+        ...m.perLlcRows.map((r) =>
+          m.groupHasOwnership
+            ? [r.s, r.own, r.cls, r.denom, `${r.le50}%`, `${r.le60}%`, `${r.le80}%`, `${r.market}%`]
+            : [r.s, r.denom, `${r.le50}%`, `${r.le60}%`, `${r.le80}%`, `${r.market}%`],
+        ),
+        m.groupHasOwnership
+          ? ['PORTFOLIO TOTAL', '', '', m.roll.denom, `${m.p.le50}%`, `${m.p.le60}%`, `${m.p.le80}%`, `${m.p.market}%`]
+          : ['PORTFOLIO TOTAL', m.roll.denom, `${m.p.le50}%`, `${m.p.le60}%`, `${m.p.le80}%`, `${m.p.market}%`],
       ],
     ));
   } else {
@@ -219,7 +246,7 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
 
   children.push(heading('5. Enclosures.'));
   [
-    '(a) Current rent roll with unit-by-unit AMI compliance analysis (Exhibit A);',
+    '(a) Current rent roll (submitted herewith);',
     `(b) FY${FY} HUD/SC Housing rent limits for ${m.msaStr};`,
     `(c) Confirmation of ${m.non.managingMemberName} ${m.non.ownershipPercent}% ${m.non.memberClass} ownership interest;`,
     `(d) IRS 501(c)(3) Determination Letter for ${m.non.parentName}.`,
@@ -291,7 +318,7 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
     gap();
     line('Per-LLC composition:', { bold: true, size: 9 });
     m.perLlcRows.forEach((r) =>
-      line(`  ${r.s}: ${r.denom} units — ≤50% ${r.le50}% · ≤60% ${r.le60}% · ≤80% ${r.le80}% · mkt ${r.market}%`, { size: 9 }));
+      line(`  ${r.s}: ${m.groupHasOwnership ? `nonprofit ${r.own} ${r.cls} · ` : ''}${r.denom} units — ≤50% ${r.le50}% · ≤60% ${r.le60}% · ≤80% ${r.le80}% · mkt ${r.market}%`, { size: 9 }));
     line(`  PORTFOLIO TOTAL: ${m.roll.denom} units — ≤50% ${m.p.le50}% · ≤60% ${m.p.le60}% · ≤80% ${m.p.le80}% · mkt ${m.p.market}%`, { bold: true, size: 9 });
   }
   if (m.reviewWarning) { gap(); line(`⚠ ${m.reviewWarning}`, { bold: true, size: 9 }); }

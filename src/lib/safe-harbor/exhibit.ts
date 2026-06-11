@@ -67,25 +67,28 @@ export function buildExhibitWorkbook(analysis: Analysis, config: CertConfig): XL
 
   // ── Sheet 3: per-LLC (group only) ──
   if (isGroup) {
+    const memberByName = new Map((config.portfolio?.members ?? []).map((m) => [m.name, m]));
     const aoa: (string | number)[][] = [
       [`Portfolio: ${config.portfolio?.groupName ?? config.company.legalName}`],
       [],
-      ['Source LLC', 'Units', '<=50%', '<=60%', '<=80%', 'Market', '20/50', '40/60'],
+      ['Source LLC', 'Nonprofit %', 'Class', 'Units', '<=50%', '<=60%', '<=80%', 'Market', '20/50', '40/60'],
     ];
     for (const s of sources) {
       const r = perSrc[s], sc = perScope[s];
+      const m = memberByName.get(s);
       aoa.push([
-        s, r.denom, `${r.pct.le50}%`, `${r.pct.le60}%`, `${r.pct.le80}%`, `${r.pct.market}%`,
+        s, m?.ownershipPercent == null ? '—' : `${m.ownershipPercent}%`, m?.memberClass || '—',
+        r.denom, `${r.pct.le50}%`, `${r.pct.le60}%`, `${r.pct.le80}%`, `${r.pct.market}%`,
         sc.s2050.status, sc.s4060.status,
       ]);
     }
     aoa.push([]);
     aoa.push([
-      'PORTFOLIO TOTAL', roll.denom, `${p.le50}%`, `${p.le60}%`, `${p.le80}%`, `${p.market}%`,
+      'PORTFOLIO TOTAL', '', '', roll.denom, `${p.le50}%`, `${p.le60}%`, `${p.le80}%`, `${p.market}%`,
       scopes.s2050.status, scopes.s4060.status,
     ]);
     const ws3 = XLSX.utils.aoa_to_sheet(aoa);
-    ws3['!cols'] = [24, 7, 8, 8, 8, 8, 24, 24].map((w) => ({ wch: w }));
+    ws3['!cols'] = [24, 11, 8, 7, 8, 8, 8, 8, 24, 24].map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws3, 'Per-LLC');
   }
 

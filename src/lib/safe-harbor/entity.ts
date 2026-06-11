@@ -28,7 +28,8 @@ export interface CertConfig {
     managingMemberName: string;
     parentName: string;
     parentEin: string;
-    ownershipPercent: number;
+    /** From the hub's Ownership Structure row. null = unknown (renders blank). */
+    ownershipPercent: number | null;
     memberClass: string;
     isTaxExempt: boolean;
   };
@@ -47,8 +48,15 @@ export interface CertConfig {
     groupName: string;
     groupStateType: string;
     subsidiaryDescription: string;
+    /** Per-subsidiary nonprofit ownership from the hub (varies by LLC). Keyed by LLC name. */
+    members?: { name: string; ownershipPercent: number | null; memberClass: string }[];
   };
 }
+
+/** Known CAHP 501(c)(3) parent EINs by state (public nonprofit identifiers). */
+export const CAHP_EIN_BY_STATE: Record<string, string> = {
+  SC: '99-4885069',
+};
 
 export const DEFAULT_CERT: Pick<CertConfig, 'certification'> & {
   nonprofit: Pick<CertConfig['nonprofit'], 'managingMemberName' | 'parentName' | 'memberClass' | 'ownershipPercent'>;
@@ -106,21 +114,36 @@ export interface DerivedConfig {
 
 /** Minimal config for a portfolio/owner filing when no representative child
  *  property is available to derive from. CAHP/EIN fields fall back to defaults. */
-export function defaultCertConfig(legalName: string, taxYear: number): CertConfig {
+export function defaultCertConfig(legalName: string, taxYear: number, state = 'SC'): CertConfig {
   return {
     company: { legalName, stateType: 'South Carolina limited liability company', ein: '', dorAccountId: '' },
-    property: { description: 'scattered-site residential rental units', addressLine: '', counties: [], state: 'SC', taxMapParcels: [] },
+    property: { description: 'scattered-site residential rental units', addressLine: '', counties: [], state, taxMapParcels: [] },
     nonprofit: {
       managingMemberName: DEFAULT_CERT.nonprofit.managingMemberName,
       parentName: DEFAULT_CERT.nonprofit.parentName,
-      parentEin: '',
-      ownershipPercent: DEFAULT_CERT.nonprofit.ownershipPercent,
-      memberClass: DEFAULT_CERT.nonprofit.memberClass,
+      parentEin: CAHP_EIN_BY_STATE[state] || '',
+      ownershipPercent: null, // unknown until set in the hub
+      memberClass: '',
       isTaxExempt: true,
     },
     certification: { ...DEFAULT_CERT.certification },
     filing: { taxYear, filingType: 'Annual Renewal Certification', annualCertificationDeadline: 'October 1' },
   };
+}
+
+/** The CAHP nonprofit's ownership %/class for one property, from the hub. */
+export function cahpOwnershipForProperty(
+  propertyId: string,
+  owners: OwnerLike[],
+  ownership: OwnershipLike[],
+): { ownershipPercent: number | null; memberClass: string } {
+  const ownerById = new Map(owners.map((o) => [String(o.id), o]));
+  const row = ownership.find(
+    (r) =>
+      String(r.fields.LinkedPropertyLookupId) === String(propertyId) &&
+      ownerById.get(String(r.fields.OwnerLookupId))?.fields.IsCAHPEntity,
+  );
+  return { ownershipPercent: row?.fields.OwnershipPercent ?? null, memberClass: row?.fields.MemberClass || '' };
 }
 
 function parseCounties(value: string | undefined): string[] {
@@ -196,9 +219,12 @@ export function deriveCertConfig(args: {
     nonprofit: {
       managingMemberName: cahpMember?.fields.Title || DEFAULT_CERT.nonprofit.managingMemberName,
       parentName: parent?.fields.Title || DEFAULT_CERT.nonprofit.parentName,
-      parentEin: parent?.fields.TaxID || '',
-      ownershipPercent: cahpRow?.fields.OwnershipPercent ?? DEFAULT_CERT.nonprofit.ownershipPercent,
-      memberClass: cahpRow?.fields.MemberClass || DEFAULT_CERT.nonprofit.memberClass,
+      // EIN: hub's CAHP parent TaxID, else the known state CAHP EIN.
+      parentEin: parent?.fields.TaxID || CAHP_EIN_BY_STATE[property.fields.cahpState || 'SC'] || '',
+      // Ownership %/class come from THIS LLC's hub ownership row — not a uniform
+      // default (it varies by LLC). Blank when the hub doesn't have it.
+      ownershipPercent: cahpRow?.fields.OwnershipPercent ?? null,
+      memberClass: cahpRow?.fields.MemberClass || '',
       isTaxExempt: true,
     },
     certification: { ...DEFAULT_CERT.certification },

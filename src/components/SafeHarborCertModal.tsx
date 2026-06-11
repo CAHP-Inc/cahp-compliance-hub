@@ -14,6 +14,7 @@ import {
   buildExhibitBlob,
   buildLetterDocx,
   buildLetterPdf,
+  cahpOwnershipForProperty,
   defaultCertConfig,
   deriveCertConfig,
   parseRentRoll,
@@ -338,15 +339,29 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     if (isGroup) {
       const gName = groupName || ownerSelected?.fields.Title || derived.config.company.legalName;
       if (ownerSelected?.fields.Title) c.company.legalName = ownerSelected.fields.Title;
+      // Per-subsidiary nonprofit ownership from the hub (varies by LLC).
+      const propByTitle = new Map((properties.data ?? []).map((p) => [p.fields.Title || '', p]));
+      const members = distinctSources.map((s) => {
+        const prop = propByTitle.get(s);
+        const own = prop && owners.data && ownership.data
+          ? cahpOwnershipForProperty(
+              String(prop.id),
+              owners.data as unknown as Parameters<typeof cahpOwnershipForProperty>[1],
+              ownership.data as unknown as Parameters<typeof cahpOwnershipForProperty>[2],
+            )
+          : { ownershipPercent: null, memberClass: '' };
+        return { name: s, ownershipPercent: own.ownershipPercent, memberClass: own.memberClass };
+      });
       c.portfolio = {
         isGroupFiling: true,
         groupName: gName,
         groupStateType: 'South Carolina limited liability company',
         subsidiaryDescription: 'wholly-owned single-purpose subsidiary LLCs',
+        members,
       };
     }
     return c;
-  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, units]);
+  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, units, distinctSources, properties.data, owners.data, ownership.data]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -361,7 +376,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     setBusy(kind);
     try {
       if (kind === 'xlsx') {
-        downloadBlob(buildExhibitBlob(analysis, config), `${baseName}_Exhibit_A_Unit_AMI_Analysis.xlsx`);
+        downloadBlob(buildExhibitBlob(analysis, config), `${baseName}_Unit_AMI_Analysis_INTERNAL.xlsx`);
       } else if (kind === 'pdf') {
         downloadBlob(buildLetterPdf(analysis, config), `${baseName}_Safe_Harbor_Certification_TY${taxYear}.pdf`);
       } else {
@@ -379,23 +394,18 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     setSaveMsg(null);
     try {
       const docxBlob = await buildLetterDocx(analysis, config);
-      const xlsxBlob = buildExhibitBlob(analysis, config);
       const meta = { PropertyLookupId: String(representativeProperty.id) };
+      // Save only the certification letter — the rent roll (not the unit analysis)
+      // accompanies the submittal, so the Exhibit isn't uploaded here.
       await uploadDocument({
         libraryName: CERT_LIBRARY,
         filename: `${baseName}_Safe_Harbor_Certification_TY${taxYear}.docx`,
         file: docxBlob,
         metadata: meta,
       });
-      await uploadDocument({
-        libraryName: CERT_LIBRARY,
-        filename: `${baseName}_Exhibit_A_Unit_AMI_Analysis.xlsx`,
-        file: xlsxBlob,
-        metadata: meta,
-      });
       setSaveMsg(
-        `Saved letter + Exhibit A to "${CERT_LIBRARY}", tagged to ${config.company.legalName}. ` +
-          `They now appear on that property's Documents tab.`,
+        `Saved the certification letter to "${CERT_LIBRARY}", tagged to ${config.company.legalName}. ` +
+          `It now appears on that property's Documents tab.`,
       );
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : String(e));
@@ -421,7 +431,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
         </div>
         <p className="text-sm text-gray-600 mb-4">
           Upload AppFolio rent roll(s), pick the filing entity, and generate the §12-37-220(B)(11)(e) /
-          Rev. Proc. 96-32 certification letter (.docx + PDF) and Exhibit A. Qualification is rent-based;
+          Rev. Proc. 96-32 certification letter (.docx + PDF), plus an internal unit-AMI analysis. Qualification is rent-based;
           drop more than one rent roll to file a portfolio (group) of LLCs together.
         </p>
 
@@ -628,7 +638,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 </table>
                 {nDefaulted > 0 && (
                   <div className="mt-2 text-[11px] text-gray-500">
-                    {nDefaulted} unit(s) were missing bedroom/rent/county and were counted as Market (the conservative default) — see the Notes column in Exhibit A.
+                    {nDefaulted} unit(s) were missing bedroom/rent/county and were counted as Market (the conservative default) — see the Notes column in the unit analysis.
                   </div>
                 )}
               </div>
@@ -644,7 +654,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
           <div className="flex items-center gap-2">
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
-            <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Exhibit .xlsx'}</button>
+            <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Unit analysis .xlsx'}</button>
             <button disabled={!ready || !representativeProperty || prospectMode || busy !== null} title={prospectMode ? 'Prospect mode — download only (entity is not in the hub)' : !representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
         </div>

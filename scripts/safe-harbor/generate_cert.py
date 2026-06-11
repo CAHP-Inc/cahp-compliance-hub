@@ -457,6 +457,14 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
     # ownership; the signature block itself is left blank and filled at signing.
     cert = entity.get("certification", {})
     relationship = cert.get("relationshipToOwner", "property manager and authorized agent")
+    # Nonprofit ownership %/class come from the hub (per entity) — blank if absent.
+    _pct = non.get("ownershipPercent")
+    pct_disp = f"{_pct}%" if _pct not in (None, "") else "____%"
+    cls_disp = non.get("memberClass") or "____"
+    if _pct in (None, ""):
+        ownership_clause = "holding the membership interest set forth in its operating agreement"
+    else:
+        ownership_clause = f"holding a {_words_pct(_pct)} ({_pct}%) {cls_disp} Interest"
 
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
@@ -479,7 +487,7 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
                                 for c in prop["counties"] if c in limits["counties"]}))
     desc_value = f"{roll['denom']} {prop['description']}"
     if group:
-        desc_value += f" held across {len(group['sources'])} single-purpose LLCs (see Exhibit A)"
+        desc_value += f" held across {len(group['sources'])} single-purpose LLCs (see Section 2)"
     params = [
         ("Property", prop["addressLine"]),
         ("Description", desc_value),
@@ -487,8 +495,7 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
                    + (" — portfolio / group filing" if group else "")),
         ("Nonprofit Managing Member",
          f"{non['managingMemberName']} (instrumentality of {non['parentName']})"),
-        ("Nonprofit Ownership",
-         f"{non['ownershipPercent']}% {non['memberClass']} Interest"),
+        ("Nonprofit Ownership", f"{pct_disp} {cls_disp} Interest"),
         ("Certifying Party", f"Property management company, as {relationship}"),
         ("CAHP EIN", _blank(non.get("parentEin"), 14)),
         ("Entity EIN", _blank(co.get("ein"), 14)),
@@ -517,7 +524,7 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
     ).runs[0].bold = True
     company_clause = (
         f"{company_name} (the “Company”) and its wholly-owned single-purpose "
-        f"subsidiary LLCs listed in Exhibit A"
+        f"subsidiary LLCs listed in Section 2"
         if group else f"{company_name} (the “Company”)"
     )
     doc.add_paragraph(
@@ -530,11 +537,9 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
         f"{non['parentName']} (“CAHP”) is a South Carolina nonprofit corporation "
         f"exempt from federal income tax under Section 501(c)(3) of the Internal Revenue "
         f"Code. {non['managingMemberName']} is a wholly owned instrumentality of CAHP and "
-        f"serves as the managing member of the Company, holding a "
-        f"{_words_pct(non['ownershipPercent'])} ({non['ownershipPercent']}%) "
-        f"{non['memberClass']} Interest. The Property is managed day-to-day by the "
-        f"undersigned property management company, which executes this certification as "
-        f"{relationship} for the Company."
+        f"serves as the managing member of the Company, {ownership_clause}. The Property "
+        f"is managed day-to-day by the undersigned property management company, which "
+        f"executes this certification as {relationship} for the Company."
     )
 
     _h(doc, "2. Property Description.")
@@ -545,8 +550,8 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
             f"{group['subsidiaryDescription']}, together comprising "
             f"{_words_num(roll['denom'])} ({roll['denom']}) residential rental units "
             f"located in {counties_str}, South Carolina. This certification is filed "
-            f"for the portfolio as a group; per-LLC composition is as follows (full "
-            f"unit detail in Exhibit A):"
+            f"for the portfolio as a group; per-LLC composition is as follows (unit "
+            f"detail accompanies this certification in the submitted rent roll):"
         )
         gt = doc.add_table(rows=1, cols=6)
         gt.style = "Light Grid Accent 1"
@@ -659,7 +664,7 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
             c[1].text = pc
         doc.add_paragraph(
             "This report is provided as supporting evidence only; unit-level qualification "
-            "is established by the rent-restriction analysis in Section 3 and Exhibit A."
+            "is established by the rent-restriction analysis in Section 3."
         )
     else:
         doc.add_paragraph("[Resident income-range report not provided.]")
@@ -673,10 +678,10 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
 
     _h(doc, "6. Enclosures.")
     for e in [
-        "(a) Current rent roll with unit-by-unit AMI compliance analysis (Exhibit A);",
+        "(a) Current rent roll (submitted herewith);",
         f"(b) FY{limits['_meta']['fiscalYear']} HUD/SC Housing rent limits for {msa_str};",
         f"(c) Confirmation of {non['managingMemberName']} "
-        f"{non['ownershipPercent']}% {non['memberClass']} ownership interest;",
+        f"{pct_disp} {cls_disp} ownership interest;",
         "(d) Resident income-range report (corroborating);",
         f"(e) IRS 501(c)(3) Determination Letter for {non['parentName']}.",
     ]:
@@ -692,7 +697,7 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
 
     # ── Certification & signature — simple, fully fillable at signing ──
     owner_ref = (
-        f"{company_name} and the subsidiary LLCs listed in Exhibit A"
+        f"{company_name} and the subsidiary LLCs listed in Section 2"
         if group else company_name
     )
     doc.add_paragraph()
@@ -827,7 +832,7 @@ def main(argv=None):
     args.out.mkdir(parents=True, exist_ok=True)
     base = slugify(group["name"]) + "_GROUP" if is_group else slugify(entity["company"]["legalName"])
     letter_path = args.out / f"{base}_Safe_Harbor_Certification_TY{tax_year}.docx"
-    exhibit_path = args.out / f"{base}_Exhibit_A_Unit_AMI_Analysis.xlsx"
+    exhibit_path = args.out / f"{base}_Unit_AMI_Analysis_INTERNAL.xlsx"
 
     write_exhibit_a(units, roll, scopes, exhibit_path, entity, args.utility_allowance, group)
     write_letter(units, roll, scopes, demo, entity, limits, letter_path,
@@ -864,7 +869,7 @@ def main(argv=None):
     print(f"  >>> {scopes['headline']}")
     print("=" * 64)
     print(f"  Letter : {letter_path}")
-    print(f"  Exhibit: {exhibit_path}")
+    print(f"  Unit analysis (internal, not for submittal): {exhibit_path}")
     if roll["n_review"]:
         print("\n  Units needing review:")
         for u in roll["review"]:

@@ -147,8 +147,8 @@ $config = [ordered]@{
     nonprofit = [ordered]@{
         managingMemberName = Pick ($(if ($cahpMember) { [string]$cahpMember["Title"] })) $e.nonprofit.managingMemberName "CAHP SC, LLC"
         parentName         = Pick ($(if ($cahpParent) { [string]$cahpParent["Title"] })) $e.nonprofit.parentName "Carolina Affordable Housing Project Inc."
-        parentEin          = Pick ($(if ($cahpParent) { [string]$cahpParent["TaxID"] })) $e.nonprofit.parentEin
-        ownershipPercent   = if ($cahpRow -and $cahpRow["OwnershipPercent"]) { [double]$cahpRow["OwnershipPercent"] } elseif ($e.nonprofit.ownershipPercent) { $e.nonprofit.ownershipPercent } else { 1 }
+        parentEin          = Pick ($(if ($cahpParent) { [string]$cahpParent["TaxID"] })) $e.nonprofit.parentEin $(if ($State -eq 'SC') { '99-4885069' } else { '' })
+        ownershipPercent   = if ($cahpRow -and $null -ne $cahpRow["OwnershipPercent"]) { [double]$cahpRow["OwnershipPercent"] } elseif ($null -ne $e.nonprofit.ownershipPercent) { $e.nonprofit.ownershipPercent } else { $null }
         memberClass        = Pick ($(if ($cahpRow) { [string]$cahpRow["MemberClass"] })) $e.nonprofit.memberClass "Class C"
         isTaxExempt        = $true
     }
