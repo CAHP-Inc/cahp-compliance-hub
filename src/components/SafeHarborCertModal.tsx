@@ -25,6 +25,40 @@ import { Icon } from './ui/Icon';
 
 const CERT_LIBRARY = 'AMI Certification Letters';
 
+// Normalize an entity name for matching a rent roll's "Property Groups" label to
+// a hub LLC. Converts roman-numeral tokens to digits on BOTH sides (applied
+// symmetrically, so the "IV" fund prefix is harmless): "IV SPB 2 LLC" and
+// "IV SPB II LLC" both normalize to "4 spb 2 llc".
+const ROMAN: Record<string, number> = {
+  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10, xi: 11, xii: 12,
+};
+function normName(s: string | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => (ROMAN[t] !== undefined ? String(ROMAN[t]) : t))
+    .join(' ');
+}
+/** Best hub child-LLC id for a rent-roll source: exact normalized match, else max token overlap. */
+function suggestChildId(source: string, children: { id: string; title: string }[]): string {
+  const ns = normName(source);
+  const exact = children.find((c) => normName(c.title) === ns);
+  if (exact) return exact.id;
+  const stoks = new Set(ns.split(' '));
+  let best = '';
+  let bestScore = 0;
+  for (const c of children) {
+    const overlap = normName(c.title).split(' ').filter((t) => stoks.has(t)).length;
+    if (overlap > bestScore) {
+      bestScore = overlap;
+      best = c.id;
+    }
+  }
+  return bestScore >= 2 ? best : '';
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -62,6 +96,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [parcels, setParcels] = useState('');
   const [groupOverride, setGroupOverride] = useState(false);
   const [groupName, setGroupName] = useState('');
+  // Per-rent-roll override: roll index -> hub child Property id ('' = none/keep label).
+  const [rollMapOverride, setRollMapOverride] = useState<Record<number, string>>({});
 
   const [busy, setBusy] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -142,7 +178,33 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     return null;
   }, [representativeProperty, ownerSelected, owners.data, ownership.data, taxYear]);
 
-  const units: Unit[] = useMemo(() => rolls.flatMap((r) => r.units), [rolls]);
+  // Hub child LLCs available to map rent rolls onto (only when filing for an owner).
+  const childOptions = useMemo(
+    () => childProperties.map((p) => ({ id: String(p.id), title: p.fields.Title || '' })),
+    [childProperties],
+  );
+  const useHubNames = selType === 'owner' && childOptions.length > 0;
+
+  // Effective rent-roll -> hub-LLC mapping (auto-suggested, user-overridable).
+  const rollMap = useMemo(
+    () =>
+      rolls.map((r, i) =>
+        rollMapOverride[i] !== undefined ? rollMapOverride[i] : suggestChildId(r.source, childOptions),
+      ),
+    [rolls, rollMapOverride, childOptions],
+  );
+
+  // Units fed to the analysis. When filing for an owner, each unit's source LLC
+  // is relabeled to the registered hub name (so the document and Exhibit list the
+  // Compliance Hub's subsidiary LLCs, not the AppFolio rent-roll group label).
+  const units: Unit[] = useMemo(() => {
+    if (!useHubNames) return rolls.flatMap((r) => r.units);
+    return rolls.flatMap((r, i) => {
+      const hubName = childOptions.find((c) => c.id === rollMap[i])?.title || r.source;
+      return r.units.map((u) => ({ ...u, source: hubName, notes: [] }));
+    });
+  }, [rolls, useHubNames, childOptions, rollMap]);
+
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
     [units],
@@ -341,6 +403,34 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 </label>
               )}
             </div>
+
+            {/* Map each rent roll to the parent owner's subsidiary LLC in the hub */}
+            {useHubNames && rolls.length > 0 && (
+              <div className="border border-gray-200 rounded-md p-3">
+                <div className="text-xs font-semibold text-gray-700 mb-2">
+                  Map rent rolls to the hub's subsidiary LLCs
+                  <span className="font-normal text-gray-500"> — the document lists these registered names, not the rent-roll labels.</span>
+                </div>
+                <div className="space-y-1">
+                  {rolls.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="text-gray-500 w-40 truncate" title={r.source}>{r.source}</span>
+                      <span className="text-gray-300">→</span>
+                      <select
+                        value={rollMap[i]}
+                        onChange={(e) => setRollMapOverride((prev) => ({ ...prev, [i]: e.target.value }))}
+                        className="border border-gray-300 rounded px-2 py-1 flex-1"
+                      >
+                        <option value="">— keep rent-roll label “{r.source}” —</option>
+                        {childOptions.map((c) => (
+                          <option key={c.id} value={c.id}>{c.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Live determination preview */}
             {analysis && p && cnt && sc && (
