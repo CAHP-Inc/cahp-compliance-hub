@@ -153,6 +153,21 @@ export const REPORTS: ReportDescriptor[] = [
     filenameBase: 'portfolio-audit-pack',
   },
   {
+    id: 'safe-harbor-certification',
+    name: 'Safe Harbor Certification Generator',
+    description:
+      'Generate the §12-37-220(B)(11)(e) / Rev. Proc. 96-32 Safe Harbor certification letter ' +
+      '(.docx + PDF) and Exhibit A unit-by-unit AMI analysis from an AppFolio rent roll. ' +
+      'Rent-based; tests both the 20/50 and 40/60 set-aside scopes and supports portfolio ' +
+      '(group) filings. Opens its own upload + preview dialog.',
+    category: 'DOR Audit Pack',
+    audience: 'internal',
+    params: { scope: ['property', 'owner', 'portfolio'] },
+    supportedFormats: ['pdf', 'xlsx'],
+    defaultFormat: 'pdf',
+    filenameBase: 'safe-harbor-certification',
+  },
+  {
     id: 'org-chart-history',
     name: 'Org Chart History per Property',
     description:

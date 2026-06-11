@@ -38,3 +38,16 @@ pnpm-debug.log*
 
 # OS
 Thumbs.db
+
+# Compliance source data & generated letters — TENANT PII, repo is PUBLIC, NEVER commit
+# Rent rolls / demographic exports from AppFolio
+rent_roll*.xlsx
+rent_roll*.csv
+tenant_demographic*.xlsx
+tenant_demographic*.csv
+# Owner-supplied & generated Safe Harbor certification documents
+*Safe_Harbor_Certification*.docx
+*Safe_Harbor_Certification*.pdf
+# Local working folder for any other owner-supplied reports
+/compliance-data/
+/safe-harbor-output/

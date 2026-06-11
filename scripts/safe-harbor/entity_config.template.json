@@ -1,0 +1,51 @@
+{
+  "_comment": "Safe Harbor certification entity config. One file per certifiable LLC. Fields map to the CAHP Compliance Hub lists (Properties Registry / Owners / Ownership Structure) and are auto-filled by export_entity.ps1; anything left as \"\" prints as an underscored blank in the letter for manual completion. Real, filled copies belong in safe-harbor-output/ (gitignored) — never commit one with a real EIN.",
+
+  "company": {
+    "legalName": "IV SPB II LLC",
+    "stateType": "South Carolina limited liability company",
+    "ein": "",
+    "dorAccountId": ""
+  },
+
+  "property": {
+    "description": "scattered-site single-family and small multifamily residential rental units",
+    "addressLine": "Scattered sites located in Greenville County and Spartanburg County, South Carolina",
+    "counties": ["Greenville", "Spartanburg"],
+    "state": "SC",
+    "taxMapParcels": []
+  },
+
+  "nonprofit": {
+    "managingMemberName": "CAHP SC, LLC",
+    "parentName": "Carolina Affordable Housing Project Inc.",
+    "parentEin": "",
+    "ownershipPercent": 1,
+    "memberClass": "Class C",
+    "isTaxExempt": true
+  },
+
+  "manager": {
+    "name": "VanRock Holdings, LLC",
+    "operatingAgreementDate": ""
+  },
+
+  "_certification_note": "The cert is executed by the PROPERTY MANAGEMENT COMPANY managing the property (as authorized agent for the owner), not the nonprofit. relationshipToOwner ties the signer to the ownership; the signature block (Signature/Name/Title/Company) is left blank and filled at signing.",
+  "certification": {
+    "relationshipToOwner": "property manager and authorized agent"
+  },
+
+  "filing": {
+    "taxYear": 2026,
+    "filingType": "Annual Renewal Certification",
+    "annualCertificationDeadline": "October 1"
+  },
+
+  "_portfolio_note": "OPTIONAL. Include this block ONLY for a group / portfolio filing where one parent owns multiple single-purpose LLCs filed together. When isGroupFiling is true (or you pass >1 rent roll covering different LLCs), the letter is framed for the parent and aggregates all units; each rent roll's 'Property Groups' line tags its units to the right LLC in Exhibit A.",
+  "portfolio": {
+    "isGroupFiling": false,
+    "groupName": "IV Fund Global, LLC",
+    "groupStateType": "South Carolina limited liability company",
+    "subsidiaryDescription": "wholly-owned single-purpose subsidiary LLCs"
+  }
+}

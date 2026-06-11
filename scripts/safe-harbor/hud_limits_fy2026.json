@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "program": "Safe Harbor rent-restriction test (IRS Rev. Proc. 96-32 / SC Code 12-37-220(B)(11)(e))",
+    "fiscalYear": 2026,
+    "effectiveDate": "2026-05-01",
+    "source": "South Carolina State Housing Finance & Development Authority (SC Housing) Trust Fund Rent Limits, derived from HUD FY2026 MTSP Income Limits (released 2026-05-01).",
+    "sourceUrls": {
+      "schousingIndex": "https://schousing.sc.gov/development/income-rent-limits",
+      "rents50": "https://schousing.sc.gov/sites/schousing/files/Documents/Development/Income%20and%20Rent%20Limits/2026/SCHTF_50_Rents.pdf",
+      "rents80": "https://schousing.sc.gov/sites/schousing/files/Documents/Development/Income%20and%20Rent%20Limits/2026/SCHTF_80%20Rents.pdf",
+      "hudMtsp": "https://www.huduser.gov/portal/datasets/mtsp.html"
+    },
+    "grossRentDefinition": "Gross rent includes contract rent PLUS any tenant-paid utility allowance. Published figures are MAXIMUM allowable gross rents by bedroom size.",
+    "tierDerivation": {
+      "50": "Published SC Housing Trust Fund 50% rent limits (= HUD MTSP 50%).",
+      "60": "DERIVED in code as floor(1.2 x 50% limit). HUD MTSP 60% income limit = 1.2 x the 50% income limit; since gross rent = 30% of imputed income, the 60% rent ceiling = 1.2 x the 50% rent ceiling. Not separately published in the SCHTF tables; verify against the HUD MTSP 60% rent chart before filing if a unit's qualification turns on the 60% tier.",
+      "80": "Published SC Housing Trust Fund 80% rent limits (= 30% of the HUD FY2026 80% / low-income limit at imputed household size)."
+    },
+    "imputedHousehold": "Bedroom-based imputed household of 1.5 persons per bedroom is already embodied in these published by-bedroom rent ceilings; no further imputation is applied by the generator.",
+    "VERIFY_BEFORE_FILING": "These numbers were transcribed from the SC Housing FY2026 PDFs on 2026-06-11. Re-confirm against the live source PDFs (and the HUD MTSP 60% chart) before any letter is signed under penalty of perjury."
+  },
+
+  "cityToCounty": {
+    "Greenville": "Greenville",
+    "Travelers Rest": "Greenville",
+    "Greer": "Greenville",
+    "Mauldin": "Greenville",
+    "Simpsonville": "Greenville",
+    "Spartanburg": "Spartanburg"
+  },
+
+  "counties": {
+    "Greenville": {
+      "msa": "Greenville-Anderson, SC MSA",
+      "rentLimits": {
+        "50": { "0": 930, "1": 996, "2": 1196, "3": 1382, "4": 1542 },
+        "80": { "0": 1488, "1": 1595, "2": 1913, "3": 2211, "4": 2467 }
+      }
+    },
+    "Spartanburg": {
+      "msa": "Spartanburg, SC MSA",
+      "rentLimits": {
+        "50": { "0": 790, "1": 846, "2": 1015, "3": 1173, "4": 1310 },
+        "80": { "0": 1265, "1": 1355, "2": 1626, "3": 1878, "4": 2096 }
+      }
+    }
+  }
+}

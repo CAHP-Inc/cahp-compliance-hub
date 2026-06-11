@@ -33,6 +33,7 @@ import { createBrandedPDF } from '../lib/reports-pdf';
 import { PROPERTY_LINKED_LIBRARIES } from './../components/UploadDocumentModal';
 import { Icon } from '../components/ui/Icon';
 import { RunReportModal } from '../components/RunReportModal';
+import { SafeHarborCertModal } from '../components/SafeHarborCertModal';
 import { ComposeEmailModal } from '../components/ComposeEmailModal';
 import type { EmailAttachment } from '../lib/email';
 
@@ -103,6 +104,7 @@ export function ReportsPage() {
 
   // UI state
   const [openDescriptor, setOpenDescriptor] = useState<ReportDescriptor | null>(null);
+  const [safeHarborOpen, setSafeHarborOpen] = useState(false);
   const [runResult, setRunResult] = useState<
     | { kind: 'success'; descriptor: ReportDescriptor; result: RunResult; options: RunOptions }
     | { kind: 'error'; descriptor: ReportDescriptor; message: string }
@@ -344,11 +346,17 @@ export function ReportsPage() {
             reports={reports}
             onRun={(d) => {
               setRunResult(null);
+              if (d.id === 'safe-harbor-certification') {
+                setSafeHarborOpen(true);
+                return;
+              }
               setOpenDescriptor(d);
             }}
           />
         ))}
       </div>
+
+      {safeHarborOpen && <SafeHarborCertModal onClose={() => setSafeHarborOpen(false)} />}
 
       {openDescriptor && (
         <RunReportModal
