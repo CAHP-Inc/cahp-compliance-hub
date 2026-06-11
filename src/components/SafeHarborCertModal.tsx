@@ -148,6 +148,11 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [groupName, setGroupName] = useState('');
   // Per-rent-roll override: roll index -> hub child Property id ('' = none/keep label).
   const [rollMapOverride, setRollMapOverride] = useState<Record<number, string>>({});
+  // Manual per-unit assignment for units with no Tax Map ID match: "ri-ui" -> property id ('' = exclude).
+  const [unitAssign, setUnitAssign] = useState<Record<string, string>>({});
+  // Prospect mode: entity isn't in the hub yet — qualification only, skip TMID/entity.
+  const [prospectMode, setProspectMode] = useState(false);
+  const [prospectName, setProspectName] = useState('');
 
   const [busy, setBusy] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -212,6 +217,9 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
 
   // Derive boilerplate (falls back to defaults for an owner with no linked LLCs).
   const derived = useMemo(() => {
+    if (prospectMode) {
+      return { config: defaultCertConfig(prospectName || 'Prospective Entity', taxYear), exemptionChainOk: true, warnings: [] };
+    }
     if (representativeProperty && owners.data && ownership.data) {
       const upstream = getUpstreamOwnerIds(String(representativeProperty.id), ownership.data);
       return deriveCertConfig({
@@ -226,14 +234,14 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       return { config: defaultCertConfig(ownerSelected.fields.Title ?? '', taxYear), exemptionChainOk: true, warnings: [] };
     }
     return null;
-  }, [representativeProperty, ownerSelected, owners.data, ownership.data, taxYear]);
+  }, [prospectMode, prospectName, representativeProperty, ownerSelected, owners.data, ownership.data, taxYear]);
 
   // Hub child LLCs available to map rent rolls onto (only when filing for an owner).
   const childOptions = useMemo(
     () => childProperties.map((p) => ({ id: String(p.id), title: p.fields.Title || '' })),
     [childProperties],
   );
-  const useHubNames = selType === 'owner' && childOptions.length > 0;
+  const useHubNames = !prospectMode && selType === 'owner' && childOptions.length > 0;
 
   // Effective rent-roll -> hub-LLC mapping (auto-suggested, user-overridable).
   const rollMap = useMemo(
@@ -246,42 +254,59 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
 
   // Parcel index (Tax Map ID ParcelAddress -> hub LLC), used to split a single
   // combined rent roll across the right subsidiary LLCs by unit address.
-  const parcelIndex = useMemo(() => {
-    const titleById = new Map((properties.data ?? []).map((p) => [String(p.id), p.fields.Title || '']));
-    return buildParcelIndex(taxmaps.data, titleById);
-  }, [taxmaps.data, properties.data]);
-  const useParcelMatch = selType === 'owner' && parcelIndex.length > 0;
+  const propTitleById = useMemo(
+    () => new Map((properties.data ?? []).map((p) => [String(p.id), p.fields.Title || ''])),
+    [properties.data],
+  );
+  const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data, propTitleById), [taxmaps.data, propTitleById]);
+  const useParcelMatch = !prospectMode && selType === 'owner' && parcelIndex.length > 0;
+  // LLC options for manually assigning an unmatched unit.
+  const assignOptions = useMemo(
+    () =>
+      (properties.data ?? [])
+        .map((p) => ({ id: String(p.id), title: p.fields.Title || '' }))
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [properties.data],
+  );
 
-  // Units fed to the analysis. When filing for an owner, each unit's source LLC
-  // is relabeled to the registered hub name so the document and Exhibit list the
-  // Compliance Hub's subsidiary LLCs. Priority per unit:
-  //   1. Tax Map ID parcel-address match (splits one combined roll by address)
-  //   2. per-rent-roll mapping dropdown
-  //   3. the rent roll's own "Property Groups" label
-  const { units, parcelMatched, parcelUnmatched } = useMemo(() => {
-    let matched = 0;
-    let unmatched = 0;
+  // Units fed to the analysis. When filing for an owner with parcels, each unit
+  // is tied to its subsidiary LLC by Tax Map ID address match; unmatched units
+  // can be assigned manually, and any still-unmatched unit is EXCLUDED from the
+  // certification (it doesn't correlate to a hub parcel). Otherwise units keep
+  // the per-rent-roll mapping or their "Property Groups" label.
+  const proc = useMemo(() => {
     if (!useHubNames && !useParcelMatch) {
-      return { units: rolls.flatMap((r) => r.units), parcelMatched: 0, parcelUnmatched: 0 };
+      return { units: rolls.flatMap((r) => r.units), autoMatched: 0, manualAssigned: 0, excluded: 0, nonMatched: [] as { key: string; u: Unit; assignId: string }[] };
     }
-    const out = rolls.flatMap((r, i) => {
-      const rollHubName = useHubNames ? childOptions.find((c) => c.id === rollMap[i])?.title : undefined;
-      return r.units.map((u) => {
-        let source = rollHubName || u.source;
-        if (useParcelMatch) {
-          const m = matchParcel(u.prop, parcelIndex);
-          if (m && m.title) {
-            source = m.title;
-            matched++;
-          } else {
-            unmatched++;
-          }
+    let autoMatched = 0;
+    let manualAssigned = 0;
+    let excluded = 0;
+    const included: Unit[] = [];
+    const nonMatched: { key: string; u: Unit; assignId: string }[] = [];
+    rolls.forEach((r, ri) => {
+      const rollHubName = useHubNames ? childOptions.find((c) => c.id === rollMap[ri])?.title : undefined;
+      r.units.forEach((u, ui) => {
+        if (!useParcelMatch) {
+          included.push({ ...u, source: rollHubName || u.source, notes: [] });
+          return;
         }
-        return { ...u, source, notes: [] };
+        const key = `${ri}-${ui}`;
+        const auto = matchParcel(u.prop, parcelIndex);
+        const autoId = auto?.propertyId ?? '';
+        if (autoId) autoMatched++;
+        const assignId = unitAssign[key] !== undefined ? unitAssign[key] : autoId;
+        if (!autoId) {
+          nonMatched.push({ key, u, assignId });
+          if (assignId) manualAssigned++;
+          else excluded++;
+        }
+        if (!assignId) return; // not correlated to a parcel -> excluded
+        included.push({ ...u, source: propTitleById.get(assignId) || u.source, notes: [] });
       });
     });
-    return { units: out as Unit[], parcelMatched: matched, parcelUnmatched: unmatched };
-  }, [rolls, useHubNames, childOptions, rollMap, useParcelMatch, parcelIndex]);
+    return { units: included, autoMatched, manualAssigned, excluded, nonMatched };
+  }, [rolls, useHubNames, useParcelMatch, childOptions, rollMap, parcelIndex, unitAssign, propTitleById]);
+  const units = proc.units;
 
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
@@ -433,24 +458,37 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               </div>
             )}
 
+            {/* Prospect toggle — screen an entity that isn't in the hub yet */}
+            <label className="flex items-center gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+              <input type="checkbox" checked={prospectMode} onChange={(e) => setProspectMode(e.target.checked)} />
+              <span><strong>Prospect / not in the system yet</strong> — qualification only; skips the entity lookup and Tax Map ID matching (use this to test a potential client before onboarding).</span>
+            </label>
+
             {/* Entity + options */}
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold text-gray-600">Filing entity</span>
-                <select value={entitySel} onChange={(e) => setEntitySel(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
-                  <option value="">— select entity —</option>
-                  <optgroup label="Portfolio / parent owner (group filing)">
-                    {(owners.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((o) => (
-                      <option key={`o${o.id}`} value={`owner:${o.id}`}>{o.fields.Title}</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Single LLC (property)">
-                    {(properties.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((pr) => (
-                      <option key={`p${pr.id}`} value={`prop:${pr.id}`}>{pr.fields.Title}</option>
-                    ))}
-                  </optgroup>
-                </select>
-              </label>
+              {prospectMode ? (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-gray-600">Prospect / entity name</span>
+                  <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="e.g. Prospect Holdings, LLC" className="border border-gray-300 rounded px-2 py-1" />
+                </label>
+              ) : (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-gray-600">Filing entity</span>
+                  <select value={entitySel} onChange={(e) => setEntitySel(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
+                    <option value="">— select entity —</option>
+                    <optgroup label="Portfolio / parent owner (group filing)">
+                      {(owners.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((o) => (
+                        <option key={`o${o.id}`} value={`owner:${o.id}`}>{o.fields.Title}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Single LLC (property)">
+                      {(properties.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((pr) => (
+                        <option key={`p${pr.id}`} value={`prop:${pr.id}`}>{pr.fields.Title}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </label>
+              )}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-semibold text-gray-600">Tax year</span>
                 <input type="number" value={taxYear} onChange={(e) => setTaxYear(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1" />
@@ -486,20 +524,47 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               )}
             </div>
 
-            {/* Parcel-address (Tax Map ID) match summary — splits a combined roll by LLC */}
+            {/* Parcel-address (Tax Map ID) match summary + manual assignment */}
             {useParcelMatch && rolls.length > 0 && (
-              <div className="bg-teal-50 border border-teal-200 rounded p-2 text-xs text-teal-900">
-                Matched <strong>{parcelMatched}</strong> of {parcelMatched + parcelUnmatched} units to
-                subsidiary LLCs by parcel address (Tax Map IDs).
-                {parcelUnmatched > 0 && (
-                  <> {parcelUnmatched} unit(s) had no parcel match and kept their rent-roll label — add their
-                  Tax Map ID parcels (with addresses) in the hub to assign them.</>
+              <div className="border border-teal-200 rounded-md">
+                <div className="bg-teal-50 rounded-t-md p-2 text-xs text-teal-900">
+                  <strong>{proc.autoMatched}</strong> matched to LLCs by parcel address ·{' '}
+                  <strong>{proc.manualAssigned}</strong> assigned manually ·{' '}
+                  <strong>{proc.excluded}</strong> excluded (no Tax Map ID match).
+                  {proc.excluded > 0 && ' Excluded units are NOT in the certification.'}
+                </div>
+                {proc.nonMatched.length > 0 && (
+                  <div className="p-2">
+                    <div className="text-[11px] text-gray-600 mb-1">
+                      Units with no Tax Map ID match — assign an LLC to include them, or leave “Exclude”:
+                    </div>
+                    <div className="space-y-1 max-h-44 overflow-y-auto">
+                      {proc.nonMatched.map(({ key, u }) => (
+                        <div key={key} className="flex items-center gap-2 text-xs">
+                          <span className="text-gray-500 flex-1 truncate" title={u.prop}>
+                            {u.prop}{u.unit ? ` [${u.unit}]` : ''}
+                          </span>
+                          <span className="text-gray-300">→</span>
+                          <select
+                            value={unitAssign[key] ?? ''}
+                            onChange={(e) => setUnitAssign((prev) => ({ ...prev, [key]: e.target.value }))}
+                            className="border border-gray-300 rounded px-2 py-1 w-56"
+                          >
+                            <option value="">— Exclude (no parcel) —</option>
+                            {assignOptions.map((c) => (
+                              <option key={c.id} value={c.id}>{c.title}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
             {/* Map each rent roll to the parent owner's subsidiary LLC in the hub */}
-            {useHubNames && rolls.length > 0 && (
+            {useHubNames && !useParcelMatch && rolls.length > 0 && (
               <div className="border border-gray-200 rounded-md p-3">
                 <div className="text-xs font-semibold text-gray-700 mb-2">
                   Map rent rolls to the hub's subsidiary LLCs
@@ -580,7 +645,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Exhibit .xlsx'}</button>
-            <button disabled={!ready || !representativeProperty || busy !== null} title={!representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
+            <button disabled={!ready || !representativeProperty || prospectMode || busy !== null} title={prospectMode ? 'Prospect mode — download only (entity is not in the hub)' : !representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
         </div>
       </div>
