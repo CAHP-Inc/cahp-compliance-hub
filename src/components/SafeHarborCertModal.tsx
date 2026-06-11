@@ -13,6 +13,7 @@ import {
   buildExhibitBlob,
   buildLetterDocx,
   buildLetterPdf,
+  defaultCertConfig,
   deriveCertConfig,
   parseRentRoll,
   slugify,
@@ -52,7 +53,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [parseError, setParseError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const [propertyId, setPropertyId] = useState(initialPropertyId ?? '');
+  // Selection value is "prop:<id>" (single LLC) or "owner:<id>" (portfolio parent).
+  const [entitySel, setEntitySel] = useState(initialPropertyId ? `prop:${initialPropertyId}` : '');
   const [taxYear, setTaxYear] = useState(new Date().getFullYear());
   const [utilityAllowance, setUtilityAllowance] = useState(0);
   const [relationship, setRelationship] = useState('property manager and authorized agent');
@@ -87,34 +89,69 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   };
   const removeRoll = (i: number) => setRolls((prev) => prev.filter((_, idx) => idx !== i));
 
-  const selectedProperty = useMemo(
-    () => properties.data?.find((p) => String(p.id) === propertyId),
-    [properties.data, propertyId],
+  const [selType, selId] = useMemo(() => {
+    const i = entitySel.indexOf(':');
+    return i === -1 ? ['', ''] : [entitySel.slice(0, i), entitySel.slice(i + 1)];
+  }, [entitySel]);
+
+  const ownerSelected = useMemo(
+    () => (selType === 'owner' ? owners.data?.find((o) => String(o.id) === selId) : undefined),
+    [selType, selId, owners.data],
   );
 
-  // Derive boilerplate from the selected hub entity (+ exemption-chain check).
+  // Child properties of a selected owner (one row per LLC the owner holds).
+  const childProperties = useMemo(() => {
+    if (selType !== 'owner' || !ownership.data || !properties.data) return [];
+    const childIds = new Set(
+      ownership.data
+        .filter((r) => String(r.fields.OwnerLookupId) === selId)
+        .map((r) => String(r.fields.LinkedPropertyLookupId)),
+    );
+    return properties.data.filter((p) => childIds.has(String(p.id)));
+  }, [selType, selId, ownership.data, properties.data]);
+
+  // The property we derive CAHP/EIN boilerplate from: the chosen LLC, or a
+  // representative child of the chosen owner (prefer one with a CAHP chain).
+  const representativeProperty = useMemo(() => {
+    if (selType === 'prop') return properties.data?.find((p) => String(p.id) === selId);
+    if (selType === 'owner' && childProperties.length && ownership.data) {
+      const withCahp = childProperties.find((p) => {
+        const up = getUpstreamOwnerIds(String(p.id), ownership.data!);
+        return [...up].some((id) => owners.data?.find((o) => String(o.id) === id)?.fields.IsCAHPEntity);
+      });
+      return withCahp ?? childProperties[0];
+    }
+    return undefined;
+  }, [selType, selId, properties.data, childProperties, ownership.data, owners.data]);
+
+  // Derive boilerplate (falls back to defaults for an owner with no linked LLCs).
   const derived = useMemo(() => {
-    if (!selectedProperty || !owners.data || !ownership.data) return null;
-    const upstream = getUpstreamOwnerIds(String(selectedProperty.id), ownership.data);
-    return deriveCertConfig({
-      property: selectedProperty as unknown as Parameters<typeof deriveCertConfig>[0]['property'],
-      owners: owners.data as unknown as Parameters<typeof deriveCertConfig>[0]['owners'],
-      ownership: ownership.data as unknown as Parameters<typeof deriveCertConfig>[0]['ownership'],
-      upstreamOwnerIds: upstream,
-      taxYear,
-    });
-  }, [selectedProperty, owners.data, ownership.data, taxYear]);
+    if (representativeProperty && owners.data && ownership.data) {
+      const upstream = getUpstreamOwnerIds(String(representativeProperty.id), ownership.data);
+      return deriveCertConfig({
+        property: representativeProperty as unknown as Parameters<typeof deriveCertConfig>[0]['property'],
+        owners: owners.data as unknown as Parameters<typeof deriveCertConfig>[0]['owners'],
+        ownership: ownership.data as unknown as Parameters<typeof deriveCertConfig>[0]['ownership'],
+        upstreamOwnerIds: upstream,
+        taxYear,
+      });
+    }
+    if (ownerSelected) {
+      return { config: defaultCertConfig(ownerSelected.fields.Title ?? '', taxYear), exemptionChainOk: true, warnings: [] };
+    }
+    return null;
+  }, [representativeProperty, ownerSelected, owners.data, ownership.data, taxYear]);
 
   const units: Unit[] = useMemo(() => rolls.flatMap((r) => r.units), [rolls]);
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
     [units],
   );
-  const isGroup = groupOverride || distinctSources.length > 1;
+  const isGroup = Boolean(ownerSelected) || groupOverride || distinctSources.length > 1;
 
   const analysis = useMemo(
-    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: groupOverride }) : null),
-    [units, taxYear, utilityAllowance, groupOverride],
+    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: Boolean(ownerSelected) || groupOverride }) : null),
+    [units, taxYear, utilityAllowance, ownerSelected, groupOverride],
   );
 
   // Final config = derived hub facts + UI overrides.
@@ -125,16 +162,26 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     c.property.description = description;
     c.property.taxMapParcels = parcels.split(',').map((s) => s.trim()).filter(Boolean);
     c.filing.taxYear = taxYear;
+    // For a group (or when the hub had no county), take counties from the rent rolls.
+    const rollCounties = [...new Set(units.map((u) => u.county).filter((x): x is string => Boolean(x)))];
+    if ((isGroup || c.property.counties.length === 0) && rollCounties.length) {
+      c.property.counties = rollCounties;
+      if (!c.property.addressLine) {
+        c.property.addressLine = `Scattered sites located in ${rollCounties.join(' and ')} ${rollCounties.length > 1 ? 'Counties' : 'County'}, South Carolina`;
+      }
+    }
     if (isGroup) {
+      const gName = groupName || ownerSelected?.fields.Title || derived.config.company.legalName;
+      if (ownerSelected?.fields.Title) c.company.legalName = ownerSelected.fields.Title;
       c.portfolio = {
         isGroupFiling: true,
-        groupName: groupName || derived.config.company.legalName,
+        groupName: gName,
         groupStateType: 'South Carolina limited liability company',
         subsidiaryDescription: 'wholly-owned single-purpose subsidiary LLCs',
       };
     }
     return c;
-  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName]);
+  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, units]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -161,14 +208,14 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   };
 
   const saveToEntity = async () => {
-    if (!analysis || !config || !selectedProperty) return;
+    if (!analysis || !config || !representativeProperty) return;
     setBusy('save');
     setSaveErr(null);
     setSaveMsg(null);
     try {
       const docxBlob = await buildLetterDocx(analysis, config);
       const xlsxBlob = buildExhibitBlob(analysis, config);
-      const meta = { PropertyLookupId: String(selectedProperty.id) };
+      const meta = { PropertyLookupId: String(representativeProperty.id) };
       await uploadDocument({
         libraryName: CERT_LIBRARY,
         filename: `${baseName}_Safe_Harbor_Certification_TY${taxYear}.docx`,
@@ -245,12 +292,19 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             {/* Entity + options */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold text-gray-600">Filing entity (boilerplate source)</span>
-                <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
-                  <option value="">— select property —</option>
-                  {(properties.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((pr) => (
-                    <option key={pr.id} value={String(pr.id)}>{pr.fields.Title}</option>
-                  ))}
+                <span className="text-xs font-semibold text-gray-600">Filing entity</span>
+                <select value={entitySel} onChange={(e) => setEntitySel(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
+                  <option value="">— select entity —</option>
+                  <optgroup label="Portfolio / parent owner (group filing)">
+                    {(owners.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((o) => (
+                      <option key={`o${o.id}`} value={`owner:${o.id}`}>{o.fields.Title}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Single LLC (property)">
+                    {(properties.data ?? []).slice().sort((a, b) => (a.fields.Title || '').localeCompare(b.fields.Title || '')).map((pr) => (
+                      <option key={`p${pr.id}`} value={`prop:${pr.id}`}>{pr.fields.Title}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
               <label className="flex flex-col gap-1">
@@ -274,23 +328,19 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 <input value={parcels} onChange={(e) => setParcels(e.target.value)} placeholder="optional" className="border border-gray-300 rounded px-2 py-1" />
               </label>
               <label className="flex items-center gap-2 col-span-2 text-xs text-gray-700">
-                <input type="checkbox" checked={isGroup} disabled={distinctSources.length > 1} onChange={(e) => setGroupOverride(e.target.checked)} />
-                Group / portfolio filing {distinctSources.length > 1 && <span className="text-gray-400">(auto: {distinctSources.length} LLCs detected)</span>}
+                <input type="checkbox" checked={isGroup} disabled={distinctSources.length > 1 || Boolean(ownerSelected)} onChange={(e) => setGroupOverride(e.target.checked)} />
+                Group / portfolio filing
+                {ownerSelected
+                  ? <span className="text-gray-400">(auto: parent owner selected)</span>
+                  : distinctSources.length > 1 && <span className="text-gray-400">(auto: {distinctSources.length} LLCs detected)</span>}
               </label>
               {isGroup && (
                 <label className="flex flex-col gap-1 col-span-2">
                   <span className="text-xs font-semibold text-gray-600">Portfolio (parent) name</span>
-                  <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="e.g. IV Fund Global, LLC" className="border border-gray-300 rounded px-2 py-1" />
+                  <input value={groupName || ownerSelected?.fields.Title || ''} onChange={(e) => setGroupName(e.target.value)} placeholder="e.g. IV Fund Global, LLC" className="border border-gray-300 rounded px-2 py-1" />
                 </label>
               )}
             </div>
-
-            {/* Exemption-chain warning */}
-            {derived && !derived.exemptionChainOk && (
-              <div className="bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-900">
-                ⚠ {derived.warnings.join(' ')}
-              </div>
-            )}
 
             {/* Live determination preview */}
             {analysis && p && cnt && sc && (
@@ -344,7 +394,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Exhibit .xlsx'}</button>
-            <button disabled={!ready || !selectedProperty || busy !== null} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
+            <button disabled={!ready || !representativeProperty || busy !== null} title={!representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
         </div>
       </div>

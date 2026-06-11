@@ -104,6 +104,25 @@ export interface DerivedConfig {
   warnings: string[];
 }
 
+/** Minimal config for a portfolio/owner filing when no representative child
+ *  property is available to derive from. CAHP/EIN fields fall back to defaults. */
+export function defaultCertConfig(legalName: string, taxYear: number): CertConfig {
+  return {
+    company: { legalName, stateType: 'South Carolina limited liability company', ein: '', dorAccountId: '' },
+    property: { description: 'scattered-site residential rental units', addressLine: '', counties: [], state: 'SC', taxMapParcels: [] },
+    nonprofit: {
+      managingMemberName: DEFAULT_CERT.nonprofit.managingMemberName,
+      parentName: DEFAULT_CERT.nonprofit.parentName,
+      parentEin: '',
+      ownershipPercent: DEFAULT_CERT.nonprofit.ownershipPercent,
+      memberClass: DEFAULT_CERT.nonprofit.memberClass,
+      isTaxExempt: true,
+    },
+    certification: { ...DEFAULT_CERT.certification },
+    filing: { taxYear, filingType: 'Annual Renewal Certification', annualCertificationDeadline: 'October 1' },
+  };
+}
+
 function parseCounties(value: string | undefined): string[] {
   if (!value) return [];
   return value
