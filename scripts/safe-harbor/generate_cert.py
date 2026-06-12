@@ -306,9 +306,7 @@ def evaluate_scopes(roll: dict) -> dict:
     if qualifies:
         # Prefer the deeper-affordability scope (20/50) when both pass.
         chosen = "20/50" if "20/50" in qualifies else qualifies[0]
-        headline = f"QUALIFIES under the {chosen} scope" + (
-            " (qualifies under both)" if len(qualifies) == 2 else ""
-        )
+        headline = f"QUALIFIES under the {chosen} scope"
     elif has_review:
         headline = "PROVISIONAL — resolve the units flagged for review, then re-run"
     else:
@@ -584,13 +582,13 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
 
     _h(doc, "3. Safe Harbor Qualification — Revenue Procedure 96-32.")
     doc.add_paragraph(
-        "Each residential unit is rent-restricted such that its gross rent (contract rent "
-        "plus any tenant-paid utility allowance) does not exceed the Maximum Allowable "
-        "Gross Rent published for the applicable county, bedroom size, and AMI tier under "
-        "the HUD MTSP methodology (FY"
+        "Qualification is established on a rent-restriction basis: a unit counts toward an "
+        "AMI tier when its gross rent (contract rent plus any tenant-paid utility allowance) "
+        "does not exceed the Maximum Allowable Gross Rent published for the applicable "
+        "county, bedroom size, and that AMI tier under the HUD MTSP methodology (FY"
         f"{limits['_meta']['fiscalYear']} limits, effective "
-        f"{limits['_meta']['effectiveDate']}). On that basis the Property qualifies as "
-        "follows:"
+        f"{limits['_meta']['effectiveDate']}). The required percentage of residential units "
+        "is so rent-restricted, satisfying the Rev. Proc. 96-32 set-aside as follows:"
     )
     # Determination sentence
     det = doc.add_paragraph()

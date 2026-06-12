@@ -264,26 +264,47 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data, propTitleById), [taxmaps.data, propTitleById]);
   const useParcelMatch = !prospectMode && selType === 'owner' && parcelIndex.length > 0;
 
-  // CAHP nonprofit's BENEFICIAL ownership % for a property, compounded up the
-  // ownership chain (e.g. CAHP owns 0.01% of the parent fund that owns the LLC
-  // => 0.01% beneficial). Member class comes from a direct CAHP member row if any.
+  // CAHP's beneficial ownership % of the SELECTED PARENT fund (computed once).
+  // Its wholly-owned subsidiary LLCs inherit this %, so per-LLC certs are correct
+  // even before each sub-LLC's own ownership row is entered in the hub.
+  const parentCahpPct = useMemo(() => {
+    if (!ownerSelected || !owners.data || !ownership.data) return null;
+    const bens = computeBeneficialOwnership('owner', String(ownerSelected.id), ownership.data, owners.data);
+    const cahp = bens.find((b) => isCahpEntity(b.owner));
+    return cahp ? cahp.beneficialPercent : null;
+  }, [ownerSelected, owners.data, ownership.data]);
+
+  // CAHP nonprofit's beneficial ownership %/class for a property. For a parent-fund
+  // filing it flows from the parent (× the parent's stake in the sub, default 100%);
+  // otherwise it's compounded up the property's own ownership chain. Member class
+  // comes from a direct CAHP member row when present (e.g. a "Class C" structure).
   const cahpInterestFor = useCallback(
     (propertyId: string): { ownershipPercent: number | null; memberClass: string } => {
       if (!owners.data || !ownership.data) return { ownershipPercent: null, memberClass: '' };
-      const bens = computeBeneficialOwnership('property', propertyId, ownership.data, owners.data);
-      const cahp = bens.find((b) => isCahpEntity(b.owner));
+      const round = (n: number) => Math.round(n * 10000) / 10000;
       const ownerById = new Map(owners.data.map((o) => [String(o.id), o]));
       const directRow = ownership.data.find(
         (r) =>
           String(r.fields.LinkedPropertyLookupId) === propertyId &&
           ownerById.get(String(r.fields.OwnerLookupId))?.fields.IsCAHPEntity,
       );
-      return {
-        ownershipPercent: cahp ? Math.round(cahp.beneficialPercent * 10000) / 10000 : null,
-        memberClass: directRow?.fields.MemberClass || '',
-      };
+      const memberClass = directRow?.fields.MemberClass || '';
+
+      if (ownerSelected && parentCahpPct != null) {
+        const parentOwnPct =
+          ownership.data.find(
+            (r) =>
+              String(r.fields.LinkedPropertyLookupId) === propertyId &&
+              String(r.fields.OwnerLookupId) === String(ownerSelected.id),
+          )?.fields.OwnershipPercent ?? 100; // default: wholly-owned single-purpose LLC
+        return { ownershipPercent: round((parentCahpPct * parentOwnPct) / 100), memberClass };
+      }
+
+      const bens = computeBeneficialOwnership('property', propertyId, ownership.data, owners.data);
+      const cahp = bens.find((b) => isCahpEntity(b.owner));
+      return { ownershipPercent: cahp ? round(cahp.beneficialPercent) : null, memberClass };
     },
-    [owners.data, ownership.data],
+    [owners.data, ownership.data, ownerSelected, parentCahpPct],
   );
 
   // Tax Map ID parcel numbers registered to a property (for the per-LLC filing).

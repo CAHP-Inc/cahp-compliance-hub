@@ -230,9 +230,7 @@ export function evaluateScopes(roll: Rollup): ScopeResult {
   let headline: string;
   if (qualifies.length) {
     const chosen = qualifies.includes('20/50') ? '20/50' : qualifies[0];
-    headline =
-      `QUALIFIES under the ${chosen} scope` +
-      (qualifies.length === 2 ? ' (qualifies under both)' : '');
+    headline = `QUALIFIES under the ${chosen} scope`;
   } else if (hasReview) {
     headline = 'PROVISIONAL — resolve the units flagged for review, then re-run';
   } else {

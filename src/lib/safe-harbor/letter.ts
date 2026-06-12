@@ -225,10 +225,12 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
 
   children.push(heading('3. Safe Harbor Qualification — Revenue Procedure 96-32.'));
   children.push(para(
-    `Each residential unit is rent-restricted such that its gross rent (contract rent plus any ` +
-    `tenant-paid utility allowance) does not exceed the Maximum Allowable Gross Rent published for ` +
-    `the applicable county, bedroom size, and AMI tier under the HUD MTSP methodology (FY${FY} ` +
-    `limits, effective ${LIMITS_EFFECTIVE}). On that basis the Property qualifies as follows:`));
+    `Qualification is established on a rent-restriction basis: a unit counts toward an AMI tier when ` +
+    `its gross rent (contract rent plus any tenant-paid utility allowance) does not exceed the ` +
+    `Maximum Allowable Gross Rent published for the applicable county, bedroom size, and that AMI ` +
+    `tier under the HUD MTSP methodology (FY${FY} limits, effective ${LIMITS_EFFECTIVE}). The ` +
+    `required percentage of residential units is so rent-restricted, satisfying the Rev. Proc. 96-32 ` +
+    `set-aside as follows:`));
   children.push(new Paragraph({ children: [new TextRun({ text: 'Set-Aside Determination: ', bold: true }), new TextRun({ text: m.determination, bold: true })] }));
   if (m.programLabel) {
     children.push(para(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`));
