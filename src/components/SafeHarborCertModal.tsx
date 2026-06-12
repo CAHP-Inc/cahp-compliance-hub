@@ -1,8 +1,11 @@
-import { useMemo, useState, useRef, type DragEvent } from 'react';
+import { useCallback, useMemo, useState, useRef, type DragEvent } from 'react';
+import JSZip from 'jszip';
 import {
   useSharePointList,
   uploadDocument,
   getUpstreamOwnerIds,
+  computeBeneficialOwnership,
+  isCahpEntity,
   LIST_NAMES,
   type Owner,
   type Ownership,
@@ -14,7 +17,6 @@ import {
   buildExhibitBlob,
   buildLetterDocx,
   buildLetterPdf,
-  cahpOwnershipForProperty,
   defaultCertConfig,
   deriveCertConfig,
   parseRentRoll,
@@ -261,6 +263,37 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   );
   const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data, propTitleById), [taxmaps.data, propTitleById]);
   const useParcelMatch = !prospectMode && selType === 'owner' && parcelIndex.length > 0;
+
+  // CAHP nonprofit's BENEFICIAL ownership % for a property, compounded up the
+  // ownership chain (e.g. CAHP owns 0.01% of the parent fund that owns the LLC
+  // => 0.01% beneficial). Member class comes from a direct CAHP member row if any.
+  const cahpInterestFor = useCallback(
+    (propertyId: string): { ownershipPercent: number | null; memberClass: string } => {
+      if (!owners.data || !ownership.data) return { ownershipPercent: null, memberClass: '' };
+      const bens = computeBeneficialOwnership('property', propertyId, ownership.data, owners.data);
+      const cahp = bens.find((b) => isCahpEntity(b.owner));
+      const ownerById = new Map(owners.data.map((o) => [String(o.id), o]));
+      const directRow = ownership.data.find(
+        (r) =>
+          String(r.fields.LinkedPropertyLookupId) === propertyId &&
+          ownerById.get(String(r.fields.OwnerLookupId))?.fields.IsCAHPEntity,
+      );
+      return {
+        ownershipPercent: cahp ? Math.round(cahp.beneficialPercent * 10000) / 10000 : null,
+        memberClass: directRow?.fields.MemberClass || '',
+      };
+    },
+    [owners.data, ownership.data],
+  );
+
+  // Tax Map ID parcel numbers registered to a property (for the per-LLC filing).
+  const parcelsForProperty = useCallback(
+    (propertyId: string): string[] =>
+      (taxmaps.data ?? [])
+        .filter((t) => String(t.fields.LinkedPropertyLookupId) === propertyId && t.fields.Title)
+        .map((t) => String(t.fields.Title)),
+    [taxmaps.data],
+  );
   // LLC options for manually assigning an unmatched unit.
   const assignOptions = useMemo(
     () =>
@@ -336,20 +369,20 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
         c.property.addressLine = `Scattered sites located in ${rollCounties.join(' and ')} ${rollCounties.length > 1 ? 'Counties' : 'County'}, South Carolina`;
       }
     }
+    // Nonprofit ownership = CAHP beneficial % through the chain, for this property.
+    if (representativeProperty) {
+      const i = cahpInterestFor(String(representativeProperty.id));
+      c.nonprofit.ownershipPercent = i.ownershipPercent;
+      c.nonprofit.memberClass = i.memberClass;
+    }
     if (isGroup) {
       const gName = groupName || ownerSelected?.fields.Title || derived.config.company.legalName;
       if (ownerSelected?.fields.Title) c.company.legalName = ownerSelected.fields.Title;
-      // Per-subsidiary nonprofit ownership from the hub (varies by LLC).
+      // Per-subsidiary nonprofit beneficial ownership from the hub (varies by LLC).
       const propByTitle = new Map((properties.data ?? []).map((p) => [p.fields.Title || '', p]));
       const members = distinctSources.map((s) => {
         const prop = propByTitle.get(s);
-        const own = prop && owners.data && ownership.data
-          ? cahpOwnershipForProperty(
-              String(prop.id),
-              owners.data as unknown as Parameters<typeof cahpOwnershipForProperty>[1],
-              ownership.data as unknown as Parameters<typeof cahpOwnershipForProperty>[2],
-            )
-          : { ownershipPercent: null, memberClass: '' };
+        const own = prop ? cahpInterestFor(String(prop.id)) : { ownershipPercent: null, memberClass: '' };
         return { name: s, ownershipPercent: own.ownershipPercent, memberClass: own.memberClass };
       });
       c.portfolio = {
@@ -361,7 +394,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, units, distinctSources, properties.data, owners.data, ownership.data]);
+  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -382,6 +415,80 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       } else {
         downloadBlob(await buildLetterDocx(analysis, config), `${baseName}_Safe_Harbor_Certification_TY${taxYear}.docx`);
       }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Build a single-LLC config for a sub-entity under the parent (its own EIN,
+  // counties, Tax Map IDs, and CAHP beneficial ownership).
+  const buildLlcConfig = (property: Property, llcUnits: Unit[]): CertConfig => {
+    const base: CertConfig = derived
+      ? JSON.parse(JSON.stringify(derived.config))
+      : defaultCertConfig(property.fields.Title || '', taxYear, property.fields.cahpState || 'SC');
+    base.certification.relationshipToOwner = relationship;
+    base.filing.taxYear = taxYear;
+    base.company = {
+      legalName: property.fields.Title || '',
+      stateType: 'South Carolina limited liability company',
+      ein: property.fields.PropertyEIN || '',
+      dorAccountId: property.fields.DORAccountID || '',
+    };
+    const counties = [...new Set(llcUnits.map((u) => u.county).filter((x): x is string => Boolean(x)))];
+    base.property = {
+      description,
+      addressLine: property.fields.PropertyAddress
+        || (counties.length ? `Scattered sites located in ${counties.join(' and ')} ${counties.length > 1 ? 'Counties' : 'County'}, South Carolina` : ''),
+      counties,
+      state: property.fields.cahpState || 'SC',
+      taxMapParcels: parcelsForProperty(String(property.id)),
+    };
+    const interest = cahpInterestFor(String(property.id));
+    base.nonprofit.ownershipPercent = interest.ownershipPercent;
+    base.nonprofit.memberClass = interest.memberClass;
+    delete base.portfolio; // each sub-LLC files as its own single entity
+    return base;
+  };
+
+  // Generate one certification per sub-LLC under the parent, zipped.
+  const generatePerEntity = async () => {
+    if (!properties.data) return;
+    setBusy('perentity');
+    setSaveErr(null);
+    setSaveMsg(null);
+    try {
+      const propByTitle = new Map(properties.data.map((p) => [p.fields.Title || '', p]));
+      const zip = new JSZip();
+      let count = 0;
+      const skipped: string[] = [];
+      for (const s of distinctSources) {
+        const prop = propByTitle.get(s);
+        const llcUnits = units.filter((u) => u.source === s).map((u) => ({ ...u, notes: [] as string[] }));
+        if (!prop || !llcUnits.length) {
+          if (llcUnits.length) skipped.push(s);
+          continue;
+        }
+        const cfg = buildLlcConfig(prop, llcUnits);
+        const a = analyze(llcUnits, { taxYear, utilityAllowance, forceGroup: false });
+        const slug = slugify(cfg.company.legalName);
+        zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.docx`, await buildLetterDocx(a, cfg));
+        zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.pdf`, buildLetterPdf(a, cfg));
+        zip.file(`${slug}_Unit_AMI_Analysis_INTERNAL.xlsx`, buildExhibitBlob(a, cfg));
+        count++;
+      }
+      if (!count) {
+        setSaveErr('No sub-LLCs with units matched to hub entities. Match units to LLCs (by Tax Map ID or manually) first.');
+        return;
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const parentSlug = slugify(ownerSelected?.fields.Title || prospectName || 'Portfolio');
+      downloadBlob(blob, `${parentSlug}_Per_Entity_Safe_Harbor_TY${taxYear}.zip`);
+      setSaveMsg(
+        `Generated ${count} per-entity certification(s) (.docx + PDF + internal analysis each) in the zip.` +
+          (skipped.length ? ` Skipped ${skipped.length} group(s) with no matching hub LLC: ${skipped.join(', ')}.` : ''),
+      );
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -655,6 +762,9 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Unit analysis .xlsx'}</button>
+            {selType === 'owner' && !prospectMode && (
+              <button disabled={!ready || busy !== null} title="One certification per sub-LLC (its own EIN + Tax Map IDs), bundled as a zip" onClick={generatePerEntity} className="px-3 py-1.5 border border-gold-500 bg-gold-50 text-gold-700 hover:bg-gold-200 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'perentity' ? 'Zipping…' : 'Per-entity certs (.zip)'}</button>
+            )}
             <button disabled={!ready || !representativeProperty || prospectMode || busy !== null} title={prospectMode ? 'Prospect mode — download only (entity is not in the hub)' : !representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
         </div>
