@@ -4,7 +4,6 @@ import {
   useSharePointList,
   uploadDocument,
   getUpstreamOwnerIds,
-  computeBeneficialOwnership,
   isCahpEntity,
   LIST_NAMES,
   type Owner,
@@ -109,6 +108,42 @@ function matchParcel(rawUnitAddr: string, index: ParcelEntry[]): ParcelEntry | n
     }
   }
   return bestScore > 0 ? best : null;
+}
+
+// Beneficial % held by a CAHP entity, walking UP the ownership chain and
+// multiplying percentages. Unlike the org-chart engine (which records only
+// terminal Individuals/Nonprofits), this STOPS at the first CAHP-flagged entity
+// on each path — so a CAHP LLC instrumentality (e.g. "CAHP SC, LLC") counts even
+// when nothing terminal sits above it. Returns null if no CAHP entity is found.
+function cahpBeneficialPercent(
+  subjectType: 'property' | 'owner',
+  subjectId: string,
+  owners: Owner[],
+  ownership: Ownership[],
+): number | null {
+  const ownerById = new Map(owners.map((o) => [String(o.id), o]));
+  let total = 0;
+  let found = false;
+  const walk = (type: 'property' | 'owner', id: string, cumPct: number, visited: Set<string>) => {
+    const rows =
+      type === 'property'
+        ? ownership.filter((r) => String(r.fields.LinkedPropertyLookupId) === id)
+        : ownership.filter((r) => String(r.fields.ParentOwnerLookupId) === id);
+    for (const r of rows) {
+      const ownerId = r.fields.OwnerLookupId ? String(r.fields.OwnerLookupId) : '';
+      if (!ownerId || visited.has(ownerId)) continue;
+      const owner = ownerById.get(ownerId);
+      const eff = (cumPct * (r.fields.OwnershipPercent ?? 0)) / 100;
+      if (owner && isCahpEntity(owner)) {
+        total += eff;
+        found = true; // CAHP is the endpoint we care about — don't recurse past it
+      } else {
+        walk('owner', ownerId, eff, new Set(visited).add(ownerId));
+      }
+    }
+  };
+  walk(subjectType, subjectId, 100, new Set());
+  return found ? Math.round(total * 10000) / 10000 : null;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -269,9 +304,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   // even before each sub-LLC's own ownership row is entered in the hub.
   const parentCahpPct = useMemo(() => {
     if (!ownerSelected || !owners.data || !ownership.data) return null;
-    const bens = computeBeneficialOwnership('owner', String(ownerSelected.id), ownership.data, owners.data);
-    const cahp = bens.find((b) => isCahpEntity(b.owner));
-    return cahp ? cahp.beneficialPercent : null;
+    return cahpBeneficialPercent('owner', String(ownerSelected.id), owners.data, ownership.data);
   }, [ownerSelected, owners.data, ownership.data]);
 
   // CAHP nonprofit's beneficial ownership %/class for a property. For a parent-fund
@@ -300,9 +333,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
         return { ownershipPercent: round((parentCahpPct * parentOwnPct) / 100), memberClass };
       }
 
-      const bens = computeBeneficialOwnership('property', propertyId, ownership.data, owners.data);
-      const cahp = bens.find((b) => isCahpEntity(b.owner));
-      return { ownershipPercent: cahp ? round(cahp.beneficialPercent) : null, memberClass };
+      const pct = cahpBeneficialPercent('property', propertyId, owners.data, ownership.data);
+      return { ownershipPercent: pct, memberClass };
     },
     [owners.data, ownership.data, ownerSelected, parentCahpPct],
   );
@@ -726,6 +758,15 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* CAHP beneficial ownership readout (helps verify the nonprofit %) */}
+            {ownerSelected && (
+              <div className="text-xs bg-gray-50 border border-gray-200 rounded p-2 text-gray-700">
+                CAHP beneficial ownership of <strong>{ownerSelected.fields.Title}</strong>:{' '}
+                <strong>{parentCahpPct == null ? 'not found in the ownership chain' : `${parentCahpPct}%`}</strong>
+                {parentCahpPct != null && ' — applied to each wholly-owned sub-LLC as its nonprofit ownership.'}
               </div>
             )}
 
