@@ -1,5 +1,6 @@
 export * from './limits';
 export * from './rentRoll';
+export * from './manualRoll';
 export * from './entity';
 export * from './analyze';
 export * from './exhibit';

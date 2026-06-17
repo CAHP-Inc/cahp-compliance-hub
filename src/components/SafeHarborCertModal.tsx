@@ -16,9 +16,12 @@ import {
   buildExhibitBlob,
   buildLetterDocx,
   buildLetterPdf,
+  COUNTIES,
   defaultCertConfig,
   deriveCertConfig,
+  extractPdfText,
   parseRentRoll,
+  parseTextToUnits,
   slugify,
   type CertConfig,
   type ParsedRoll,
@@ -175,6 +178,15 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [parseError, setParseError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
+  // Non-AppFolio input (paste text or a PDF rent roll from an outside PM).
+  const [inputMode, setInputMode] = useState<'appfolio' | 'paste'>('appfolio');
+  const [pasteText, setPasteText] = useState('');
+  const [pasteSource, setPasteSource] = useState('');
+  const [pasteCounty, setPasteCounty] = useState('');
+  const [pasteBedrooms, setPasteBedrooms] = useState('');
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const SC_COUNTY_NAMES = useMemo(() => Object.keys(COUNTIES).sort(), []);
+
   // Selection value is "prop:<id>" (single LLC) or "owner:<id>" (portfolio parent).
   const [entitySel, setEntitySel] = useState(initialPropertyId ? `prop:${initialPropertyId}` : '');
   const [taxYear, setTaxYear] = useState(new Date().getFullYear());
@@ -216,6 +228,39 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     if (e.dataTransfer.files?.length) void handleFiles(e.dataTransfer.files);
   };
   const removeRoll = (i: number) => setRolls((prev) => prev.filter((_, idx) => idx !== i));
+
+  const handlePdfFile = async (file: File) => {
+    setParseError(null);
+    setPdfBusy(true);
+    try {
+      const text = await extractPdfText(file);
+      setPasteText((prev) => (prev ? prev + '\n' : '') + text);
+      if (!pasteSource) setPasteSource(file.name.replace(/\.pdf$/i, ''));
+    } catch (e) {
+      setParseError(
+        'Could not read that PDF automatically (' + (e instanceof Error ? e.message : String(e)) +
+          '). Open it, copy the text, and paste it into the box instead.',
+      );
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const handleParseText = () => {
+    setParseError(null);
+    const source = pasteSource.trim() || 'Pasted rent roll';
+    const parsed = parseTextToUnits(pasteText, {
+      source,
+      defaultCounty: pasteCounty || null,
+      defaultBedrooms: pasteBedrooms === '' ? null : Number(pasteBedrooms),
+    });
+    if (!parsed.length) {
+      setParseError('No units found. Each unit needs a line like "Unit 1 … $995" — check the text or enter rows by editing the source.');
+      return;
+    }
+    setRolls((prev) => [...prev, { units: parsed, exported: '', source, filename: 'pasted/PDF' }]);
+    setPasteText('');
+  };
 
   const [selType, selId] = useMemo(() => {
     const i = entitySel.indexOf(':');
@@ -598,23 +643,78 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
           <div className="py-8 text-center text-sm text-gray-500">Loading entities…</div>
         ) : (
           <div className="space-y-4">
-            {/* Rent roll dropzone */}
-            <div
-              onDrop={onDrop}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-md p-4 text-center cursor-pointer text-sm ${
-                dragOver ? 'border-teal-500 bg-teal-50' : 'border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              <input
-                ref={fileInputRef} type="file" accept=".xlsx" multiple className="hidden"
-                onChange={(e) => e.target.files && handleFiles(e.target.files)}
-              />
-              <Icon name="file" size={18} className="mx-auto mb-1 text-gray-400" />
-              Drop AppFolio rent roll .xlsx file(s) here, or click to browse
+            {/* Input-format toggle */}
+            <div className="flex gap-1 text-xs">
+              {(['appfolio', 'paste'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setInputMode(m)}
+                  className={`px-3 py-1 rounded border ${inputMode === m ? 'bg-teal-700 text-white border-teal-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                >
+                  {m === 'appfolio' ? 'AppFolio rent roll (.xlsx)' : 'Paste / PDF (other format)'}
+                </button>
+              ))}
             </div>
+
+            {inputMode === 'appfolio' ? (
+              /* Rent roll dropzone */
+              <div
+                onDrop={onDrop}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-md p-4 text-center cursor-pointer text-sm ${
+                  dragOver ? 'border-teal-500 bg-teal-50' : 'border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  ref={fileInputRef} type="file" accept=".xlsx" multiple className="hidden"
+                  onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                />
+                <Icon name="file" size={18} className="mx-auto mb-1 text-gray-400" />
+                Drop AppFolio rent roll .xlsx file(s) here, or click to browse
+              </div>
+            ) : (
+              /* Paste / PDF — non-AppFolio rent rolls from outside PMs */
+              <div className="border border-gray-200 rounded-md p-3 space-y-2">
+                <div className="text-xs text-gray-600">
+                  Paste the rent-roll text, or upload a PDF to extract it. Each unit needs a line like
+                  <span className="font-mono"> Unit 1 … $995</span>. Outside rent rolls rarely include bedrooms or
+                  county — set the defaults below (applied to every parsed unit; county is auto-detected when possible).
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="font-semibold text-gray-600">Property / source label</span>
+                    <input value={pasteSource} onChange={(e) => setPasteSource(e.target.value)} placeholder="e.g. 700 Brook St" className="border border-gray-300 rounded px-2 py-1" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="font-semibold text-gray-600">Default county</span>
+                    <select value={pasteCounty} onChange={(e) => setPasteCounty(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
+                      <option value="">(auto-detect)</option>
+                      {SC_COUNTY_NAMES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="font-semibold text-gray-600">Default bedrooms</span>
+                    <input type="number" min={0} max={6} value={pasteBedrooms} onChange={(e) => setPasteBedrooms(e.target.value)} placeholder="e.g. 1" className="border border-gray-300 rounded px-2 py-1" />
+                  </label>
+                </div>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  rows={6}
+                  placeholder={'Paste rent-roll text here…\n\n700 Brook Street Unit 2  $995.00\n700 Brook Street Unit 8  $575.00\n…'}
+                  className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                />
+                <div className="flex items-center gap-2">
+                  <label className="px-3 py-1.5 border border-gray-300 rounded text-xs cursor-pointer hover:bg-gray-50">
+                    {pdfBusy ? 'Reading PDF…' : 'Upload PDF'}
+                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files?.[0] && handlePdfFile(e.target.files[0])} />
+                  </label>
+                  <button onClick={handleParseText} disabled={!pasteText.trim()} className="px-3 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded text-xs font-medium disabled:opacity-50">Parse &amp; add units</button>
+                </div>
+              </div>
+            )}
             {parseError && <div className="bg-red-50 border border-red-200 rounded p-2 text-xs text-red-800">{parseError}</div>}
             {rolls.length > 0 && (
               <div className="text-xs space-y-1">
