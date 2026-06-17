@@ -81,7 +81,6 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     ['CAHP EIN', blank(non.parentEin, 14)],
     ['Entity EIN', blank(co.ein, 14)],
     ['County', countiesStr],
-    ['DOR Account ID', blank(co.dorAccountId, 14)],
     ['Tax Year', String(taxYear)],
     ['Filing Type', config.filing.filingType],
     ['HUD/SC Housing Limits', `FY${FY} (effective ${LIMITS_EFFECTIVE}); ${msaStr}`],
@@ -103,15 +102,13 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     : scopes.chosen === '40/60' ? 'the 40%-at-60%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
     : null;
 
-  const memberByName = new Map(members.map((m) => [m.name, m]));
-  const perLlcRows = isGroup
-    ? sources.map((s) => {
-        const r = perSrc[s];
-        const m = memberByName.get(s);
-        const own = m?.ownershipPercent == null ? '—' : `${m.ownershipPercent}%`;
-        return { s, denom: r.denom, le50: r.pct.le50, le60: r.pct.le60, le80: r.pct.le80, market: r.pct.market, own, cls: m?.memberClass || '—' };
-      })
-    : [];
+  // Roster of the parent's subsidiary LLCs (name + EIN) listed on a group filing.
+  const rosterRows = members.map((m) => ({
+    name: m.name,
+    ein: m.ein && m.ein.trim() ? m.ein : '________________',
+    own: m.ownershipPercent == null ? '—' : `${m.ownershipPercent}%`,
+  }));
+  void perSrc; void sources; // per-source unit split no longer used on the letter
 
   const ownerRef = isGroup
     ? `${companyName} and the subsidiary LLCs listed in Section 2`
@@ -119,7 +116,7 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
 
   return {
     taxYear, companyName, companyClause, countiesStr, msaStr, ownerRef,
-    subsidiaryDesc, params, tierRows, perLlcRows, p, roll, non,
+    subsidiaryDesc, params, tierRows, rosterRows, p, roll, non,
     determination: scopes.headline,
     programLabel,
     ownershipClause,
@@ -198,11 +195,18 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
 
   children.push(heading('2. Property Description.'));
   if (m.isGroup) {
+    const n = m.rosterRows.length || 0;
     children.push(para(
-      `The Company holds the residential rental real property through ${wordsNum(m.sources.length)} ` +
-      `(${m.sources.length}) ${m.subsidiaryDesc}, together comprising ${wordsNum(m.roll.denom)} ` +
-      `(${m.roll.denom}) residential rental units located in ${m.countiesStr}, South Carolina. Unit ` +
-      `detail accompanies this certification in the submitted rent roll.`));
+      `The Company holds the residential rental real property through its ${m.subsidiaryDesc}, ` +
+      `together comprising ${wordsNum(m.roll.denom)} (${m.roll.denom}) residential rental units ` +
+      `located in ${m.countiesStr}, South Carolina. Unit detail accompanies this certification in the ` +
+      `submitted rent roll.${n ? ` The ${wordsNum(n)} (${n}) subsidiary LLCs and their EINs are:` : ''}`));
+    if (n) {
+      children.push(gridTable(
+        ['Subsidiary LLC', 'EIN', 'Nonprofit %'],
+        m.rosterRows.map((r) => [r.name, r.ein, r.own]),
+      ));
+    }
   } else {
     children.push(para(
       `The Company owns the residential rental real property described above, consisting of ` +
@@ -232,20 +236,6 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
   children.push(para(
     `Based on the foregoing, the Company respectfully requests a full exemption from ad valorem ` +
     `property taxation under ${m.citation} for tax year ${m.taxYear}.`));
-
-  children.push(heading('5. Enclosures.'));
-  [
-    '(a) Current rent roll (submitted herewith);',
-    `(b) FY${FY} HUD/SC Housing rent limits for ${m.msaStr};`,
-    `(c) Confirmation of ${m.non.managingMemberName} ${m.non.ownershipPercent}% ${m.non.memberClass} ownership interest;`,
-    `(d) IRS 501(c)(3) Determination Letter for ${m.non.parentName}.`,
-  ].forEach((e) => children.push(para(e)));
-
-  children.push(heading('6. Ongoing Compliance.'));
-  children.push(para(
-    `The Company and its property manager commit to maintaining Safe Harbor compliance on an ongoing ` +
-    `basis and filing annual certifications by ${config.filing.annualCertificationDeadline} of each ` +
-    `year, as required by law.`));
 
   // ── Signature block (simple, fully fillable) ──
   children.push(new Paragraph(''));
@@ -303,6 +293,11 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
   if (m.programLabel) line(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`);
   m.tierRows.forEach((t) =>
     line(`  ${t.label}:  ${t.units} units (${t.pct}%)  — required ${t.req} — ${t.pass ? 'PASS' : 'FAIL'}`, { size: 9 }));
+  if (m.isGroup && m.rosterRows.length) {
+    gap();
+    line('Subsidiary LLCs (EIN):', { bold: true, size: 9 });
+    m.rosterRows.forEach((r) => line(`  ${r.name} — EIN ${r.ein}${r.own !== '—' ? ` · nonprofit ${r.own}` : ''}`, { size: 9 }));
+  }
   if (m.reviewWarning) { gap(); line(`⚠ ${m.reviewWarning}`, { bold: true, size: 9 }); }
   gap();
   line(`4. Exemption Request. The Company requests a full exemption under ${m.citation} for tax year ${m.taxYear}.`);

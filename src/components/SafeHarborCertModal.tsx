@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState, useRef, type DragEvent } from 'react';
-import JSZip from 'jszip';
 import {
   useSharePointList,
   uploadDocument,
@@ -9,7 +8,6 @@ import {
   type Owner,
   type Ownership,
   type Property,
-  type TaxMapID,
 } from '../lib/sharepoint';
 import {
   analyze,
@@ -31,88 +29,6 @@ import {
 import { Icon } from './ui/Icon';
 
 const CERT_LIBRARY = 'AMI Certification Letters';
-
-// Normalize an entity name for matching a rent roll's "Property Groups" label to
-// a hub LLC. Converts roman-numeral tokens to digits on BOTH sides (applied
-// symmetrically, so the "IV" fund prefix is harmless): "IV SPB 2 LLC" and
-// "IV SPB II LLC" both normalize to "4 spb 2 llc".
-const ROMAN: Record<string, number> = {
-  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10, xi: 11, xii: 12,
-};
-function normName(s: string | undefined): string {
-  return (s || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => (ROMAN[t] !== undefined ? String(ROMAN[t]) : t))
-    .join(' ');
-}
-/** Best hub child-LLC id for a rent-roll source: exact normalized match, else max token overlap. */
-function suggestChildId(source: string, children: { id: string; title: string }[]): string {
-  const ns = normName(source);
-  const exact = children.find((c) => normName(c.title) === ns);
-  if (exact) return exact.id;
-  const stoks = new Set(ns.split(' '));
-  let best = '';
-  let bestScore = 0;
-  for (const c of children) {
-    const overlap = normName(c.title).split(' ').filter((t) => stoks.has(t)).length;
-    if (overlap > bestScore) {
-      bestScore = overlap;
-      best = c.id;
-    }
-  }
-  return bestScore >= 2 ? best : '';
-}
-
-// ── Address matching (rent-roll unit -> Tax Map ID parcel -> hub LLC) ──
-const STREET_SUFFIX: Record<string, string> = {
-  street: 'st', avenue: 'ave', drive: 'dr', road: 'rd', circle: 'cir', lane: 'ln',
-  court: 'ct', boulevard: 'blvd', place: 'pl', terrace: 'ter', parkway: 'pkwy',
-  highway: 'hwy', trail: 'trl', cove: 'cv', square: 'sq', point: 'pt',
-};
-function normalizeAddr(raw: string | undefined): string {
-  let s = (raw || '').toLowerCase();
-  if (s.includes(' - ')) s = s.slice(s.lastIndexOf(' - ') + 3); // address after the display name
-  s = s.split(',')[0]; // drop ", ST ZIP" tail
-  s = s.replace(/\b\d{5}(-\d{4})?\b/g, ' '); // drop any stray zip
-  s = s.replace(/[^a-z0-9]+/g, ' ').trim();
-  return s.split(/\s+/).filter(Boolean).map((t) => STREET_SUFFIX[t] ?? t).join(' ');
-}
-interface ParcelEntry { num: string; street: string[]; propertyId: string; title: string }
-function buildParcelIndex(
-  taxmaps: { fields: { ParcelAddress?: string; LinkedPropertyLookupId?: string } }[] | null | undefined,
-  titleById: Map<string, string>,
-): ParcelEntry[] {
-  const out: ParcelEntry[] = [];
-  for (const t of taxmaps ?? []) {
-    const pid = t.fields.LinkedPropertyLookupId ? String(t.fields.LinkedPropertyLookupId) : '';
-    if (!t.fields.ParcelAddress || !pid) continue;
-    const toks = normalizeAddr(t.fields.ParcelAddress).split(' ').filter(Boolean);
-    if (!toks.length || !/^\d/.test(toks[0])) continue;
-    out.push({ num: toks[0], street: toks.slice(1), propertyId: pid, title: titleById.get(pid) || '' });
-  }
-  return out;
-}
-/** Match a rent-roll unit address to the best parcel (same house number + street overlap). */
-function matchParcel(rawUnitAddr: string, index: ParcelEntry[]): ParcelEntry | null {
-  const toks = normalizeAddr(rawUnitAddr).split(' ').filter(Boolean);
-  if (!toks.length || !/^\d/.test(toks[0])) return null;
-  const num = toks[0];
-  const street = toks.slice(1);
-  let best: ParcelEntry | null = null;
-  let bestScore = 0;
-  for (const p of index) {
-    if (p.num !== num) continue;
-    const overlap = p.street.filter((t) => street.includes(t)).length;
-    if (overlap > bestScore) {
-      bestScore = overlap;
-      best = p;
-    }
-  }
-  return bestScore > 0 ? best : null;
-}
 
 // Beneficial % held by a CAHP entity, walking UP the ownership chain and
 // multiplying percentages. Unlike the org-chart engine (which records only
@@ -171,7 +87,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
-  const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const loading = properties.loading || owners.loading || ownership.loading;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -199,11 +114,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [description, setDescription] = useState('scattered-site residential rental units');
   const [groupOverride, setGroupOverride] = useState(false);
   const [groupName, setGroupName] = useState('');
-  // Per-rent-roll override: roll index -> hub child Property id ('' = none/keep label).
-  const [rollMapOverride, setRollMapOverride] = useState<Record<number, string>>({});
-  // Manual per-unit assignment for units with no Tax Map ID match: "ri-ui" -> property id ('' = exclude).
-  const [unitAssign, setUnitAssign] = useState<Record<string, string>>({});
-  // Prospect mode: entity isn't in the hub yet — qualification only, skip TMID/entity.
+  // Prospect mode: entity isn't in the hub yet — qualification only.
   const [prospectMode, setProspectMode] = useState(false);
   const [prospectName, setProspectName] = useState('');
 
@@ -325,43 +236,15 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     return null;
   }, [prospectMode, prospectName, representativeProperty, ownerSelected, owners.data, ownership.data, taxYear, filingState]);
 
-  // Hub child LLCs available to map rent rolls onto (only when filing for an owner).
-  const childOptions = useMemo(
-    () => childProperties.map((p) => ({ id: String(p.id), title: p.fields.Title || '' })),
-    [childProperties],
-  );
-  const useHubNames = !prospectMode && selType === 'owner' && childOptions.length > 0;
-
-  // Effective rent-roll -> hub-LLC mapping (auto-suggested, user-overridable).
-  const rollMap = useMemo(
-    () =>
-      rolls.map((r, i) =>
-        rollMapOverride[i] !== undefined ? rollMapOverride[i] : suggestChildId(r.source, childOptions),
-      ),
-    [rolls, rollMapOverride, childOptions],
-  );
-
-  // Parcel index (Tax Map ID ParcelAddress -> hub LLC), used to split a single
-  // combined rent roll across the right subsidiary LLCs by unit address.
-  const propTitleById = useMemo(
-    () => new Map((properties.data ?? []).map((p) => [String(p.id), p.fields.Title || ''])),
-    [properties.data],
-  );
-  const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data, propTitleById), [taxmaps.data, propTitleById]);
-  const useParcelMatch = !prospectMode && selType === 'owner' && parcelIndex.length > 0;
-
   // CAHP's beneficial ownership % of the SELECTED PARENT fund (computed once).
-  // Its wholly-owned subsidiary LLCs inherit this %, so per-LLC certs are correct
-  // even before each sub-LLC's own ownership row is entered in the hub.
   const parentCahpPct = useMemo(() => {
     if (!ownerSelected || !owners.data || !ownership.data) return null;
     return cahpBeneficialPercent('owner', String(ownerSelected.id), owners.data, ownership.data);
   }, [ownerSelected, owners.data, ownership.data]);
 
-  // CAHP nonprofit's beneficial ownership %/class for a property. For a parent-fund
-  // filing it flows from the parent (× the parent's stake in the sub, default 100%);
-  // otherwise it's compounded up the property's own ownership chain. Member class
-  // comes from a direct CAHP member row when present (e.g. a "Class C" structure).
+  // CAHP nonprofit's beneficial ownership %/class for a property (compounded up the
+  // chain; for a parent-fund filing it flows from the parent × its stake, default
+  // 100%). Member class comes from a direct CAHP member row when present.
   const cahpInterestFor = useCallback(
     (propertyId: string): { ownershipPercent: number | null; memberClass: string } => {
       if (!owners.data || !ownership.data) return { ownershipPercent: null, memberClass: '' };
@@ -373,78 +256,23 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
           ownerById.get(String(r.fields.OwnerLookupId))?.fields.IsCAHPEntity,
       );
       const memberClass = directRow?.fields.MemberClass || '';
-
       if (ownerSelected && parentCahpPct != null) {
         const parentOwnPct =
           ownership.data.find(
             (r) =>
               String(r.fields.LinkedPropertyLookupId) === propertyId &&
               String(r.fields.OwnerLookupId) === String(ownerSelected.id),
-          )?.fields.OwnershipPercent ?? 100; // default: wholly-owned single-purpose LLC
+          )?.fields.OwnershipPercent ?? 100;
         return { ownershipPercent: round((parentCahpPct * parentOwnPct) / 100), memberClass };
       }
-
       const pct = cahpBeneficialPercent('property', propertyId, owners.data, ownership.data);
       return { ownershipPercent: pct, memberClass };
     },
     [owners.data, ownership.data, ownerSelected, parentCahpPct],
   );
 
-  // Tax Map ID parcel numbers registered to a property (for the per-LLC filing).
-  const parcelsForProperty = useCallback(
-    (propertyId: string): string[] =>
-      (taxmaps.data ?? [])
-        .filter((t) => String(t.fields.LinkedPropertyLookupId) === propertyId && t.fields.Title)
-        .map((t) => String(t.fields.Title)),
-    [taxmaps.data],
-  );
-  // LLC options for manually assigning an unmatched unit.
-  const assignOptions = useMemo(
-    () =>
-      (properties.data ?? [])
-        .map((p) => ({ id: String(p.id), title: p.fields.Title || '' }))
-        .sort((a, b) => a.title.localeCompare(b.title)),
-    [properties.data],
-  );
-
-  // Units fed to the analysis. When filing for an owner with parcels, each unit
-  // is tied to its subsidiary LLC by Tax Map ID address match; unmatched units
-  // can be assigned manually, and any still-unmatched unit is EXCLUDED from the
-  // certification (it doesn't correlate to a hub parcel). Otherwise units keep
-  // the per-rent-roll mapping or their "Property Groups" label.
-  const proc = useMemo(() => {
-    if (!useHubNames && !useParcelMatch) {
-      return { units: rolls.flatMap((r) => r.units), autoMatched: 0, manualAssigned: 0, excluded: 0, nonMatched: [] as { key: string; u: Unit; assignId: string }[] };
-    }
-    let autoMatched = 0;
-    let manualAssigned = 0;
-    let excluded = 0;
-    const included: Unit[] = [];
-    const nonMatched: { key: string; u: Unit; assignId: string }[] = [];
-    rolls.forEach((r, ri) => {
-      const rollHubName = useHubNames ? childOptions.find((c) => c.id === rollMap[ri])?.title : undefined;
-      r.units.forEach((u, ui) => {
-        if (!useParcelMatch) {
-          included.push({ ...u, source: rollHubName || u.source, notes: [] });
-          return;
-        }
-        const key = `${ri}-${ui}`;
-        const auto = matchParcel(u.prop, parcelIndex);
-        const autoId = auto?.propertyId ?? '';
-        if (autoId) autoMatched++;
-        const assignId = unitAssign[key] !== undefined ? unitAssign[key] : autoId;
-        if (!autoId) {
-          nonMatched.push({ key, u, assignId });
-          if (assignId) manualAssigned++;
-          else excluded++;
-        }
-        if (!assignId) return; // not correlated to a parcel -> excluded
-        included.push({ ...u, source: propTitleById.get(assignId) || u.source, notes: [] });
-      });
-    });
-    return { units: included, autoMatched, manualAssigned, excluded, nonMatched };
-  }, [rolls, useHubNames, useParcelMatch, childOptions, rollMap, parcelIndex, unitAssign, propTitleById]);
-  const units = proc.units;
+  // Units = all rent-roll units, aggregated (no per-unit LLC split).
+  const units = useMemo<Unit[]>(() => rolls.flatMap((r) => r.units), [rolls]);
 
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
@@ -489,13 +317,14 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     if (isGroup) {
       const gName = groupName || ownerSelected?.fields.Title || derived.config.company.legalName;
       if (ownerSelected?.fields.Title) c.company.legalName = ownerSelected.fields.Title;
-      // Per-subsidiary nonprofit beneficial ownership from the hub (varies by LLC).
-      const propByTitle = new Map((properties.data ?? []).map((p) => [p.fields.Title || '', p]));
-      const members = distinctSources.map((s) => {
-        const prop = propByTitle.get(s);
-        const own = prop ? cahpInterestFor(String(prop.id)) : { ownershipPercent: null, memberClass: '' };
-        return { name: s, ownershipPercent: own.ownershipPercent, memberClass: own.memberClass };
-      });
+      // Roster of the parent's subsidiary LLCs (name + EIN + nonprofit %) from the
+      // hub. For a manual group (no parent owner), fall back to rent-roll source names.
+      const members = ownerSelected
+        ? childProperties.map((p) => {
+            const i = cahpInterestFor(String(p.id));
+            return { name: p.fields.Title || '', ein: p.fields.PropertyEIN || '', ownershipPercent: i.ownershipPercent, memberClass: i.memberClass };
+          })
+        : distinctSources.map((s) => ({ name: s, ein: '', ownershipPercent: null as number | null, memberClass: '' }));
       c.portfolio = {
         isGroupFiling: true,
         groupName: gName,
@@ -505,7 +334,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, filingState, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
+  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, filingState, units, distinctSources, childProperties, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -526,80 +355,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       } else {
         downloadBlob(await buildLetterDocx(analysis, config), `${baseName}_Safe_Harbor_Certification_TY${taxYear}.docx`);
       }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  // Build a single-LLC config for a sub-entity under the parent (its own EIN,
-  // counties, Tax Map IDs, and CAHP beneficial ownership).
-  const buildLlcConfig = (property: Property, llcUnits: Unit[]): CertConfig => {
-    const base: CertConfig = derived
-      ? JSON.parse(JSON.stringify(derived.config))
-      : defaultCertConfig(property.fields.Title || '', taxYear, property.fields.cahpState || 'SC');
-    base.certification.relationshipToOwner = relationship;
-    base.filing.taxYear = taxYear;
-    base.company = {
-      legalName: property.fields.Title || '',
-      stateType: 'South Carolina limited liability company',
-      ein: property.fields.PropertyEIN || '',
-      dorAccountId: property.fields.DORAccountID || '',
-    };
-    const counties = [...new Set(llcUnits.map((u) => u.county).filter((x): x is string => Boolean(x)))];
-    base.property = {
-      description,
-      addressLine: property.fields.PropertyAddress
-        || (counties.length ? `Scattered sites located in ${counties.join(' and ')} ${counties.length > 1 ? 'Counties' : 'County'}, South Carolina` : ''),
-      counties,
-      state: property.fields.cahpState || 'SC',
-      taxMapParcels: parcelsForProperty(String(property.id)),
-    };
-    const interest = cahpInterestFor(String(property.id));
-    base.nonprofit.ownershipPercent = interest.ownershipPercent;
-    base.nonprofit.memberClass = interest.memberClass;
-    delete base.portfolio; // each sub-LLC files as its own single entity
-    return base;
-  };
-
-  // Generate one certification per sub-LLC under the parent, zipped.
-  const generatePerEntity = async () => {
-    if (!properties.data) return;
-    setBusy('perentity');
-    setSaveErr(null);
-    setSaveMsg(null);
-    try {
-      const propByTitle = new Map(properties.data.map((p) => [p.fields.Title || '', p]));
-      const zip = new JSZip();
-      let count = 0;
-      const skipped: string[] = [];
-      for (const s of distinctSources) {
-        const prop = propByTitle.get(s);
-        const llcUnits = units.filter((u) => u.source === s).map((u) => ({ ...u, notes: [] as string[] }));
-        if (!prop || !llcUnits.length) {
-          if (llcUnits.length) skipped.push(s);
-          continue;
-        }
-        const cfg = buildLlcConfig(prop, llcUnits);
-        const a = analyze(llcUnits, { taxYear, utilityAllowance, forceGroup: false, state: prop.fields.cahpState || filingState });
-        const slug = slugify(cfg.company.legalName);
-        zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.docx`, await buildLetterDocx(a, cfg));
-        zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.pdf`, buildLetterPdf(a, cfg));
-        zip.file(`${slug}_Unit_AMI_Analysis_INTERNAL.xlsx`, buildExhibitBlob(a, cfg));
-        count++;
-      }
-      if (!count) {
-        setSaveErr('No sub-LLCs with units matched to hub entities. Match units to LLCs (by Tax Map ID or manually) first.');
-        return;
-      }
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const parentSlug = slugify(ownerSelected?.fields.Title || prospectName || 'Portfolio');
-      downloadBlob(blob, `${parentSlug}_Per_Entity_Safe_Harbor_TY${taxYear}.zip`);
-      setSaveMsg(
-        `Generated ${count} per-entity certification(s) (.docx + PDF + internal analysis each) in the zip.` +
-          (skipped.length ? ` Skipped ${skipped.length} group(s) with no matching hub LLC: ${skipped.join(', ')}.` : ''),
-      );
-    } catch (e) {
-      setSaveErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -827,70 +582,11 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               )}
             </div>
 
-            {/* Parcel-address (Tax Map ID) match summary + manual assignment */}
-            {useParcelMatch && rolls.length > 0 && (
-              <div className="border border-teal-200 rounded-md">
-                <div className="bg-teal-50 rounded-t-md p-2 text-xs text-teal-900">
-                  <strong>{proc.autoMatched}</strong> matched to LLCs by parcel address ·{' '}
-                  <strong>{proc.manualAssigned}</strong> assigned manually ·{' '}
-                  <strong>{proc.excluded}</strong> excluded (no Tax Map ID match).
-                  {proc.excluded > 0 && ' Excluded units are NOT in the certification.'}
-                </div>
-                {proc.nonMatched.length > 0 && (
-                  <div className="p-2">
-                    <div className="text-[11px] text-gray-600 mb-1">
-                      Units with no Tax Map ID match — assign an LLC to include them, or leave “Exclude”:
-                    </div>
-                    <div className="space-y-1 max-h-44 overflow-y-auto">
-                      {proc.nonMatched.map(({ key, u }) => (
-                        <div key={key} className="flex items-center gap-2 text-xs">
-                          <span className="text-gray-500 flex-1 truncate" title={u.prop}>
-                            {u.prop}{u.unit ? ` [${u.unit}]` : ''}
-                          </span>
-                          <span className="text-gray-300">→</span>
-                          <select
-                            value={unitAssign[key] ?? ''}
-                            onChange={(e) => setUnitAssign((prev) => ({ ...prev, [key]: e.target.value }))}
-                            className="border border-gray-300 rounded px-2 py-1 w-56"
-                          >
-                            <option value="">— Exclude (no parcel) —</option>
-                            {assignOptions.map((c) => (
-                              <option key={c.id} value={c.id}>{c.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Map each rent roll to the parent owner's subsidiary LLC in the hub */}
-            {useHubNames && !useParcelMatch && rolls.length > 0 && (
-              <div className="border border-gray-200 rounded-md p-3">
-                <div className="text-xs font-semibold text-gray-700 mb-2">
-                  Map rent rolls to the hub's subsidiary LLCs
-                  <span className="font-normal text-gray-500"> — the document lists these registered names, not the rent-roll labels.</span>
-                </div>
-                <div className="space-y-1">
-                  {rolls.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className="text-gray-500 w-40 truncate" title={r.source}>{r.source}</span>
-                      <span className="text-gray-300">→</span>
-                      <select
-                        value={rollMap[i]}
-                        onChange={(e) => setRollMapOverride((prev) => ({ ...prev, [i]: e.target.value }))}
-                        className="border border-gray-300 rounded px-2 py-1 flex-1"
-                      >
-                        <option value="">— keep rent-roll label “{r.source}” —</option>
-                        {childOptions.map((c) => (
-                          <option key={c.id} value={c.id}>{c.title}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-                </div>
+            {/* Subsidiary roster preview (parent-owner group filing) */}
+            {isGroup && ownerSelected && childProperties.length > 0 && (
+              <div className="text-xs text-gray-600 border border-gray-200 rounded p-2">
+                This parent filing will list <strong>{childProperties.length}</strong> subsidiary LLC(s) and
+                their EINs on the document (from the hub).
               </div>
             )}
 
@@ -957,9 +653,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Unit analysis .xlsx'}</button>
-            {selType === 'owner' && !prospectMode && (
-              <button disabled={!ready || busy !== null} title="One certification per sub-LLC (its own EIN + Tax Map IDs), bundled as a zip" onClick={generatePerEntity} className="px-3 py-1.5 border border-gold-500 bg-gold-50 text-gold-700 hover:bg-gold-200 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'perentity' ? 'Zipping…' : 'Per-entity certs (.zip)'}</button>
-            )}
             <button disabled={!ready || !representativeProperty || prospectMode || busy !== null} title={prospectMode ? 'Prospect mode — download only (entity is not in the hub)' : !representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
         </div>

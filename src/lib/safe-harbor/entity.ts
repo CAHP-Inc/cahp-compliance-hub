@@ -53,8 +53,8 @@ export interface CertConfig {
     groupName: string;
     groupStateType: string;
     subsidiaryDescription: string;
-    /** Per-subsidiary nonprofit ownership from the hub (varies by LLC). Keyed by LLC name. */
-    members?: { name: string; ownershipPercent: number | null; memberClass: string }[];
+    /** Roster of the parent's subsidiary LLCs from the hub — listed on the document. */
+    members?: { name: string; ein: string; ownershipPercent: number | null; memberClass: string }[];
   };
 }
 

@@ -498,7 +498,6 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
         ("CAHP EIN", _blank(non.get("parentEin"), 14)),
         ("Entity EIN", _blank(co.get("ein"), 14)),
         ("County", counties_str),
-        ("DOR Account ID", _blank(co.get("dorAccountId"), 14)),
         ("Tax Year", str(tax_year)),
         ("Filing Type", filing["filingType"]),
         ("Certification Date", "_" * 24),
@@ -647,25 +646,6 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
         f"Based on the foregoing, the Company respectfully requests a full exemption from "
         f"ad valorem property taxation under South Carolina Code §12-37-220(B)(11)(e) "
         f"for tax year {tax_year}."
-    )
-
-    _h(doc, "6. Enclosures.")
-    for e in [
-        "(a) Current rent roll (submitted herewith);",
-        f"(b) FY{limits['_meta']['fiscalYear']} HUD/SC Housing rent limits for {msa_str};",
-        f"(c) Confirmation of {non['managingMemberName']} "
-        f"{pct_disp} {cls_disp} ownership interest;",
-        "(d) Resident income-range report (corroborating);",
-        f"(e) IRS 501(c)(3) Determination Letter for {non['parentName']}.",
-    ]:
-        doc.add_paragraph(e)
-
-    _h(doc, "7. Ongoing Compliance.")
-    doc.add_paragraph(
-        f"The Company and its property manager commit to maintaining Safe Harbor compliance "
-        f"on an ongoing basis and filing annual certifications by "
-        f"{filing.get('annualCertificationDeadline', 'October 1')} of each year, as "
-        f"required by law."
     )
 
     # ── Certification & signature — simple, fully fillable at signing ──
