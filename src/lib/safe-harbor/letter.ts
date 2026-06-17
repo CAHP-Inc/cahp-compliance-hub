@@ -73,7 +73,7 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
   const params: [string, string][] = [
     ['Property', prop.addressLine || '_'.repeat(40)],
     ['Description', `${roll.denom} ${prop.description}` +
-      (isGroup ? ` held across ${sources.length} single-purpose LLCs (see Section 2)` : '')],
+      (isGroup ? ` held across ${members.length || sources.length} single-purpose LLCs (see Section 2)` : '')],
     ['Entity', `${companyName} (${companyType})` + (isGroup ? ' — portfolio / group filing' : '')],
     ['Nonprofit Managing Member', `${non.managingMemberName} (instrumentality of ${non.parentName})`],
     ['Nonprofit Ownership', ownershipParam],
@@ -268,10 +268,15 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
   const ensure = (h = 14) => {
     if (y + h > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; }
   };
+  // jsPDF's built-in Helvetica only covers WinAnsi — map the few Unicode glyphs
+  // we use (≤ ≥ — · “ ” ’ – §) to ASCII so they don't render as garbage.
+  const pdfSafe = (s: string) =>
+    s.replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/[—–]/g, '-').replace(/·/g, '|')
+      .replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/§/g, 'Sec. ');
   const line = (text: string, opts: { bold?: boolean; size?: number; center?: boolean } = {}) => {
     doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
     doc.setFontSize(opts.size ?? 10);
-    const wrapped = doc.splitTextToSize(text, width);
+    const wrapped = doc.splitTextToSize(pdfSafe(text), width);
     for (const w of wrapped) {
       ensure();
       doc.text(w, opts.center ? doc.internal.pageSize.getWidth() / 2 : margin, y, { align: opts.center ? 'center' : 'left' });
