@@ -19,6 +19,7 @@ import {
   COUNTIES,
   defaultCertConfig,
   deriveCertConfig,
+  jurisdictionDefaults,
   extractPdfText,
   parseRentRoll,
   parseTextToUnits,
@@ -192,6 +193,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [taxYear, setTaxYear] = useState(new Date().getFullYear());
   const [utilityAllowance, setUtilityAllowance] = useState(0);
   const [relationship, setRelationship] = useState('property manager and authorized agent');
+  const [citationOverride, setCitationOverride] = useState('');
+  const [recipientOverride, setRecipientOverride] = useState('');
   const [description, setDescription] = useState('scattered-site residential rental units');
   const [groupOverride, setGroupOverride] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -466,6 +469,12 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
         c.property.addressLine = `Scattered sites located in ${rollCounties.join(' and ')} ${rollCounties.length > 1 ? 'Counties' : 'County'}, South Carolina`;
       }
     }
+    // Jurisdiction (statute + addressee): default by state/counties, editable overrides.
+    const jd = jurisdictionDefaults(c.property.state, c.property.counties);
+    c.jurisdiction = {
+      statuteCitation: citationOverride.trim() || jd.statuteCitation,
+      recipient: recipientOverride.trim() || jd.recipient,
+    };
     // Nonprofit ownership = CAHP beneficial % through the chain, for this property.
     if (representativeProperty) {
       const i = cahpInterestFor(String(representativeProperty.id));
@@ -491,7 +500,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
+  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -773,6 +782,14 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               <label className="flex flex-col gap-1 col-span-2">
                 <span className="text-xs font-semibold text-gray-600">Property description</span>
                 <input value={description} onChange={(e) => setDescription(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-600">Statute citation</span>
+                <input value={citationOverride} onChange={(e) => setCitationOverride(e.target.value)} placeholder={config?.jurisdiction.statuteCitation || 'auto by state'} className="border border-gray-300 rounded px-2 py-1" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-600">Addressed to</span>
+                <input value={recipientOverride} onChange={(e) => setRecipientOverride(e.target.value)} placeholder={config?.jurisdiction.recipient || 'auto by state/county'} className="border border-gray-300 rounded px-2 py-1" />
               </label>
               <label className="flex items-center gap-2 col-span-2 text-xs text-gray-700">
                 <input type="checkbox" checked={isGroup} disabled={distinctSources.length > 1 || Boolean(ownerSelected)} onChange={(e) => setGroupOverride(e.target.checked)} />

@@ -123,6 +123,8 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     programLabel,
     ownershipClause,
     groupHasOwnership,
+    citation: config.jurisdiction.statuteCitation,
+    recipient: config.jurisdiction.recipient,
     reviewWarning: roll.nReview
       ? `${roll.nReview} unit(s) could not be auto-classified (missing bedroom count, rent, or ` +
         `county) and are listed in Exhibit A under “NEEDS REVIEW.” The percentages above treat ` +
@@ -175,12 +177,12 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
   const children: (Paragraph | Table)[] = [];
 
   children.push(para('SAFE HARBOR CERTIFICATION', { bold: true, size: 15, align: AlignmentType.CENTER, color: TEAL }));
-  children.push(para('SOUTH CAROLINA CODE §12-37-220(B)(11)(e)', { bold: true, align: AlignmentType.CENTER }));
+  children.push(para(m.citation.toUpperCase(), { bold: true, align: AlignmentType.CENTER }));
   children.push(para('IRS REVENUE PROCEDURE 96-32', { bold: true, align: AlignmentType.CENTER }));
   children.push(new Paragraph(''));
   children.push(kvTable(m.params));
   children.push(new Paragraph(''));
-  children.push(para(`TO THE SOUTH CAROLINA DEPARTMENT OF REVENUE AND THE ${m.countiesStr.toUpperCase()} ASSESSOR:`, { bold: true }));
+  children.push(para(`TO ${m.recipient.toUpperCase()}:`, { bold: true }));
   children.push(para(
     `The undersigned property management company, as ${config.certification.relationshipToOwner} for ` +
     `${m.companyClause}, hereby certifies under penalty of perjury as follows:`));
@@ -228,7 +230,7 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
   children.push(heading('4. Exemption Request.'));
   children.push(para(
     `Based on the foregoing, the Company respectfully requests a full exemption from ad valorem ` +
-    `property taxation under South Carolina Code §12-37-220(B)(11)(e) for tax year ${m.taxYear}.`));
+    `property taxation under ${m.citation} for tax year ${m.taxYear}.`));
 
   children.push(heading('5. Enclosures.'));
   [
@@ -288,11 +290,11 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
   const gap = (h = 6) => { y += h; };
 
   line('SAFE HARBOR CERTIFICATION', { bold: true, size: 15, center: true });
-  line('SOUTH CAROLINA CODE §12-37-220(B)(11)(e)  ·  IRS REVENUE PROCEDURE 96-32', { bold: true, size: 9, center: true });
+  line(`${m.citation.toUpperCase()}  ·  IRS REVENUE PROCEDURE 96-32`, { bold: true, size: 9, center: true });
   gap();
   m.params.forEach(([k, v]) => line(`${k}:  ${v}`, { size: 9 }));
   gap();
-  line(`TO THE SC DEPARTMENT OF REVENUE AND THE ${m.countiesStr.toUpperCase()} ASSESSOR:`, { bold: true, size: 9 });
+  line(`TO ${m.recipient.toUpperCase()}:`, { bold: true, size: 9 });
   line(`The undersigned property management company, as ${config.certification.relationshipToOwner} for ${m.companyClause}, hereby certifies under penalty of perjury as follows:`);
   gap();
   line('3. Safe Harbor Qualification — Revenue Procedure 96-32.', { bold: true });
@@ -302,7 +304,7 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
     line(`  ${t.label}:  ${t.units} units (${t.pct}%)  — required ${t.req} — ${t.pass ? 'PASS' : 'FAIL'}`, { size: 9 }));
   if (m.reviewWarning) { gap(); line(`⚠ ${m.reviewWarning}`, { bold: true, size: 9 }); }
   gap();
-  line(`4. Exemption Request. The Company requests a full exemption under §12-37-220(B)(11)(e) for tax year ${m.taxYear}.`);
+  line(`4. Exemption Request. The Company requests a full exemption under ${m.citation} for tax year ${m.taxYear}.`);
   gap(12);
   line(`Certified under penalty of perjury this _____ day of _______________, ${m.taxYear}.`);
   line(m.authorityLine, { size: 8 });

@@ -38,6 +38,11 @@ export interface CertConfig {
     /** e.g. "property manager and authorized agent" — ties the signing company to the owner. */
     relationshipToOwner: string;
   };
+  /** State-specific legal framing (SC vs NC). Editable in the modal to adjust. */
+  jurisdiction: {
+    statuteCitation: string;   // e.g. "South Carolina Code §12-37-220(B)(11)(e)" or "N.C.G.S. §105-278.6"
+    recipient: string;         // addressee, e.g. "the ... Department of Revenue and the X County Assessor"
+  };
   filing: {
     taxYear: number;
     filingType: string;
@@ -57,6 +62,26 @@ export interface CertConfig {
 export const CAHP_EIN_BY_STATE: Record<string, string> = {
   SC: '99-4885069',
 };
+
+/**
+ * State-specific statute citation + addressee for the certification.
+ * NC NOTE: NC currently exempts nonprofit low-income housing under a charitable-use
+ * test (N.C.G.S. §105-278.6), filed on Form AV-10 with the COUNTY tax assessor —
+ * NOT the Rev. Proc. 96-32 safe harbor (a pending bill, H1042 / §105-278.7A, would
+ * change that). These defaults are editable in the modal; confirm with NC counsel.
+ */
+export function jurisdictionDefaults(state: string, counties: string[]): { statuteCitation: string; recipient: string } {
+  const countiesStr = counties.length
+    ? counties.join(' and ') + ' ' + (counties.length > 1 ? 'Counties' : 'County')
+    : 'County';
+  if ((state || '').toUpperCase() === 'NC') {
+    return { statuteCitation: 'N.C.G.S. §105-278.6', recipient: `the ${countiesStr} Tax Assessor` };
+  }
+  return {
+    statuteCitation: 'South Carolina Code §12-37-220(B)(11)(e)',
+    recipient: `the South Carolina Department of Revenue and the ${countiesStr} Assessor`,
+  };
+}
 
 export const DEFAULT_CERT: Pick<CertConfig, 'certification'> & {
   nonprofit: Pick<CertConfig['nonprofit'], 'managingMemberName' | 'parentName' | 'memberClass' | 'ownershipPercent'>;
@@ -127,6 +152,7 @@ export function defaultCertConfig(legalName: string, taxYear: number, state = 'S
       isTaxExempt: true,
     },
     certification: { ...DEFAULT_CERT.certification },
+    jurisdiction: jurisdictionDefaults(state, []),
     filing: { taxYear, filingType: 'Annual Renewal Certification', annualCertificationDeadline: 'October 1' },
   };
 }
@@ -228,6 +254,7 @@ export function deriveCertConfig(args: {
       isTaxExempt: true,
     },
     certification: { ...DEFAULT_CERT.certification },
+    jurisdiction: jurisdictionDefaults(property.fields.cahpState || 'SC', counties),
     filing: {
       taxYear,
       filingType: 'Annual Renewal Certification',
