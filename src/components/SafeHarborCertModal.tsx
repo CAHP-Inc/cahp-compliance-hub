@@ -630,19 +630,35 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               )}
             </div>
 
-            {/* Rent-roll properties not in the hub — excluded from the certification */}
-            {excludedUnits.length > 0 && (
-              <div className="text-xs bg-amber-50 border border-amber-300 rounded p-2 text-amber-900">
-                ⚠ <strong>{excludedUnits.length}</strong> unit(s) on the rent roll didn't match a property in
-                the hub (by Tax Map ID address) and were <strong>excluded</strong> from this certification:
-                <div className="mt-1 max-h-24 overflow-y-auto text-[11px] text-amber-800">
-                  {excludedUnits.slice(0, 25).map((u, i) => (
-                    <div key={i} className="truncate">{u.prop}{u.unit ? ` [${u.unit}]` : ''}</div>
-                  ))}
-                  {excludedUnits.length > 25 && <div>…and {excludedUnits.length - 25} more.</div>}
+            {/* Tax Map ID match diagnostic + excluded list (AppFolio + real entity only) */}
+            {inputMode === 'appfolio' && !prospectMode && rolls.length > 0 && (
+              taxmaps.loading ? (
+                <div className="text-xs text-gray-500">Loading Tax Map IDs…</div>
+              ) : parcelIndex.length === 0 ? (
+                <div className="text-xs bg-amber-50 border border-amber-300 rounded p-2 text-amber-900">
+                  ⚠ No usable Tax Map ID parcel <strong>addresses</strong> found in the hub
+                  ({taxmaps.data?.length ?? 0} Tax Map ID record(s) loaded). Rent-roll units can't be matched
+                  to the system, so <strong>nothing is excluded</strong> — every unit is included. To enable
+                  exclusion, add a <span className="font-mono">ParcelAddress</span> to your Tax Map IDs.
                 </div>
-                Add their Tax Map ID parcels (with addresses) in the hub to include them.
-              </div>
+              ) : (
+                <div className="text-xs border border-gray-200 rounded p-2 text-gray-700">
+                  Matched <strong>{units.filter((u) => !u.nonResidential).length}</strong> of{' '}
+                  {units.filter((u) => !u.nonResidential).length + excludedUnits.length} rent-roll units to the
+                  hub by Tax Map ID address ({parcelIndex.length} parcel address(es) loaded).
+                  {excludedUnits.length > 0 && (
+                    <div className="mt-1 text-amber-800">
+                      <strong>{excludedUnits.length}</strong> excluded (not in the system):
+                      <div className="mt-0.5 max-h-24 overflow-y-auto text-[11px]">
+                        {excludedUnits.slice(0, 25).map((u, i) => (
+                          <div key={i} className="truncate">{u.prop}{u.unit ? ` [${u.unit}]` : ''}</div>
+                        ))}
+                        {excludedUnits.length > 25 && <div>…and {excludedUnits.length - 25} more.</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
             )}
 
             {/* Subsidiary roster preview (parent-owner group filing) */}
