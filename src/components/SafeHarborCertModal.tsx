@@ -181,7 +181,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [utilityAllowance, setUtilityAllowance] = useState(0);
   const [relationship, setRelationship] = useState('property manager and authorized agent');
   const [description, setDescription] = useState('scattered-site residential rental units');
-  const [parcels, setParcels] = useState('');
   const [groupOverride, setGroupOverride] = useState(false);
   const [groupName, setGroupName] = useState('');
   // Per-rent-roll override: roll index -> hub child Property id ('' = none/keep label).
@@ -412,7 +411,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     const c: CertConfig = JSON.parse(JSON.stringify(derived.config));
     c.certification.relationshipToOwner = relationship;
     c.property.description = description;
-    c.property.taxMapParcels = parcels.split(',').map((s) => s.trim()).filter(Boolean);
+    c.property.taxMapParcels = [];
     c.filing.taxYear = taxYear;
     // For a group (or when the hub had no county), take counties from the rent rolls.
     const rollCounties = [...new Set(units.map((u) => u.county).filter((x): x is string => Boolean(x)))];
@@ -447,7 +446,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, parcels, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
+  }, [derived, relationship, description, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -674,10 +673,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
               <label className="flex flex-col gap-1 col-span-2">
                 <span className="text-xs font-semibold text-gray-600">Property description</span>
                 <input value={description} onChange={(e) => setDescription(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
-              </label>
-              <label className="flex flex-col gap-1 col-span-2">
-                <span className="text-xs font-semibold text-gray-600">Tax Map / Parcel No(s) — comma separated</span>
-                <input value={parcels} onChange={(e) => setParcels(e.target.value)} placeholder="optional" className="border border-gray-300 rounded px-2 py-1" />
               </label>
               <label className="flex items-center gap-2 col-span-2 text-xs text-gray-700">
                 <input type="checkbox" checked={isGroup} disabled={distinctSources.length > 1 || Boolean(ownerSelected)} onChange={(e) => setGroupOverride(e.target.checked)} />

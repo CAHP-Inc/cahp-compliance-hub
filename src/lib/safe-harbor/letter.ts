@@ -80,7 +80,6 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
     ['CAHP EIN', blank(non.parentEin, 14)],
     ['Entity EIN', blank(co.ein, 14)],
     ['County', countiesStr],
-    ['Tax Map/Parcel No(s).', prop.taxMapParcels.length ? prop.taxMapParcels.join(', ') : '_'.repeat(24)],
     ['DOR Account ID', blank(co.dorAccountId, 14)],
     ['Tax Year', String(taxYear)],
     ['Filing Type', config.filing.filingType],
@@ -199,23 +198,8 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
     children.push(para(
       `The Company holds the residential rental real property through ${wordsNum(m.sources.length)} ` +
       `(${m.sources.length}) ${m.subsidiaryDesc}, together comprising ${wordsNum(m.roll.denom)} ` +
-      `(${m.roll.denom}) residential rental units located in ${m.countiesStr}, South Carolina. This ` +
-      `certification is filed for the portfolio as a group; per-LLC composition is as follows (unit detail accompanies this certification in the submitted rent roll):`));
-    children.push(gridTable(
-      m.groupHasOwnership
-        ? ['Subsidiary LLC', 'Nonprofit %', 'Class', 'Units', '≤50%', '≤60%', '≤80%', 'Market']
-        : ['Subsidiary LLC', 'Units', '≤50%', '≤60%', '≤80%', 'Market'],
-      [
-        ...m.perLlcRows.map((r) =>
-          m.groupHasOwnership
-            ? [r.s, r.own, r.cls, r.denom, `${r.le50}%`, `${r.le60}%`, `${r.le80}%`, `${r.market}%`]
-            : [r.s, r.denom, `${r.le50}%`, `${r.le60}%`, `${r.le80}%`, `${r.market}%`],
-        ),
-        m.groupHasOwnership
-          ? ['PORTFOLIO TOTAL', '', '', m.roll.denom, `${m.p.le50}%`, `${m.p.le60}%`, `${m.p.le80}%`, `${m.p.market}%`]
-          : ['PORTFOLIO TOTAL', m.roll.denom, `${m.p.le50}%`, `${m.p.le60}%`, `${m.p.le80}%`, `${m.p.market}%`],
-      ],
-    ));
+      `(${m.roll.denom}) residential rental units located in ${m.countiesStr}, South Carolina. Unit ` +
+      `detail accompanies this certification in the submitted rent roll.`));
   } else {
     children.push(para(
       `The Company owns the residential rental real property described above, consisting of ` +
@@ -316,13 +300,6 @@ export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
   if (m.programLabel) line(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`);
   m.tierRows.forEach((t) =>
     line(`  ${t.label}:  ${t.units} units (${t.pct}%)  — required ${t.req} — ${t.pass ? 'PASS' : 'FAIL'}`, { size: 9 }));
-  if (m.isGroup) {
-    gap();
-    line('Per-LLC composition:', { bold: true, size: 9 });
-    m.perLlcRows.forEach((r) =>
-      line(`  ${r.s}: ${m.groupHasOwnership ? `nonprofit ${r.own} ${r.cls} · ` : ''}${r.denom} units — ≤50% ${r.le50}% · ≤60% ${r.le60}% · ≤80% ${r.le80}% · mkt ${r.market}%`, { size: 9 }));
-    line(`  PORTFOLIO TOTAL: ${m.roll.denom} units — ≤50% ${m.p.le50}% · ≤60% ${m.p.le60}% · ≤80% ${m.p.le80}% · mkt ${m.p.market}%`, { bold: true, size: 9 });
-  }
   if (m.reviewWarning) { gap(); line(`⚠ ${m.reviewWarning}`, { bold: true, size: 9 }); }
   gap();
   line(`4. Exemption Request. The Company requests a full exemption under §12-37-220(B)(11)(e) for tax year ${m.taxYear}.`);

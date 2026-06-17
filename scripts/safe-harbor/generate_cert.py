@@ -498,8 +498,6 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
         ("CAHP EIN", _blank(non.get("parentEin"), 14)),
         ("Entity EIN", _blank(co.get("ein"), 14)),
         ("County", counties_str),
-        ("Tax Map/Parcel No(s).",
-         ", ".join(prop["taxMapParcels"]) if prop.get("taxMapParcels") else "_" * 24),
         ("DOR Account ID", _blank(co.get("dorAccountId"), 14)),
         ("Tax Year", str(tax_year)),
         ("Filing Type", filing["filingType"]),
@@ -547,32 +545,9 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
             f"{_words_num(len(group['sources']))} ({len(group['sources'])}) "
             f"{group['subsidiaryDescription']}, together comprising "
             f"{_words_num(roll['denom'])} ({roll['denom']}) residential rental units "
-            f"located in {counties_str}, South Carolina. This certification is filed "
-            f"for the portfolio as a group; per-LLC composition is as follows (unit "
-            f"detail accompanies this certification in the submitted rent roll):"
+            f"located in {counties_str}, South Carolina. Unit detail accompanies this "
+            f"certification in the submitted rent roll."
         )
-        gt = doc.add_table(rows=1, cols=6)
-        gt.style = "Light Grid Accent 1"
-        for i, txt in enumerate(["Subsidiary LLC", "Units", "≤50%", "≤60%",
-                                 "≤80%", "Market"]):
-            gt.rows[0].cells[i].paragraphs[0].add_run(txt).bold = True
-        for src in group["sources"]:
-            r = group["per_src"][src]
-            rp = r["pct"]
-            c = gt.add_row().cells
-            c[0].text = src
-            c[1].text = str(r["denom"])
-            c[2].text = f"{rp['le50']}%"
-            c[3].text = f"{rp['le60']}%"
-            c[4].text = f"{rp['le80']}%"
-            c[5].text = f"{rp['market']}%"
-        tot = gt.add_row().cells
-        tot[0].paragraphs[0].add_run("PORTFOLIO TOTAL").bold = True
-        tot[1].text = str(roll["denom"])
-        tot[2].text = f"{p['le50']}%"
-        tot[3].text = f"{p['le60']}%"
-        tot[4].text = f"{p['le80']}%"
-        tot[5].text = f"{p['market']}%"
     else:
         doc.add_paragraph(
             f"The Company owns the residential rental real property described above, "

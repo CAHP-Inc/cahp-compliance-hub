@@ -34,6 +34,16 @@ export const CITY_TO_COUNTY: Record<string, string> = {
   Mauldin: 'Greenville',
   Simpsonville: 'Greenville',
   Spartanburg: 'Spartanburg',
+  'Honea Path': 'Anderson',
+  Anderson: 'Anderson',
+  Belton: 'Anderson',
+  Williamston: 'Anderson',
+  Pendleton: 'Anderson',
+  Powdersville: 'Anderson',
+  Easley: 'Pickens',
+  Clemson: 'Pickens',
+  Pickens: 'Pickens',
+  Seneca: 'Oconee',
 };
 
 interface CountyLimits {
@@ -42,22 +52,54 @@ interface CountyLimits {
   rentLimits: Record<'50' | '80', Record<string, number>>;
 }
 
-export const COUNTIES: Record<string, CountyLimits> = {
-  Greenville: {
-    msa: 'Greenville-Anderson, SC MSA',
-    rentLimits: {
-      '50': { 0: 930, 1: 996, 2: 1196, 3: 1382, 4: 1542 },
-      '80': { 0: 1488, 1: 1595, 2: 1913, 3: 2211, 4: 2467 },
-    },
-  },
-  Spartanburg: {
-    msa: 'Spartanburg, SC MSA',
-    rentLimits: {
-      '50': { 0: 790, 1: 846, 2: 1015, 3: 1173, 4: 1310 },
-      '80': { 0: 1265, 1: 1355, 2: 1626, 3: 1878, 4: 2096 },
-    },
-  },
+// FY2026 SC Housing Trust Fund max gross rent by county [0BR,1BR,2BR,3BR,4BR].
+const RAW_50: Record<string, number[]> = {
+  Abbeville: [653,700,840,970,1082], Aiken: [791,848,1017,1175,1311], Allendale: [653,700,840,970,1082],
+  Anderson: [832,891,1070,1236,1380], Bamberg: [653,700,840,970,1082], Barnwell: [653,700,840,970,1082],
+  Beaufort: [988,1059,1271,1469,1638], Berkeley: [1028,1101,1322,1527,1703], Calhoun: [808,866,1040,1201,1340],
+  Charleston: [1028,1101,1322,1527,1703], Cherokee: [653,700,840,970,1082], Chester: [653,700,840,970,1082],
+  Chesterfield: [653,700,840,970,1082], Clarendon: [653,700,840,970,1082], Colleton: [653,700,840,970,1082],
+  Darlington: [653,700,840,970,1082], Dillon: [653,700,840,970,1082], Dorchester: [1028,1101,1322,1527,1703],
+  Edgefield: [791,848,1017,1175,1311], Fairfield: [808,866,1040,1201,1340], Florence: [695,744,892,1031,1150],
+  Georgetown: [750,803,963,1113,1241], Greenville: [930,996,1196,1382,1542], Greenwood: [653,700,840,970,1082],
+  Hampton: [653,700,840,970,1082], Horry: [752,806,967,1118,1247], Jasper: [731,783,940,1086,1212],
+  Kershaw: [812,870,1045,1206,1346], Lancaster: [897,961,1152,1332,1486], Laurens: [700,750,900,1038,1158],
+  Lee: [653,700,840,970,1082], Lexington: [808,866,1040,1201,1340], Marion: [653,700,840,970,1082],
+  Marlboro: [653,700,840,970,1082], McCormick: [733,786,943,1090,1216], Newberry: [691,740,888,1026,1145],
+  Oconee: [777,833,1000,1156,1290], Orangeburg: [653,700,840,970,1082], Pickens: [930,996,1196,1382,1542],
+  Richland: [808,866,1040,1201,1340], Saluda: [808,866,1040,1201,1340], Spartanburg: [790,846,1015,1173,1310],
+  Sumter: [653,700,840,970,1082], Union: [653,700,840,970,1082], Williamsburg: [653,700,840,970,1082],
+  York: [1027,1101,1321,1526,1702],
 };
+const RAW_80: Record<string, number[]> = {
+  Abbeville: [1045,1120,1343,1552,1732], Aiken: [1266,1356,1627,1880,2097], Allendale: [1045,1120,1343,1552,1732],
+  Anderson: [1332,1427,1712,1978,2207], Bamberg: [1045,1120,1343,1552,1732], Barnwell: [1045,1120,1343,1552,1732],
+  Beaufort: [1582,1695,2035,2350,2622], Berkeley: [1645,1762,2115,2444,2726], Calhoun: [1293,1386,1663,1921,2143],
+  Charleston: [1645,1762,2115,2444,2726], Cherokee: [1045,1120,1343,1552,1732], Chester: [1045,1120,1343,1552,1732],
+  Chesterfield: [1045,1120,1343,1552,1732], Clarendon: [1045,1120,1343,1552,1732], Colleton: [1045,1120,1343,1552,1732],
+  Darlington: [1045,1120,1343,1552,1732], Dillon: [1045,1120,1343,1552,1732], Dorchester: [1645,1762,2115,2444,2726],
+  Edgefield: [1266,1356,1627,1880,2097], Fairfield: [1293,1386,1663,1921,2143], Florence: [1111,1190,1428,1650,1841],
+  Georgetown: [1198,1284,1541,1781,1987], Greenville: [1488,1595,1913,2211,2467], Greenwood: [1045,1120,1343,1552,1732],
+  Hampton: [1045,1120,1343,1552,1732], Horry: [1205,1290,1548,1789,1996], Jasper: [1170,1253,1505,1738,1938],
+  Kershaw: [1298,1391,1670,1930,2152], Lancaster: [1435,1537,1845,2132,2378], Laurens: [1118,1198,1438,1661,1853],
+  Lee: [1045,1120,1343,1552,1732], Lexington: [1293,1386,1663,1921,2143], Marion: [1045,1120,1343,1552,1732],
+  Marlboro: [1045,1120,1343,1552,1732], McCormick: [1173,1257,1508,1743,1945], Newberry: [1105,1183,1420,1640,1830],
+  Oconee: [1245,1333,1600,1848,2062], Orangeburg: [1045,1120,1343,1552,1732], Pickens: [1488,1595,1913,2211,2467],
+  Richland: [1293,1386,1663,1921,2143], Saluda: [1293,1386,1663,1921,2143], Spartanburg: [1265,1355,1626,1878,2096],
+  Sumter: [1045,1120,1343,1552,1732], Union: [1045,1120,1343,1552,1732], Williamsburg: [1045,1120,1343,1552,1732],
+  York: [1643,1761,2113,2441,2723],
+};
+const MSA_OVERRIDE: Record<string, string> = {
+  Greenville: 'Greenville-Anderson, SC MSA', Anderson: 'Greenville-Anderson, SC MSA',
+  Pickens: 'Greenville-Anderson, SC MSA', Spartanburg: 'Spartanburg, SC MSA',
+};
+const tiers = (a: number[]): Record<string, number> => ({ 0: a[0], 1: a[1], 2: a[2], 3: a[3], 4: a[4] });
+export const COUNTIES: Record<string, CountyLimits> = Object.fromEntries(
+  Object.keys(RAW_50).map((c) => [
+    c,
+    { msa: MSA_OVERRIDE[c] ?? `${c} County, SC`, rentLimits: { '50': tiers(RAW_50[c]), '80': tiers(RAW_80[c]) } },
+  ]),
+);
 
 export type AmiTier = 'le50' | 'le60' | 'le80' | 'market' | 'review' | 'nonResidential';
 
