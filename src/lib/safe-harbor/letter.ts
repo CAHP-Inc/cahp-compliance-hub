@@ -21,7 +21,7 @@ import {
 import { jsPDF } from 'jspdf';
 import type { Analysis } from './analyze';
 import type { CertConfig } from './entity';
-import { COUNTIES, FY, LIMITS_EFFECTIVE, LIMITS_SOURCE } from './limits';
+import { countiesForState, FY, LIMITS_EFFECTIVE, LIMITS_SOURCE } from './limits';
 
 const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
   'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
@@ -48,7 +48,8 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
 
   const countiesStr =
     prop.counties.join(' and ') + ' ' + (prop.counties.length > 1 ? 'Counties' : 'County');
-  const msaStr = [...new Set(prop.counties.map((c) => COUNTIES[c]?.msa).filter(Boolean))].join('; ');
+  const stateCounties = countiesForState(prop.state);
+  const msaStr = [...new Set(prop.counties.map((c) => stateCounties[c]?.msa).filter(Boolean))].join('; ');
 
   const companyClause = isGroup
     ? `${companyName} (the “Company”) and its ${subsidiaryDesc} listed in Section 2`

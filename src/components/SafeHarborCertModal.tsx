@@ -16,7 +16,7 @@ import {
   buildExhibitBlob,
   buildLetterDocx,
   buildLetterPdf,
-  COUNTIES,
+  countiesForState,
   defaultCertConfig,
   deriveCertConfig,
   jurisdictionDefaults,
@@ -186,7 +186,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [pasteCounty, setPasteCounty] = useState('');
   const [pasteBedrooms, setPasteBedrooms] = useState('');
   const [pdfBusy, setPdfBusy] = useState(false);
-  const SC_COUNTY_NAMES = useMemo(() => Object.keys(COUNTIES).sort(), []);
+  // State for prospect / paste filings (hub properties carry their own cahpState).
+  const [manualState, setManualState] = useState<'SC' | 'NC'>('SC');
 
   // Selection value is "prop:<id>" (single LLC) or "owner:<id>" (portfolio parent).
   const [entitySel, setEntitySel] = useState(initialPropertyId ? `prop:${initialPropertyId}` : '');
@@ -300,10 +301,13 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     return undefined;
   }, [selType, selId, properties.data, childProperties, ownership.data, owners.data]);
 
+  // Filing state: a hub property carries its own cahpState; prospect/paste use the manual selector.
+  const filingState = ((representativeProperty?.fields.cahpState as string | undefined) || manualState || 'SC').toUpperCase();
+
   // Derive boilerplate (falls back to defaults for an owner with no linked LLCs).
   const derived = useMemo(() => {
     if (prospectMode) {
-      return { config: defaultCertConfig(prospectName || 'Prospective Entity', taxYear), exemptionChainOk: true, warnings: [] };
+      return { config: defaultCertConfig(prospectName || 'Prospective Entity', taxYear, filingState), exemptionChainOk: true, warnings: [] };
     }
     if (representativeProperty && owners.data && ownership.data) {
       const upstream = getUpstreamOwnerIds(String(representativeProperty.id), ownership.data);
@@ -316,10 +320,10 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       });
     }
     if (ownerSelected) {
-      return { config: defaultCertConfig(ownerSelected.fields.Title ?? '', taxYear), exemptionChainOk: true, warnings: [] };
+      return { config: defaultCertConfig(ownerSelected.fields.Title ?? '', taxYear, filingState), exemptionChainOk: true, warnings: [] };
     }
     return null;
-  }, [prospectMode, prospectName, representativeProperty, ownerSelected, owners.data, ownership.data, taxYear]);
+  }, [prospectMode, prospectName, representativeProperty, ownerSelected, owners.data, ownership.data, taxYear, filingState]);
 
   // Hub child LLCs available to map rent rolls onto (only when filing for an owner).
   const childOptions = useMemo(
@@ -449,8 +453,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const isGroup = Boolean(ownerSelected) || groupOverride || distinctSources.length > 1;
 
   const analysis = useMemo(
-    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: Boolean(ownerSelected) || groupOverride }) : null),
-    [units, taxYear, utilityAllowance, ownerSelected, groupOverride],
+    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: Boolean(ownerSelected) || groupOverride, state: filingState }) : null),
+    [units, taxYear, utilityAllowance, ownerSelected, groupOverride, filingState],
   );
 
   // Final config = derived hub facts + UI overrides.
@@ -470,6 +474,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       }
     }
     // Jurisdiction (statute + addressee): default by state/counties, editable overrides.
+    if (!representativeProperty) c.property.state = filingState; // prospect/paste use the selector
     const jd = jurisdictionDefaults(c.property.state, c.property.counties);
     c.jurisdiction = {
       statuteCitation: citationOverride.trim() || jd.statuteCitation,
@@ -500,7 +505,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
+  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, filingState, units, distinctSources, properties.data, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -575,7 +580,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
           continue;
         }
         const cfg = buildLlcConfig(prop, llcUnits);
-        const a = analyze(llcUnits, { taxYear, utilityAllowance, forceGroup: false });
+        const a = analyze(llcUnits, { taxYear, utilityAllowance, forceGroup: false, state: prop.fields.cahpState || filingState });
         const slug = slugify(cfg.company.legalName);
         zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.docx`, await buildLetterDocx(a, cfg));
         zip.file(`${slug}_Safe_Harbor_Certification_TY${taxYear}.pdf`, buildLetterPdf(a, cfg));
@@ -691,7 +696,14 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                   <span className="font-mono"> Unit 1 … $995</span>. Outside rent rolls rarely include bedrooms or
                   county — set the defaults below (applied to every parsed unit; county is auto-detected when possible).
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="font-semibold text-gray-600">State</span>
+                    <select value={manualState} onChange={(e) => { setManualState(e.target.value as 'SC' | 'NC'); setPasteCounty(''); }} className="border border-gray-300 rounded px-2 py-1">
+                      <option value="SC">SC</option>
+                      <option value="NC">NC</option>
+                    </select>
+                  </label>
                   <label className="flex flex-col gap-1 text-xs">
                     <span className="font-semibold text-gray-600">Property / source label</span>
                     <input value={pasteSource} onChange={(e) => setPasteSource(e.target.value)} placeholder="e.g. 700 Brook St" className="border border-gray-300 rounded px-2 py-1" />
@@ -700,7 +712,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                     <span className="font-semibold text-gray-600">Default county</span>
                     <select value={pasteCounty} onChange={(e) => setPasteCounty(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
                       <option value="">(auto-detect)</option>
-                      {SC_COUNTY_NAMES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {Object.keys(countiesForState(manualState)).sort().map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-xs">
@@ -745,10 +757,19 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             {/* Entity + options */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               {prospectMode ? (
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-gray-600">Prospect / entity name</span>
-                  <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="e.g. Prospect Holdings, LLC" className="border border-gray-300 rounded px-2 py-1" />
-                </label>
+                <>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-gray-600">Prospect / entity name</span>
+                    <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="e.g. Prospect Holdings, LLC" className="border border-gray-300 rounded px-2 py-1" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-gray-600">State</span>
+                    <select value={manualState} onChange={(e) => setManualState(e.target.value as 'SC' | 'NC')} className="border border-gray-300 rounded px-2 py-1">
+                      <option value="SC">SC</option>
+                      <option value="NC">NC</option>
+                    </select>
+                  </label>
+                </>
               ) : (
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-semibold text-gray-600">Filing entity</span>

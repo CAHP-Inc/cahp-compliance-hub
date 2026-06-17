@@ -94,12 +94,43 @@ const MSA_OVERRIDE: Record<string, string> = {
   Pickens: 'Greenville-Anderson, SC MSA', Spartanburg: 'Spartanburg, SC MSA',
 };
 const tiers = (a: number[]): Record<string, number> => ({ 0: a[0], 1: a[1], 2: a[2], 3: a[3], 4: a[4] });
-export const COUNTIES: Record<string, CountyLimits> = Object.fromEntries(
+export const COUNTIES_SC: Record<string, CountyLimits> = Object.fromEntries(
   Object.keys(RAW_50).map((c) => [
     c,
     { msa: MSA_OVERRIDE[c] ?? `${c} County, SC`, rentLimits: { '50': tiers(RAW_50[c]), '80': tiers(RAW_80[c]) } },
   ]),
 );
+
+// FY2026 NC MTSP max gross rent (NCHFA, effective 2026-05-01), by HUD area.
+// Counties in the same HUD area share one limit set. Only the verified metro
+// areas are baked; other NC counties fall back to "no ceiling" (=> Market).
+const NC_GROUPS: { msa: string; r50: number[]; r80: number[]; counties: string[] }[] = [
+  { msa: 'Charlotte-Concord-Gastonia, NC-SC HUD Metro FMR Area', r50: [1027,1101,1321,1526,1702], r80: [1643,1761,2113,2441,2723], counties: ['Mecklenburg','Cabarrus','Gaston','Union'] },
+  { msa: 'Raleigh-Cary, NC MSA', r50: [1158,1241,1488,1720,1918], r80: [1853,1985,2382,2751,3070], counties: ['Wake','Franklin','Johnston'] },
+  { msa: 'Greensboro-High Point, NC HUD Metro FMR Area', r50: [801,858,1030,1190,1327], r80: [1282,1373,1647,1903,2123], counties: ['Guilford','Randolph'] },
+  { msa: 'Durham-Chapel Hill, NC HUD Metro FMR Area', r50: [1112,1191,1430,1652,1843], r80: [1780,1906,2287,2644,2950], counties: ['Durham','Chatham','Orange'] },
+  { msa: 'Asheville, NC MSA', r50: [896,960,1151,1331,1485], r80: [1433,1535,1842,2130,2375], counties: ['Buncombe','Henderson','Madison'] },
+  { msa: 'Winston-Salem, NC HUD Metro FMR Area', r50: [833,893,1072,1239,1382], r80: [1333,1430,1716,1983,2212], counties: ['Forsyth','Davie','Stokes','Yadkin'] },
+  { msa: 'Wilmington, NC HUD Metro FMR Area', r50: [956,1024,1228,1420,1583], r80: [1530,1638,1966,2271,2533], counties: ['New Hanover'] },
+  { msa: 'Fayetteville, NC HUD Metro FMR Area', r50: [717,768,922,1065,1188], r80: [1147,1230,1476,1703,1902], counties: ['Cumberland'] },
+];
+export const COUNTIES_NC: Record<string, CountyLimits> = {};
+for (const g of NC_GROUPS) {
+  for (const c of g.counties) {
+    COUNTIES_NC[c] = { msa: g.msa, rentLimits: { '50': tiers(g.r50), '80': tiers(g.r80) } };
+  }
+}
+
+export const COUNTIES_BY_STATE: Record<string, Record<string, CountyLimits>> = {
+  SC: COUNTIES_SC,
+  NC: COUNTIES_NC,
+};
+/** Limits map for a state (defaults to SC). */
+export function countiesForState(state: string | undefined): Record<string, CountyLimits> {
+  return COUNTIES_BY_STATE[(state || 'SC').toUpperCase()] ?? COUNTIES_SC;
+}
+/** @deprecated use countiesForState(state) — kept as SC for back-compat. */
+export const COUNTIES = COUNTIES_SC;
 
 export type AmiTier = 'le50' | 'le60' | 'le80' | 'market' | 'review' | 'nonResidential';
 
@@ -124,12 +155,13 @@ export interface Unit {
   notes: string[];
 }
 
-/** (ceil50, ceil60, ceil80) for a county+bedroom; null when unavailable. 60% = floor(1.2×50%). */
+/** (ceil50, ceil60, ceil80) for a state+county+bedroom; null when unavailable. 60% = floor(1.2×50%). */
 export function ceilingsFor(
+  state: string,
   county: string,
   bedrooms: number,
 ): [number, number, number] | null {
-  const cd = COUNTIES[county];
+  const cd = countiesForState(state)[county];
   if (!cd) return null;
   const bkey = String(Math.min(bedrooms, 4));
   const c50 = cd.rentLimits['50'][bkey];
@@ -138,8 +170,9 @@ export function ceilingsFor(
   return [c50, Math.floor(c50 * 1.2), c80];
 }
 
-/** Classify every unit in place (sets tier + ceilings + notes). */
-export function classify(units: Unit[], utilityAllowance = 0): void {
+/** Classify every unit in place (sets tier + ceilings + notes). state = SC|NC. */
+export function classify(units: Unit[], utilityAllowance = 0, state = 'SC'): void {
+  const counties = countiesForState(state);
   for (const u of units) {
     if (u.nonResidential) {
       u.tier = 'nonResidential';
@@ -148,9 +181,9 @@ export function classify(units: Unit[], utilityAllowance = 0): void {
     }
     // Units we can't classify (missing county, bedroom, or rent) default to
     // Market — the conservative outcome (counts against qualification, never for).
-    if (!u.county || !COUNTIES[u.county]) {
+    if (!u.county || !counties[u.county]) {
       u.tier = 'market';
-      u.notes.push('County not determined from address — counted as Market.');
+      u.notes.push(`County ${u.county ? `"${u.county}" has no ${state} rent limits baked` : 'not determined from address'} — counted as Market.`);
       continue;
     }
     if (u.bedrooms === null) {
@@ -166,7 +199,7 @@ export function classify(units: Unit[], utilityAllowance = 0): void {
     if (u.bedrooms > 4) {
       u.notes.push(`${u.bedrooms}BR uses the published 4BR ceiling (tables cap at 4BR).`);
     }
-    const cs = ceilingsFor(u.county, u.bedrooms);
+    const cs = ceilingsFor(state, u.county, u.bedrooms);
     if (!cs) {
       u.tier = 'market';
       u.notes.push('No rent ceiling published for this county/bedroom — counted as Market.');

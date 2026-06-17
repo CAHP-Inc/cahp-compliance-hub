@@ -26,7 +26,7 @@ export interface Analysis {
 
 export function analyze(
   units: Unit[],
-  opts: { taxYear: number; utilityAllowance?: number; forceGroup?: boolean },
+  opts: { taxYear: number; utilityAllowance?: number; forceGroup?: boolean; state?: string },
 ): Analysis {
   const utilityAllowance = opts.utilityAllowance ?? 0;
   // Fresh classification each call (units are mutated in place — reset first).
@@ -35,7 +35,7 @@ export function analyze(
     u.ceil50 = u.ceil60 = u.ceil80 = null;
     u.notes = [];
   }
-  classify(units, utilityAllowance);
+  classify(units, utilityAllowance, opts.state ?? 'SC');
   const roll = rollup(units);
   const scopes = evaluateScopes(roll);
 
