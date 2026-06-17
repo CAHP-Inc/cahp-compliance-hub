@@ -8,6 +8,7 @@ import {
   type Owner,
   type Ownership,
   type Property,
+  type TaxMapID,
 } from '../lib/sharepoint';
 import {
   analyze,
@@ -66,6 +67,38 @@ function cahpBeneficialPercent(
   return found ? Math.round(total * 10000) / 10000 : null;
 }
 
+// Lightweight address match: is a rent-roll unit's address present in the hub
+// (as a Tax Map ID parcel address)? Used only to EXCLUDE rent-roll properties
+// that aren't in the system — no per-unit assignment, no relabeling.
+const STREET_SUFFIX: Record<string, string> = {
+  street: 'st', avenue: 'ave', drive: 'dr', road: 'rd', circle: 'cir', lane: 'ln',
+  court: 'ct', boulevard: 'blvd', place: 'pl', terrace: 'ter', parkway: 'pkwy',
+  highway: 'hwy', trail: 'trl', cove: 'cv', square: 'sq', point: 'pt',
+};
+function normalizeAddr(raw: string | undefined): string {
+  let s = (raw || '').toLowerCase();
+  if (s.includes(' - ')) s = s.slice(s.lastIndexOf(' - ') + 3);
+  s = s.split(',')[0].replace(/\b\d{5}(-\d{4})?\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+  return s.split(/\s+/).filter(Boolean).map((t) => STREET_SUFFIX[t] ?? t).join(' ');
+}
+interface ParcelKey { num: string; street: string[] }
+function buildParcelIndex(taxmaps: { fields: { ParcelAddress?: string } }[] | null | undefined): ParcelKey[] {
+  const out: ParcelKey[] = [];
+  for (const t of taxmaps ?? []) {
+    if (!t.fields.ParcelAddress) continue;
+    const toks = normalizeAddr(t.fields.ParcelAddress).split(' ').filter(Boolean);
+    if (toks.length && /^\d/.test(toks[0])) out.push({ num: toks[0], street: toks.slice(1) });
+  }
+  return out;
+}
+function inHub(rawUnitAddr: string, index: ParcelKey[]): boolean {
+  const toks = normalizeAddr(rawUnitAddr).split(' ').filter(Boolean);
+  if (!toks.length || !/^\d/.test(toks[0])) return false;
+  const num = toks[0];
+  const street = toks.slice(1);
+  return index.some((p) => p.num === num && p.street.some((t) => street.includes(t)));
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -87,6 +120,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 500 });
+  const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
   const loading = properties.loading || owners.loading || ownership.loading;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -271,8 +305,22 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     [owners.data, ownership.data, ownerSelected, parentCahpPct],
   );
 
-  // Units = all rent-roll units, aggregated (no per-unit LLC split).
-  const units = useMemo<Unit[]>(() => rolls.flatMap((r) => r.units), [rolls]);
+  // Exclude rent-roll properties that aren't in the hub (matched by address to a
+  // Tax Map ID parcel). Applies to AppFolio uploads for a real entity — not to
+  // prospect screening or pasted external rolls (those have no hub counterpart).
+  const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data), [taxmaps.data]);
+  const useExclusion = !prospectMode && inputMode === 'appfolio' && parcelIndex.length > 0;
+  const { units, excludedUnits } = useMemo<{ units: Unit[]; excludedUnits: Unit[] }>(() => {
+    const all = rolls.flatMap((r) => r.units);
+    if (!useExclusion) return { units: all, excludedUnits: [] };
+    const inc: Unit[] = [];
+    const exc: Unit[] = [];
+    for (const u of all) {
+      if (u.nonResidential || inHub(u.prop, parcelIndex)) inc.push(u);
+      else exc.push(u);
+    }
+    return { units: inc, excludedUnits: exc };
+  }, [rolls, useExclusion, parcelIndex]);
 
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
@@ -581,6 +629,21 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 </label>
               )}
             </div>
+
+            {/* Rent-roll properties not in the hub — excluded from the certification */}
+            {excludedUnits.length > 0 && (
+              <div className="text-xs bg-amber-50 border border-amber-300 rounded p-2 text-amber-900">
+                ⚠ <strong>{excludedUnits.length}</strong> unit(s) on the rent roll didn't match a property in
+                the hub (by Tax Map ID address) and were <strong>excluded</strong> from this certification:
+                <div className="mt-1 max-h-24 overflow-y-auto text-[11px] text-amber-800">
+                  {excludedUnits.slice(0, 25).map((u, i) => (
+                    <div key={i} className="truncate">{u.prop}{u.unit ? ` [${u.unit}]` : ''}</div>
+                  ))}
+                  {excludedUnits.length > 25 && <div>…and {excludedUnits.length - 25} more.</div>}
+                </div>
+                Add their Tax Map ID parcels (with addresses) in the hub to include them.
+              </div>
+            )}
 
             {/* Subsidiary roster preview (parent-owner group filing) */}
             {isGroup && ownerSelected && childProperties.length > 0 && (
