@@ -258,6 +258,8 @@ export function Properties() {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<CahpState | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
+  // Filing status = the property's most-recent submittal status ('None' = no submittal yet).
+  const [filingFilter, setFilingFilter] = useState<SubmittalStatusValue | 'All' | 'None'>('All');
   // Owner contact filter — value is the Contact's listItem ID (string) or 'All' / 'None'.
   const [contactFilter, setContactFilter] = useState<string>('All');
   const [sahaFilter, setSahaFilter] = useState<'All' | 'SAHA' | 'NonSAHA'>('All');
@@ -306,6 +308,10 @@ export function Properties() {
       }
       if (stateFilter !== 'All' && f.cahpState !== stateFilter) return false;
       if (statusFilter !== 'All' && f.PropertyStatus !== statusFilter) return false;
+      if (filingFilter !== 'All') {
+        const fs = latestSubmittalByProperty.get(p.id)?.fields.SubmittalStatus;
+        if (filingFilter === 'None' ? !!fs : fs !== filingFilter) return false;
+      }
       if (sahaFilter !== 'All') {
         const hasSaha = (parcelStatsByProperty.get(String(p.id))?.sahaParcels ?? 0) > 0;
         if (sahaFilter === 'SAHA' && !hasSaha) return false;
@@ -348,7 +354,7 @@ export function Properties() {
       });
     }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter, contactFilter, sahaFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty, parcelStatsByProperty]);
+  }, [data, search, stateFilter, statusFilter, filingFilter, contactFilter, sahaFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty, parcelStatsByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -547,6 +553,23 @@ export function Properties() {
           onChange={(v) => setStatusFilter(v as PropertyStatus | 'All')}
           options={['All', 'Active', 'Pending', 'Withdrawn', 'Removed from Program', 'Sold']}
         />
+        <select
+          value={filingFilter}
+          onChange={(e) => setFilingFilter(e.target.value as SubmittalStatusValue | 'All' | 'None')}
+          className="text-xs px-2 py-1.5 border border-gray-200 rounded-md bg-white focus:outline-none focus:border-teal-500"
+          title="Filter by filing status (most recent submittal)"
+        >
+          <option value="All">All filing statuses</option>
+          <option value="None">— No submittal yet —</option>
+          <option value="Draft">Draft</option>
+          <option value="Filed">Filed</option>
+          <option value="Letter Received - Action Needed">Letter Received - Action Needed</option>
+          <option value="Responded - Awaiting DOR">Responded - Awaiting DOR</option>
+          <option value="Approved">Approved</option>
+          <option value="Denied">Denied</option>
+          <option value="Withdrawn">Withdrawn</option>
+          <option value="Package Mailed (NC)">Package Mailed (NC)</option>
+        </select>
         <select
           value={contactFilter}
           onChange={(e) => setContactFilter(e.target.value)}
