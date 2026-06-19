@@ -3,16 +3,16 @@ import { EASTERN_TZ } from './dates';
 /**
  * Filing-pace tracker for the 2026 SC initial-filing push.
  *
- * Goal: file every SC parcel by the end of Fri Jun 19, 2026 — a ~1-week
- * buffer before the SC_FILING_FREEZE (Jun 25). We only work Mon–Fri, so pace
- * is measured in WORKING days, not calendar days.
+ * Goal: file every SC parcel by the end of Thu Jun 25, 2026 — the SC_FILING_FREEZE
+ * date. We only work Mon–Fri, so pace is measured in WORKING days, not calendar
+ * days.
  *
  * These two dates are the only knobs for this season. Bump them here if the
  * goal moves; everything else (targets, per-day rate) is derived and stays
  * correct as the total/filed counts change.
  */
 export const FILING_PACE_START = '2026-06-03';   // campaign start (anchors the % ramp)
-export const FILING_TARGET_DATE = '2026-06-19';  // finish line (100% by end of this day)
+export const FILING_TARGET_DATE = '2026-06-25';  // finish line (100% by end of this day) = SC freeze
 
 export type PaceStatus =
   | 'complete'       // everything filed

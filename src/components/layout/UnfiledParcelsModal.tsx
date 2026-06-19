@@ -35,6 +35,7 @@ export function UnfiledParcelsModal({ onClose }: UnfiledParcelsModalProps) {
   const [bulkCreating, setBulkCreating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [draftFilter, setDraftFilter] = useState<'all' | 'draft' | 'none'>('all');
 
   const groupedByProperty = useMemo<PropertyGroup[]>(() => {
     if (!submittalsQ.data || !taxMapIDsQ.data || !propertiesQ.data) return [];
@@ -92,7 +93,22 @@ export function UnfiledParcelsModal({ onClose }: UnfiledParcelsModalProps) {
     return Array.from(groups.values()).sort((a, b) => a.propertyTitle.localeCompare(b.propertyTitle));
   }, [submittalsQ.data, taxMapIDsQ.data, propertiesQ.data]);
 
+  // Filter rows by Draft state: all / has a Draft started / no submittal yet.
+  const visibleGroups = useMemo<PropertyGroup[]>(() => {
+    if (draftFilter === 'all') return groupedByProperty;
+    return groupedByProperty
+      .map((g) => ({
+        ...g,
+        rows: g.rows.filter((r) => (draftFilter === 'draft' ? r.draftSubmittal : !r.draftSubmittal)),
+      }))
+      .filter((g) => g.rows.length > 0);
+  }, [groupedByProperty, draftFilter]);
+
   const totalParcels = groupedByProperty.reduce((sum, g) => sum + g.rows.length, 0);
+  const draftStartedCount = groupedByProperty.reduce(
+    (sum, g) => sum + g.rows.filter((r) => r.draftSubmittal).length,
+    0,
+  );
   const needsDraftRows = useMemo(
     () => groupedByProperty.flatMap((g) => g.rows.filter((r) => !r.draftSubmittal).map((r) => ({ group: g, row: r }))),
     [groupedByProperty],
@@ -199,16 +215,37 @@ export function UnfiledParcelsModal({ onClose }: UnfiledParcelsModalProps) {
           </div>
         )}
 
+        {!loading && totalParcels > 0 && (
+          <div className="px-5 py-2 border-b border-gray-200 flex items-center gap-1 text-xs">
+            <span className="text-gray-500 mr-1">Show:</span>
+            {([
+              ['all', `All (${totalParcels})`],
+              ['draft', `Draft started (${draftStartedCount})`],
+              ['none', `No submittal (${totalParcels - draftStartedCount})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setDraftFilter(key)}
+                className={`px-2 py-1 rounded border ${draftFilter === key ? 'bg-teal-700 text-white border-teal-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
-          ) : groupedByProperty.length === 0 ? (
+          ) : visibleGroups.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-500">
-              All SC parcels have been filed. Nothing left to do.
+              {groupedByProperty.length === 0
+                ? 'All SC parcels have been filed. Nothing left to do.'
+                : 'No parcels match this filter.'}
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {groupedByProperty.map((group) => (
+              {visibleGroups.map((group) => (
                 <li key={group.propertyId} className="px-5 py-3">
                   <div className="flex items-center justify-between mb-2">
                     <Link
