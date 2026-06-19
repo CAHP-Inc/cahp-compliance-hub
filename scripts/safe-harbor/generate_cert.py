@@ -590,23 +590,45 @@ def write_letter(units, roll, scopes, demo, entity, limits, out_path: Path,
     hdr = t.rows[0].cells
     for i, txt in enumerate(["AMI Tier", "Units", "% Total", "Required", "Result"]):
         hdr[i].paragraphs[0].add_run(txt).bold = True
-    low_row = ("Low-Income (≤80% AMI)", cnt["le80"], p["le80"], "≥75%", p["le80"] >= 75)
-    market_row = ("Market (>80% AMI)", cnt["market"], p["market"], "≤25%", p["market"] <= 25)
-    row_50 = ("Very Low-Income (≤50% AMI)", cnt["le50"], p["le50"], "≥20%", p["le50"] >= 20)
-    row_60 = ("Low-Income (≤60% AMI)", cnt["le60"], p["le60"], "≥40%", p["le60"] >= 40)
+    # Non-cumulative (partition) counts: each unit counted only in its deepest tier.
+    rc = {"le50": 0, "le60": 0, "le80": 0, "market": 0}
+    for u in units:
+        if u.non_residential:
+            continue
+        if u.tier in rc:
+            rc[u.tier] += 1
+    denom_r = roll["denom"] or 1
+
+    def pcr(n):
+        return round(100.0 * n / denom_r, 1)
+
+    market_row = ("Market (>80% AMI)", rc["market"], pcr(rc["market"]), "≤25%", pcr(rc["market"]) <= 25)
     if chosen == "20/50":
-        rows = [row_50, low_row, market_row]
+        rows = [
+            ("Very Low-Income (≤50% AMI)", rc["le50"], pcr(rc["le50"]), "≥20%", pcr(rc["le50"]) >= 20),
+            ("Low-Income (>50% to ≤80% AMI)", rc["le60"] + rc["le80"], pcr(rc["le60"] + rc["le80"]), "", None),
+            market_row,
+        ]
     elif chosen == "40/60":
-        rows = [row_60, low_row, market_row]
+        rows = [
+            ("Low-Income (≤60% AMI)", rc["le50"] + rc["le60"], pcr(rc["le50"] + rc["le60"]), "≥40%", pcr(rc["le50"] + rc["le60"]) >= 40),
+            ("Low-Income (>60% to ≤80% AMI)", rc["le80"], pcr(rc["le80"]), "", None),
+            market_row,
+        ]
     else:
-        rows = [low_row, row_60, row_50, market_row]
+        rows = [
+            ("≤50% AMI", rc["le50"], pcr(rc["le50"]), "", None),
+            (">50% to ≤60% AMI", rc["le60"], pcr(rc["le60"]), "", None),
+            (">60% to ≤80% AMI", rc["le80"], pcr(rc["le80"]), "", None),
+            market_row,
+        ]
     for label, n, pct_v, req, ok in rows:
         c = t.add_row().cells
         c[0].text = label
         c[1].text = str(n)
         c[2].text = f"{pct_v}%"
         c[3].text = req
-        c[4].text = "PASS" if ok else "FAIL"
+        c[4].text = "" if ok is None else ("PASS" if ok else "FAIL")
 
     if roll["n_review"]:
         warn = doc.add_paragraph()

@@ -18,7 +18,6 @@ import {
   TextRun,
   WidthType,
 } from 'docx';
-import { jsPDF } from 'jspdf';
 import type { Analysis } from './analyze';
 import type { CertConfig } from './entity';
 import { countiesForState, FY, LIMITS_EFFECTIVE, LIMITS_SOURCE } from './limits';
@@ -34,13 +33,13 @@ function wordsNum(n: number): string {
 }
 const blank = (v: string | undefined, w = 24) => (v && v.trim() ? v : '_'.repeat(w));
 
-interface TierRow { label: string; units: number; pct: number; req: string; pass: boolean }
+interface TierRow { label: string; units: number; pct: number; req: string; pass: boolean | null }
 
 /** Shared, render-agnostic content model so docx + pdf never diverge. */
 export function letterContent(analysis: Analysis, config: CertConfig) {
   const { roll, scopes, isGroup, sources, perSrc } = analysis;
   const co = config.company, prop = config.property, non = config.nonprofit;
-  const p = roll.pct, cnt = roll.counts;
+  const p = roll.pct;
   const companyName = isGroup ? config.portfolio!.groupName : co.legalName;
   const companyType = isGroup ? config.portfolio!.groupStateType : co.stateType;
   const subsidiaryDesc = config.portfolio?.subsidiaryDescription ?? 'wholly-owned single-purpose subsidiary LLCs';
@@ -89,14 +88,37 @@ export function letterContent(analysis: Analysis, config: CertConfig) {
   // Certify under a single set-aside program: prefer 20/50 (50% AMI), else
   // 40/60 (60% AMI). Show only that program's deep tier (plus the shared 75%
   // low-income / 25% market tests). When neither qualifies, show all tiers.
-  const lowRow: TierRow = { label: 'Low-Income (≤80% AMI)', units: cnt.le80, pct: p.le80, req: '≥75%', pass: p.le80 >= 75 };
-  const marketRow: TierRow = { label: 'Market (>80% AMI)', units: cnt.market, pct: p.market, req: '≤25%', pass: p.market <= 25 };
-  const row50: TierRow = { label: 'Very Low-Income (≤50% AMI)', units: cnt.le50, pct: p.le50, req: '≥20%', pass: p.le50 >= 20 };
-  const row60: TierRow = { label: 'Low-Income (≤60% AMI)', units: cnt.le60, pct: p.le60, req: '≥40%', pass: p.le60 >= 40 };
+  // NON-CUMULATIVE (partition) counts: each unit is counted only in its deepest
+  // tier. The tiers shown depend on the chosen program; the deepest tier shown
+  // absorbs everything below it (e.g. for 20/50 the ≤50% row holds all ≤50%; the
+  // ≤80% row holds only the units above 50% but at/below 80%).
+  const rc = { le50: 0, le60: 0, le80: 0, market: 0 };
+  for (const x of analysis.units) {
+    if (x.nonResidential) continue;
+    if (x.tier === 'le50' || x.tier === 'le60' || x.tier === 'le80' || x.tier === 'market') rc[x.tier]++;
+  }
+  const denomR = roll.denom;
+  const pc = (n: number) => (denomR ? Math.round((1000 * n) / denomR) / 10 : 0);
+  const marketRow: TierRow = { label: 'Market (>80% AMI)', units: rc.market, pct: pc(rc.market), req: '≤25%', pass: pc(rc.market) <= 25 };
   const tierRows: TierRow[] =
-    scopes.chosen === '20/50' ? [row50, lowRow, marketRow]
-    : scopes.chosen === '40/60' ? [row60, lowRow, marketRow]
-    : [lowRow, row60, row50, marketRow];
+    scopes.chosen === '20/50'
+      ? [
+          { label: 'Very Low-Income (≤50% AMI)', units: rc.le50, pct: pc(rc.le50), req: '≥20%', pass: pc(rc.le50) >= 20 },
+          { label: 'Low-Income (>50% to ≤80% AMI)', units: rc.le60 + rc.le80, pct: pc(rc.le60 + rc.le80), req: '', pass: null },
+          marketRow,
+        ]
+      : scopes.chosen === '40/60'
+        ? [
+            { label: 'Low-Income (≤60% AMI)', units: rc.le50 + rc.le60, pct: pc(rc.le50 + rc.le60), req: '≥40%', pass: pc(rc.le50 + rc.le60) >= 40 },
+            { label: 'Low-Income (>60% to ≤80% AMI)', units: rc.le80, pct: pc(rc.le80), req: '', pass: null },
+            marketRow,
+          ]
+        : [
+            { label: '≤50% AMI', units: rc.le50, pct: pc(rc.le50), req: '', pass: null },
+            { label: '>50% to ≤60% AMI', units: rc.le60, pct: pc(rc.le60), req: '', pass: null },
+            { label: '>60% to ≤80% AMI', units: rc.le80, pct: pc(rc.le80), req: '', pass: null },
+            marketRow,
+          ];
   const programLabel =
     scopes.chosen === '20/50' ? 'the 20%-at-50%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
     : scopes.chosen === '40/60' ? 'the 40%-at-60%-AMI set-aside (Rev. Proc. 96-32 §3.02)'
@@ -228,7 +250,7 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
   }
   children.push(gridTable(
     ['AMI Tier', 'Units', '% Total', 'Required', 'Result'],
-    m.tierRows.map((t) => [t.label, t.units, `${t.pct}%`, t.req, t.pass ? 'PASS' : 'FAIL']),
+    m.tierRows.map((t) => [t.label, t.units, `${t.pct}%`, t.req, t.pass === null ? '' : t.pass ? 'PASS' : 'FAIL']),
   ));
   if (m.reviewWarning) children.push(para(`⚠ ${m.reviewWarning}`, { bold: true, color: 'B00000' }));
 
@@ -256,67 +278,4 @@ export async function buildLetterDocx(analysis: Analysis, config: CertConfig): P
     sections: [{ children }],
   });
   return Packer.toBlob(doc);
-}
-
-// ───────────────────────────── PDF ─────────────────────────────
-export function buildLetterPdf(analysis: Analysis, config: CertConfig): Blob {
-  const m = letterContent(analysis, config);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const margin = 54;
-  const width = doc.internal.pageSize.getWidth() - margin * 2;
-  let y = margin;
-  const ensure = (h = 14) => {
-    if (y + h > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; }
-  };
-  // jsPDF's built-in Helvetica only covers WinAnsi — map the few Unicode glyphs
-  // we use (≤ ≥ — · “ ” ’ – §) to ASCII so they don't render as garbage.
-  const pdfSafe = (s: string) =>
-    s.replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/[—–]/g, '-').replace(/·/g, '|')
-      .replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/§/g, 'Sec. ');
-  const line = (text: string, opts: { bold?: boolean; size?: number; center?: boolean } = {}) => {
-    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
-    doc.setFontSize(opts.size ?? 10);
-    const wrapped = doc.splitTextToSize(pdfSafe(text), width);
-    for (const w of wrapped) {
-      ensure();
-      doc.text(w, opts.center ? doc.internal.pageSize.getWidth() / 2 : margin, y, { align: opts.center ? 'center' : 'left' });
-      y += (opts.size ?? 10) + 4;
-    }
-  };
-  const gap = (h = 6) => { y += h; };
-
-  line('SAFE HARBOR CERTIFICATION', { bold: true, size: 15, center: true });
-  line(`${m.citation.toUpperCase()}  ·  IRS REVENUE PROCEDURE 96-32`, { bold: true, size: 9, center: true });
-  gap();
-  m.params.forEach(([k, v]) => line(`${k}:  ${v}`, { size: 9 }));
-  gap();
-  line(`TO ${m.recipient.toUpperCase()}:`, { bold: true, size: 9 });
-  line(`The undersigned property management company, as ${config.certification.relationshipToOwner} for ${m.companyClause}, hereby certifies under penalty of perjury as follows:`);
-  gap();
-  line('3. Safe Harbor Qualification — Revenue Procedure 96-32.', { bold: true });
-  line(`Set-Aside Determination: ${m.determination}`, { bold: true });
-  if (m.programLabel) line(`The Property is certified under ${m.programLabel}; the test for that program is shown below.`);
-  m.tierRows.forEach((t) =>
-    line(`  ${t.label}:  ${t.units} units (${t.pct}%)  — required ${t.req} — ${t.pass ? 'PASS' : 'FAIL'}`, { size: 9 }));
-  if (m.isGroup && m.rosterRows.length) {
-    gap();
-    line('Subsidiary LLCs (EIN):', { bold: true, size: 9 });
-    m.rosterRows.forEach((r) => line(`  ${r.name} — EIN ${r.ein}${r.own !== '—' ? ` · nonprofit ${r.own}` : ''}`, { size: 9 }));
-  }
-  if (m.reviewWarning) { gap(); line(`⚠ ${m.reviewWarning}`, { bold: true, size: 9 }); }
-  gap();
-  line(`4. Exemption Request. The Company requests a full exemption under ${m.citation} for tax year ${m.taxYear}.`);
-  gap(12);
-  line(`Certified under penalty of perjury this _____ day of _______________, ${m.taxYear}.`);
-  line(m.authorityLine, { size: 8 });
-  gap();
-  ['Signature: ______________________________',
-   'Name:      ______________________________',
-   'Title:     ______________________________',
-   'Company:   ______________________________',
-   'Date:      ______________________________'].forEach((l) => line(l));
-  gap();
-  line(`Rent limits source: ${LIMITS_SOURCE} Verify against the live source before filing.`, { size: 7 });
-
-  return doc.output('blob');
 }

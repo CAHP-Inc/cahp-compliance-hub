@@ -14,7 +14,6 @@ import {
   analyze,
   buildExhibitBlob,
   buildLetterDocx,
-  buildLetterPdf,
   countiesForState,
   defaultCertConfig,
   deriveCertConfig,
@@ -404,14 +403,12 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       : slugify(config.company.legalName);
   }, [config, isGroup]);
 
-  const doDownload = async (kind: 'docx' | 'pdf' | 'xlsx') => {
+  const doDownload = async (kind: 'docx' | 'xlsx') => {
     if (!analysis || !config) return;
     setBusy(kind);
     try {
       if (kind === 'xlsx') {
         downloadBlob(buildExhibitBlob(analysis, config), `${baseName}_Unit_AMI_Analysis_INTERNAL.xlsx`);
-      } else if (kind === 'pdf') {
-        downloadBlob(buildLetterPdf(analysis, config), `${baseName}_Safe_Harbor_Certification_TY${taxYear}.pdf`);
       } else {
         downloadBlob(await buildLetterDocx(analysis, config), `${baseName}_Safe_Harbor_Certification_TY${taxYear}.docx`);
       }
@@ -448,8 +445,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   };
 
   const sc = analysis?.scopes;
-  const p = analysis?.roll.pct;
-  const cnt = analysis?.roll.counts;
   // Units that couldn't be classified and were defaulted to Market (informational).
   const nDefaulted = analysis
     ? analysis.units.filter((u) => !u.nonResidential && u.notes.some((n) => n.includes('counted as Market'))).length
@@ -691,7 +686,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
             )}
 
             {/* Live determination preview */}
-            {analysis && p && cnt && sc && (
+            {analysis && sc && (
               <div className="border border-gray-200 rounded-md p-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm font-bold text-gray-800">Determination</div>
@@ -707,20 +702,30 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                   </thead>
                   <tbody>
                     {(() => {
-                      const low: [string, number, number, string, boolean] = ['Low-Income (≤80%)', cnt.le80, p.le80, '≥75%', p.le80 >= 75];
-                      const mkt: [string, number, number, string, boolean] = ['Market (>80%)', cnt.market, p.market, '≤25%', p.market <= 25];
-                      const r50: [string, number, number, string, boolean] = ['Very Low (≤50%) — 50% AMI program', cnt.le50, p.le50, '≥20%', p.le50 >= 20];
-                      const r60: [string, number, number, string, boolean] = ['≤60% — 60% AMI program', cnt.le60, p.le60, '≥40%', p.le60 >= 40];
-                      return sc.chosen === '20/50' ? [r50, low, mkt]
-                        : sc.chosen === '40/60' ? [r60, low, mkt]
-                        : [low, r60, r50, mkt];
-                    })().map(([label, u, pc, req, ok], i) => (
+                      // Non-cumulative partition: each unit counted only in its deepest tier.
+                      const rc = { le50: 0, le60: 0, le80: 0, market: 0 };
+                      for (const x of analysis.units) {
+                        if (x.nonResidential) continue;
+                        if (x.tier === 'le50' || x.tier === 'le60' || x.tier === 'le80' || x.tier === 'market') rc[x.tier]++;
+                      }
+                      const d = analysis.roll.denom || 1;
+                      const pct = (n: number) => Math.round((1000 * n) / d) / 10;
+                      type Row = [string, number, number, string, boolean | null];
+                      const mkt: Row = ['Market (>80%)', rc.market, pct(rc.market), '≤25%', pct(rc.market) <= 25];
+                      const rows: Row[] =
+                        sc.chosen === '20/50'
+                          ? [['Very Low (≤50%)', rc.le50, pct(rc.le50), '≥20%', pct(rc.le50) >= 20], ['Low-Income (>50%–≤80%)', rc.le60 + rc.le80, pct(rc.le60 + rc.le80), '', null], mkt]
+                          : sc.chosen === '40/60'
+                            ? [['≤60% AMI', rc.le50 + rc.le60, pct(rc.le50 + rc.le60), '≥40%', pct(rc.le50 + rc.le60) >= 40], ['Low-Income (>60%–≤80%)', rc.le80, pct(rc.le80), '', null], mkt]
+                            : [['≤50%', rc.le50, pct(rc.le50), '', null], ['>50%–≤60%', rc.le60, pct(rc.le60), '', null], ['>60%–≤80%', rc.le80, pct(rc.le80), '', null], mkt];
+                      return rows;
+                    })().map(([label, u, pcv, req, ok], i) => (
                       <tr key={i} className="border-t border-gray-100">
                         <td className="py-0.5">{label as string}</td>
                         <td className="text-center">{u as number}</td>
-                        <td className="text-center">{pc as number}%</td>
+                        <td className="text-center">{pcv as number}%</td>
                         <td className="text-center">{req as string}</td>
-                        <td className={`text-center font-semibold ${ok ? 'text-success' : 'text-warning'}`}>{ok ? 'PASS' : 'FAIL'}</td>
+                        <td className={`text-center font-semibold ${ok === null ? 'text-gray-400' : ok ? 'text-success' : 'text-warning'}`}>{ok === null ? '—' : ok ? 'PASS' : 'FAIL'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -742,7 +747,6 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
           <button onClick={onClose} className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm">Close</button>
           <div className="flex items-center gap-2">
             <button disabled={!ready || busy !== null} onClick={() => doDownload('docx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'docx' ? '…' : 'Letter .docx'}</button>
-            <button disabled={!ready || busy !== null} onClick={() => doDownload('pdf')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? '…' : 'Letter PDF'}</button>
             <button disabled={!ready || busy !== null} onClick={() => doDownload('xlsx')} className="px-3 py-1.5 border border-teal-300 text-teal-700 hover:bg-teal-50 rounded-md text-sm font-medium disabled:opacity-50">{busy === 'xlsx' ? '…' : 'Unit analysis .xlsx'}</button>
             <button disabled={!ready || !representativeProperty || prospectMode || busy !== null} title={prospectMode ? 'Prospect mode — download only (entity is not in the hub)' : !representativeProperty ? 'Pick a property (or an owner with at least one linked LLC) to save into the hub' : ''} onClick={saveToEntity} className="px-4 py-1.5 bg-teal-700 hover:bg-teal-900 text-white rounded-md text-sm font-medium disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save to entity'}</button>
           </div>
