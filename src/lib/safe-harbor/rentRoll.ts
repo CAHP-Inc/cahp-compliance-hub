@@ -55,6 +55,12 @@ export async function parseRentRoll(file: File): Promise<ParsedRoll> {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
 
+  // RealPage OneSite export ("OneSite Rents v3.0" in the first cells) — a wholly
+  // different layout from AppFolio, so route to a dedicated parser.
+  if (rows.slice(0, 6).some((r) => typeof r?.[0] === 'string' && /onesite/i.test(r[0] as string))) {
+    return parseOneSite(rows, file.name);
+  }
+
   let exported = '';
   let source = '';
   let headerIdx = -1;
@@ -122,4 +128,59 @@ export async function parseRentRoll(file: File): Promise<ParsedRoll> {
   }
 
   return { units, exported, source, filename: file.name };
+}
+
+/**
+ * RealPage OneSite "Rents" export. Wide, merged-cell layout (1 unit per 3 rows):
+ *   A=Unit, C=Floorplan ("1BR"/"2BR"/"Studio"), R=Unit/Lease Status, T=Name,
+ *   AG(33)=Market rent, AO–AQ(41–43)=Lease (contract) rent, AY(51)=Total billing.
+ * No per-unit address/county — the modal fills county from the selected property.
+ * Column indices are 0-based here (A=0): C=2, R=17, T=19, AG=32, AO=40..AQ=42.
+ */
+function parseOneSite(rows: unknown[][], filename: string): ParsedRoll {
+  const units: Unit[] = [];
+  // Header row: col A contains "Unit" (often "\nUnit").
+  let headerIdx = rows.findIndex((r) => typeof r?.[0] === 'string' && /unit/i.test(r[0] as string) && /floorplan/i.test(String(r?.[2] ?? '')));
+  if (headerIdx === -1) headerIdx = rows.findIndex((r) => typeof r?.[0] === 'string' && /^\s*\n?unit\s*$/i.test(r[0] as string));
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+    const a = r[0];
+    if (a === null || a === undefined || String(a).trim() === '') continue;
+    const unitLbl = String(a).trim();
+    const floorplan = r[2] != null ? String(r[2]).trim() : '';
+    const status = r[17] != null ? String(r[17]).trim() : '';
+    // Skip non-unit rows (summary/section headers) — a real unit has a floorplan or status.
+    if (!floorplan && !status) continue;
+    if (/^(summary|total|floorplan|future\b|applicant|non-?revenue)/i.test(unitLbl)) continue;
+
+    const [bedrooms] = parseBedrooms(/\bstudio|eff/i.test(floorplan) ? '0/' : `${(floorplan.match(/(\d+)\s*BR/i)?.[1]) ?? ''}/`);
+    const name = r[19] != null ? String(r[19]).trim() : '';
+    const marketRent = toNum(r[32]); // AG
+    const leaseRent = Math.max(toNum(r[40]) ?? 0, toNum(r[41]) ?? 0, toNum(r[42]) ?? 0) || null; // AO–AQ
+    const occupied = /^occupied/i.test(status) || (Boolean(name) && name.toUpperCase() !== 'VACANT');
+    const grossRent = occupied ? (leaseRent ?? marketRent) : marketRent;
+
+    units.push({
+      source: filename.replace(/\.xlsx?$/i, ''),
+      prop: `Unit ${unitLbl}`,
+      unit: unitLbl,
+      county: null, // OneSite has no address — modal assigns the property's county
+      bedrooms,
+      baths: null,
+      tenant: name && name.toUpperCase() !== 'VACANT' ? name : '',
+      status,
+      marketRent,
+      contractRent: leaseRent,
+      occupied,
+      nonResidential: false,
+      grossRent,
+      tier: null,
+      ceil50: null,
+      ceil60: null,
+      ceil80: null,
+      notes: [],
+    });
+  }
+  return { units, exported: '', source: filename.replace(/\.xlsx?$/i, ''), filename };
 }

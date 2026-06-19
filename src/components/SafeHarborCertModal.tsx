@@ -310,17 +310,29 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   // prospect screening or pasted external rolls (those have no hub counterpart).
   const parcelIndex = useMemo(() => buildParcelIndex(taxmaps.data), [taxmaps.data]);
   const useExclusion = !prospectMode && inputMode === 'appfolio' && parcelIndex.length > 0;
+  // Rent rolls without per-unit addresses (e.g. RealPage OneSite) inherit the
+  // selected single property's county, since classify needs one.
+  const fallbackCounty =
+    selType === 'prop' && representativeProperty
+      ? (representativeProperty.fields.cahpCounty || '').split(',')[0].replace(/\((SC|NC)\)/g, '').trim()
+      : '';
   const { units, excludedUnits } = useMemo<{ units: Unit[]; excludedUnits: Unit[] }>(() => {
-    const all = rolls.flatMap((r) => r.units);
+    const all = rolls
+      .flatMap((r) => r.units)
+      .map((u) => (!u.county && fallbackCounty ? { ...u, county: fallbackCounty } : u));
     if (!useExclusion) return { units: all, excludedUnits: [] };
     const inc: Unit[] = [];
     const exc: Unit[] = [];
     for (const u of all) {
-      if (u.nonResidential || inHub(u.prop, parcelIndex)) inc.push(u);
+      // Only exclude units that actually carry a street address to match; units
+      // without one (OneSite "Unit 208") can't be judged, so keep them.
+      const toks = normalizeAddr(u.prop).split(' ').filter(Boolean);
+      const matchable = toks.length > 0 && /^\d/.test(toks[0]);
+      if (u.nonResidential || !matchable || inHub(u.prop, parcelIndex)) inc.push(u);
       else exc.push(u);
     }
     return { units: inc, excludedUnits: exc };
-  }, [rolls, useExclusion, parcelIndex]);
+  }, [rolls, useExclusion, parcelIndex, fallbackCounty]);
 
   const distinctSources = useMemo(
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
@@ -489,7 +501,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                   onChange={(e) => e.target.files && handleFiles(e.target.files)}
                 />
                 <Icon name="file" size={18} className="mx-auto mb-1 text-gray-400" />
-                Drop AppFolio rent roll .xlsx file(s) here, or click to browse
+                Drop rent roll .xlsx file(s) here (AppFolio or RealPage OneSite), or click to browse
               </div>
             ) : (
               /* Paste / PDF — non-AppFolio rent rolls from outside PMs */
