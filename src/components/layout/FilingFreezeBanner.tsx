@@ -10,7 +10,7 @@ import {
 import { UnfiledParcelsModal } from './UnfiledParcelsModal';
 import { computeFilingPace, type FilingPace } from '../../lib/filing-pace';
 
-export const SC_FILING_FREEZE = new Date('2026-06-25T23:59:59-04:00');
+export const SC_FILING_FREEZE = new Date('2026-06-30T23:59:59-04:00');
 export const CURRENT_FILING_YEAR = '2026';
 
 export interface FilingFreezeStatus {
@@ -89,10 +89,10 @@ export function FilingFreezeBanner({ status }: FilingFreezeBannerProps) {
     : 'bg-amber-950 text-amber-50 hover:bg-amber-900';
 
   const deadlineLabel = isPastFreeze
-    ? 'past the June 25 SC freeze'
+    ? 'past the June 30 SC freeze'
     : daysLeft === 0
       ? 'SC freeze starts TODAY'
-      : `${daysLeft} day${daysLeft === 1 ? '' : 's'} until June 25 SC freeze`;
+      : `${daysLeft} day${daysLeft === 1 ? '' : 's'} until June 30 SC freeze`;
 
   // Condensed pace toward the self-imposed finish date.
   const { pace } = status;
