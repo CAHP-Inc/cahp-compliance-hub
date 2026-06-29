@@ -86,13 +86,18 @@ export function findPercentInvoiceForPropertyYear(
   propertyId: string,
   taxYear: string,
   billings: Billing[],
+  taxMapId?: string | null,
 ): Billing | null {
+  // A % invoice is scoped either to the whole property (no TMID) or to a single
+  // parcel; dedupe matches the same scope so each TMID can be billed separately.
+  const tmid = taxMapId ? String(taxMapId) : '';
   return (
     billings.find(
       (b) =>
         isPercentInvoice(b) &&
         String(b.fields.PropertyLookupId ?? '') === String(propertyId) &&
-        b.fields.cahpTaxYear === taxYear,
+        b.fields.cahpTaxYear === taxYear &&
+        String(b.fields.BillTaxMapIDLookupId ?? '') === tmid,
     ) ?? null
   );
 }
@@ -205,10 +210,11 @@ export async function recordAnnualPercentInvoice(opts: {
   lastFullTaxBill: number;
   mostRecentTaxBill: number;
   feePercent: number;
+  taxMapId?: string | null;
   initialSubmittal?: Submittal | null;
   letterRef?: string;
 }): Promise<void> {
-  const { property, taxYear, lastFullTaxBill, mostRecentTaxBill, feePercent, initialSubmittal, letterRef } = opts;
+  const { property, taxYear, lastFullTaxBill, mostRecentTaxBill, feePercent, taxMapId, initialSubmittal, letterRef } = opts;
   // Savings = the abatement: full (pre-abatement) bill minus the most recent (abated) bill.
   const taxSavings = Math.max(0, lastFullTaxBill - mostRecentTaxBill);
   const amount = (taxSavings * feePercent) / 100;
@@ -219,6 +225,7 @@ export async function recordAnnualPercentInvoice(opts: {
     Title: `${propName} ${taxYear} CAHP Fee (% of Savings)`.trim(),
     PropertyLookupId: String(property.id),
     ...(initialSubmittal ? { BillSubmittalLookupId: String(initialSubmittal.id) } : {}),
+    ...(taxMapId ? { BillTaxMapIDLookupId: String(taxMapId) } : {}),
     BillingType: 'Percent of Savings',
     cahpTaxYear: taxYear,
     LastFullTaxBill: lastFullTaxBill,
@@ -245,10 +252,11 @@ export function isNAPercent(b: Billing): boolean {
 export async function markPercentNA(opts: {
   property: Property;
   taxYear: CahpTaxYear;
+  taxMapId?: string | null;
   initialSubmittal?: Submittal | null;
   note?: string;
 }): Promise<void> {
-  const { property, taxYear, initialSubmittal, note } = opts;
+  const { property, taxYear, taxMapId, initialSubmittal, note } = opts;
   const propName = property.fields.Title ?? 'Property';
   const reason = note?.trim() ? ` ${note.trim()}` : '';
 
@@ -256,6 +264,7 @@ export async function markPercentNA(opts: {
     Title: `${propName} ${taxYear} CAHP Fee (% of Savings) — N/A`.trim(),
     PropertyLookupId: String(property.id),
     ...(initialSubmittal ? { BillSubmittalLookupId: String(initialSubmittal.id) } : {}),
+    ...(taxMapId ? { BillTaxMapIDLookupId: String(taxMapId) } : {}),
     BillingType: 'Percent of Savings',
     cahpTaxYear: taxYear,
     AmountBilled: 0,

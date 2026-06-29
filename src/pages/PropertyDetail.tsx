@@ -1202,13 +1202,21 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
 
   // ── Annual CAHP % of Savings (recurring per-year billing, no submittal) ──
   const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
+  const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+  const propParcels = useMemo(
+    () => (taxmaps.data ?? []).filter((t) => String(t.fields.LinkedPropertyLookupId ?? '') === String(propertyId)),
+    [taxmaps.data, propertyId],
+  );
+  const [pctTmid, setPctTmid] = useState(''); // '' = whole property; else a TMID item id
+  // "Handled" years are scoped to the current selection (whole property, or one TMID).
+  const inScope = (b: Billing) => String(b.fields.BillTaxMapIDLookupId ?? '') === (pctTmid || '');
   const claimedYears = useMemo(
-    () => new Set(filtered.filter((b) => isPercentInvoice(b) && !isNAPercent(b)).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
-    [filtered],
+    () => new Set(filtered.filter((b) => isPercentInvoice(b) && !isNAPercent(b) && inScope(b)).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
+    [filtered, pctTmid], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const naPctYears = useMemo(
-    () => new Set(filtered.filter(isNAPercent).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
-    [filtered],
+    () => new Set(filtered.filter((b) => isNAPercent(b) && inScope(b)).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
+    [filtered, pctTmid], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // Default the year to the first unhandled year (newest handled + 1, else current).
   const suggestedYear = useMemo<CahpTaxYear>(() => {
@@ -1231,8 +1239,8 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
   const calcSavings = !isNaN(lf) && !isNaN(mr) ? Math.max(0, lf - mr) : null;
   const calcFee = calcSavings != null && !isNaN(pp) ? (calcSavings * pp) / 100 : null;
 
-  const dupGuard = () => data && findPercentInvoiceForPropertyYear(propertyId, effYear, data)
-    ? (setPctError(`TY ${effYear} already has a % of savings entry.`), true) : false;
+  const dupGuard = () => data && findPercentInvoiceForPropertyYear(propertyId, effYear, data, pctTmid)
+    ? (setPctError(`TY ${effYear} already has a % of savings entry for this scope.`), true) : false;
 
   const generateAnnualPct = async () => {
     setPctError(null);
@@ -1242,7 +1250,7 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     if (dupGuard()) return;
     setPctBusy('bill');
     try {
-      await recordAnnualPercentInvoice({ property, taxYear: effYear, lastFullTaxBill: lf, mostRecentTaxBill: mr, feePercent: pp, initialSubmittal });
+      await recordAnnualPercentInvoice({ property, taxYear: effYear, lastFullTaxBill: lf, mostRecentTaxBill: mr, feePercent: pp, taxMapId: pctTmid || null, initialSubmittal });
       setLastFullBill(''); setRecentBill(''); setPctYear('');
       await refetch();
     } catch (e) {
@@ -1257,7 +1265,7 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     if (dupGuard()) return;
     setPctBusy('na');
     try {
-      await markPercentNA({ property, taxYear: effYear, initialSubmittal });
+      await markPercentNA({ property, taxYear: effYear, taxMapId: pctTmid || null, initialSubmittal });
       setPctYear('');
       await refetch();
     } catch (e) {
@@ -1291,6 +1299,20 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
             ))}
           </select>
         </label>
+        {propParcels.length > 0 && (
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-semibold text-gray-600">Tax Map ID (optional)</span>
+            <select
+              value={pctTmid}
+              onChange={(e) => setPctTmid(e.target.value)}
+              disabled={pctBusy !== null}
+              className="border border-gray-300 rounded px-2 py-1 bg-white max-w-[12rem] truncate"
+            >
+              <option value="">Whole property</option>
+              {propParcels.map((t) => <option key={t.id} value={String(t.id)}>{t.fields.Title}</option>)}
+            </select>
+          </label>
+        )}
         <label className="flex flex-col gap-1 text-xs">
           <span className="font-semibold text-gray-600">Last full tax bill ($)</span>
           <input

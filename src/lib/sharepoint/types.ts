@@ -341,6 +341,7 @@ export interface BillingFields {
   Title: string;                              // Billing Reference
   PropertyLookupId?: string;                  // → Properties Registry
   BillSubmittalLookupId?: string;             // → Submittals Tracker — the approved filing this invoice bills against
+  BillTaxMapIDLookupId?: string;              // → Tax Map IDs — optional parcel this invoice is scoped to (multi-TMID properties)
   BillingType?: BillingType;                  // Filing Fee (one-time) vs Percent of Savings (per tax year)
   cahpTaxYear?: CahpTaxYear;
   AmountBilled?: number;                       // What the owner owes CAHP on this invoice
