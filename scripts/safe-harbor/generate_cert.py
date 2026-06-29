@@ -85,11 +85,27 @@ def _num(v):
 
 
 def detect_county(address: str, city_to_county: dict) -> tuple[str | None, str | None]:
-    """Return (city, county) by longest-name city match, else zip-prefix fallback."""
+    """Return (city, county) for an AppFolio property string.
+
+    Priority: (1) the city named in the "<City>, SC <zip>" tail, (2) ZIP prefix,
+    (3) a loose scan of the whole address. The tail match only accepts a city that
+    sits immediately before the state, so a street name containing a city word
+    (e.g. "Old Spartanburg Rd Taylors, SC") keys off "Taylors"/the ZIP, not the
+    "Spartanburg" buried in the street."""
     addr = address or ""
-    for city in sorted(city_to_county, key=len, reverse=True):
-        if re.search(r"\b" + re.escape(city) + r"\b", addr, re.IGNORECASE):
-            return city, city_to_county[city]
+    # 1) City in the "<City>, SC <zip>" tail — match only cities that end the text
+    #    before the state token, so mid-street city words can't win.
+    m = re.search(r"(.*?),\s*(?:S\.?C\.?|South Carolina)\b", addr, re.IGNORECASE)
+    if m:
+        pre = m.group(1).rstrip()
+        best = None
+        for city in city_to_county:
+            if re.search(r"(?:^|\W)" + re.escape(city) + r"\s*$", pre, re.IGNORECASE):
+                if best is None or len(city) > len(best):
+                    best = city
+        if best:
+            return best, city_to_county[best]
+    # 2) ZIP prefix fallback.
     m = re.search(r"\b(\d{5})(?:-\d{4})?\b", addr)
     if m:
         z = m.group(1)
@@ -97,6 +113,10 @@ def detect_county(address: str, city_to_county: dict) -> tuple[str | None, str |
             return None, "Spartanburg"
         if z.startswith("296"):
             return None, "Greenville"
+    # 3) Last resort: any city name anywhere in the address (legacy behavior).
+    for city in sorted(city_to_county, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(city) + r"\b", addr, re.IGNORECASE):
+            return city, city_to_county[city]
     return None, None
 
 

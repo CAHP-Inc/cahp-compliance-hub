@@ -147,6 +147,8 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
   const [description, setDescription] = useState('scattered-site residential rental units');
   const [groupOverride, setGroupOverride] = useState(false);
   const [groupName, setGroupName] = useState('');
+  // Owner selected but filed as ONE consolidated entity (parent's name, no sub-LLC roster).
+  const [consolidateOwner, setConsolidateOwner] = useState(false);
   // Prospect mode: entity isn't in the hub yet — qualification only.
   const [prospectMode, setProspectMode] = useState(false);
   const [prospectName, setProspectName] = useState('');
@@ -337,26 +339,29 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
     () => [...new Set(units.map((u) => u.source).filter(Boolean))],
     [units],
   );
-  const isGroup = Boolean(ownerSelected) || groupOverride || distinctSources.length > 1;
+  const isGroup = (Boolean(ownerSelected) && !consolidateOwner) || groupOverride || distinctSources.length > 1;
 
   const analysis = useMemo(
-    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: Boolean(ownerSelected) || groupOverride, state: filingState }) : null),
-    [units, taxYear, utilityAllowance, ownerSelected, groupOverride, filingState],
+    () => (units.length ? analyze(units, { taxYear, utilityAllowance, forceGroup: (Boolean(ownerSelected) && !consolidateOwner) || groupOverride, state: filingState }) : null),
+    [units, taxYear, utilityAllowance, ownerSelected, consolidateOwner, groupOverride, filingState],
   );
 
   // Final config = derived hub facts + UI overrides.
   const config: CertConfig | null = useMemo(() => {
     if (!derived) return null;
     const c: CertConfig = JSON.parse(JSON.stringify(derived.config));
+    // A parent owner filed as ONE entity (not a group): title the letter in the
+    // owner's name, take counties from the rolls, and omit the sub-LLC roster.
+    const ownerConsolidated = Boolean(ownerSelected) && !isGroup;
     c.certification.relationshipToOwner = relationship;
     c.property.description = description;
     c.property.taxMapParcels = [];
     c.filing.taxYear = taxYear;
-    // For a group (or when the hub had no county), take counties from the rent rolls.
+    // For a group/consolidated owner (or when the hub had no county), take counties from the rent rolls.
     const rollCounties = [...new Set(units.map((u) => u.county).filter((x): x is string => Boolean(x)))];
-    if ((isGroup || c.property.counties.length === 0) && rollCounties.length) {
+    if ((isGroup || ownerConsolidated || c.property.counties.length === 0) && rollCounties.length) {
       c.property.counties = rollCounties;
-      if (!c.property.addressLine) {
+      if (!c.property.addressLine || ownerConsolidated) {
         c.property.addressLine = `Scattered sites located in ${rollCounties.join(' and ')} ${rollCounties.length > 1 ? 'Counties' : 'County'}, South Carolina`;
       }
     }
@@ -372,6 +377,12 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       const i = cahpInterestFor(String(representativeProperty.id));
       c.nonprofit.ownershipPercent = i.ownershipPercent;
       c.nonprofit.memberClass = i.memberClass;
+    }
+    // Consolidated owner filing: re-title in the parent's name and use the parent's
+    // CAHP beneficial % (overriding the representative child's, set just above).
+    if (ownerConsolidated) {
+      if (ownerSelected?.fields.Title) c.company.legalName = ownerSelected.fields.Title;
+      if (parentCahpPct != null) c.nonprofit.ownershipPercent = parentCahpPct;
     }
     if (isGroup) {
       const gName = groupName || ownerSelected?.fields.Title || derived.config.company.legalName;
@@ -393,7 +404,7 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
       };
     }
     return c;
-  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, groupName, ownerSelected, representativeProperty, filingState, units, distinctSources, childProperties, owners.data, ownership.data, cahpInterestFor]);
+  }, [derived, relationship, description, citationOverride, recipientOverride, taxYear, isGroup, consolidateOwner, parentCahpPct, groupName, ownerSelected, representativeProperty, filingState, units, distinctSources, childProperties, owners.data, ownership.data, cahpInterestFor]);
 
   const ready = Boolean(analysis && config);
   const baseName = useMemo(() => {
@@ -626,9 +637,17 @@ export function SafeHarborCertModal({ initialPropertyId, onClose }: SafeHarborCe
                 <input type="checkbox" checked={isGroup} disabled={distinctSources.length > 1 || Boolean(ownerSelected)} onChange={(e) => setGroupOverride(e.target.checked)} />
                 Group / portfolio filing
                 {ownerSelected
-                  ? <span className="text-gray-400">(auto: parent owner selected)</span>
+                  ? <span className="text-gray-400">{consolidateOwner ? '(off: filing as one consolidated entity)' : '(auto: parent owner selected)'}</span>
                   : distinctSources.length > 1 && <span className="text-gray-400">(auto: {distinctSources.length} LLCs detected)</span>}
               </label>
+              {ownerSelected && (
+                <label className="flex items-center gap-2 col-span-2 text-xs text-gray-700">
+                  <input type="checkbox" checked={consolidateOwner} onChange={(e) => setConsolidateOwner(e.target.checked)} />
+                  <span>
+                    File as a <strong>single consolidated entity</strong> in the name of {ownerSelected.fields.Title} (omit the sub-LLC roster) — use when the rent-roll units are all filed under the parent rather than split per sub-LLC.
+                  </span>
+                </label>
+              )}
               {isGroup && (
                 <label className="flex flex-col gap-1 col-span-2">
                   <span className="text-xs font-semibold text-gray-600">Portfolio (parent) name</span>
