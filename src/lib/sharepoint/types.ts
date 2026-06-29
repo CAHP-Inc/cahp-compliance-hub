@@ -323,7 +323,8 @@ export type BillingStatusValue =
   | 'Ready to Invoice'
   | 'Invoiced'
   | 'Paid'
-  | 'Disputed';
+  | 'Disputed'
+  | 'N/A';        // intentionally not charged (e.g. a waived initial filing fee)
 
 export type QBSyncStatus = 'Not Synced' | 'Synced' | 'Discrepancy';
 

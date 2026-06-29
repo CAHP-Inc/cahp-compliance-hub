@@ -43,6 +43,7 @@ const STATUS_STYLES: Record<BillingStatusValue, string> = {
   'Invoiced': 'bg-blue-100 text-blue-800',
   'Paid': 'bg-green-100 text-green-800',
   'Disputed': 'bg-red-100 text-red-800',
+  'N/A': 'bg-gray-100 text-gray-500',
 };
 
 export function BillingDetail() {

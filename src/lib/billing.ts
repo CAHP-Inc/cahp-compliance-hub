@@ -39,6 +39,16 @@ export function isFilingFeeInvoice(b: Billing): boolean {
 }
 
 /**
+ * A filing-fee row that records "we are NOT charging this property an initial
+ * filing fee" — a $0 placeholder, status N/A. It still satisfies
+ * findFilingFeeInvoiceForProperty, so the property drops out of the to-invoice
+ * queue exactly like a real fee would.
+ */
+export function isNAFilingFee(b: Billing): boolean {
+  return isFilingFeeInvoice(b) && b.fields.BillingStatus === 'N/A';
+}
+
+/**
  * The % of savings invoice already on file for a submittal, if any. Prefers the
  * explicit submittal link; falls back to property + tax year for invoices made
  * before the BillSubmittal/BillingType columns existed, so we never double-bill.
@@ -157,6 +167,33 @@ export async function generateFilingFeeInvoice(opts: {
     BillingStatus: 'Ready to Invoice' as BillingStatusValue,
     QBSyncStatus: 'Not Synced',
     BillingNotes: `One-time filing fee.${ref}`,
+  });
+}
+
+/**
+ * Mark a property's initial filing fee as N/A (not charged) by writing a $0
+ * placeholder Filing Fee row. Anchored to the Initial submittal when one exists.
+ * Does NOT touch the submittal status (nothing is being invoiced).
+ */
+export async function markFilingFeeNA(opts: {
+  property: Property;
+  submittal?: Submittal | null;
+  note?: string;
+}): Promise<void> {
+  const { property, submittal, note } = opts;
+  const propName = property.fields.Title ?? 'Property';
+  const reason = note?.trim() ? ` ${note.trim()}` : '';
+
+  await createListItem(LIST_NAMES.Billing, {
+    Title: `${propName} CAHP Filing Fee — N/A`.trim(),
+    PropertyLookupId: String(property.id),
+    ...(submittal ? { BillSubmittalLookupId: String(submittal.id), cahpTaxYear: submittal.fields.cahpTaxYear } : {}),
+    BillingType: 'Filing Fee',
+    AmountBilled: 0,
+    CAHPFilingFee: 0,
+    BillingStatus: 'N/A' as BillingStatusValue,
+    QBSyncStatus: 'Not Synced',
+    BillingNotes: `Initial filing fee not charged (N/A).${reason}`,
   });
 }
 

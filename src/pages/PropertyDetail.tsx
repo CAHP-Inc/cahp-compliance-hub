@@ -55,6 +55,7 @@ import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
 import { formatDateOnly, formatDateET, formatDateTime, toDateInputValue, EASTERN_TZ } from '../lib/dates';
+import { markFilingFeeNA, isNAFilingFee } from '../lib/billing';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -373,7 +374,7 @@ export function PropertyDetail() {
       {activeTab === 'orgChart' && id && <PropertyOrgChartTab propertyId={id} property={property} />}
       {activeTab === 'correspondence' && id && <PropertyCorrespondenceTab propertyId={id} />}
       {activeTab === 'outstanding' && id && <PropertyOutstandingTab propertyId={id} propertyTitle={property.fields.Title} />}
-      {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} />}
+      {activeTab === 'billing' && id && <PropertyBillingTab propertyId={id} property={property} submittals={relatedSubmittals} />}
       {activeTab === 'documents' && id && <PropertyDocumentsTab propertyId={id} propertyTitle={property.fields.Title} propertyState={property.fields.cahpState} />}
       {activeTab === 'activity' && id && <PropertyActivityTab propertyId={id} />}
       {activeTab === 'notes' && id && <PropertyNotesTab propertyId={id} propertyTitle={property.fields.Title} />}
@@ -1152,13 +1153,16 @@ const BILLING_STATUS_STYLES: Record<string, string> = {
   'Invoiced': 'bg-indigo-100 text-indigo-800',
   'Paid': 'bg-green-100 text-green-800',
   'Disputed': 'bg-red-100 text-red-800',
+  'N/A': 'bg-gray-100 text-gray-500',
 };
 
-function PropertyBillingTab({ propertyId }: { propertyId: string }) {
-  const { data, loading, error } = useSharePointList<Billing>(
+function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: string; property: Property; submittals: Submittal[] }) {
+  const { data, loading, error, refetch } = useSharePointList<Billing>(
     LIST_NAMES.Billing,
     { top: 500 }
   );
+  const [feeBusy, setFeeBusy] = useState(false);
+  const [feeError, setFeeError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -1171,17 +1175,71 @@ function PropertyBillingTab({ propertyId }: { propertyId: string }) {
       });
   }, [data, propertyId]);
 
+  // The existing N/A filing-fee row for this property, if any.
+  const naRow = useMemo(() => filtered.find(isNAFilingFee) ?? null, [filtered]);
+  const initialSubmittal = useMemo(
+    () => submittals.find((s) => s.fields.FilingType === 'Initial') ?? null,
+    [submittals],
+  );
+
+  const toggleFilingFeeNA = async () => {
+    setFeeError(null);
+    setFeeBusy(true);
+    try {
+      if (naRow) {
+        await deleteListItem(LIST_NAMES.Billing, String(naRow.id));
+      } else {
+        await markFilingFeeNA({ property, submittal: initialSubmittal });
+      }
+      await refetch();
+    } catch (e) {
+      setFeeError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFeeBusy(false);
+    }
+  };
+
+  const naControl = (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card mb-4 flex items-center justify-between gap-3">
+      <div>
+        <div className="text-sm font-semibold text-gray-800">
+          Initial filing fee: {naRow
+            ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-100 text-gray-500 align-middle">N/A — not charged</span>
+            : <span className="text-gray-600">chargeable</span>}
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {naRow
+            ? 'This property is not billed an initial filing fee. Undo to make it chargeable again.'
+            : 'Mark N/A if you are not charging this property an initial filing fee (keeps it out of the billing queue).'}
+        </p>
+        {feeError && <p className="text-xs text-red-700 mt-1">{feeError}</p>}
+      </div>
+      <button
+        onClick={toggleFilingFeeNA}
+        disabled={feeBusy}
+        className={`px-3 py-1.5 rounded-md text-xs font-medium border disabled:opacity-50 ${
+          naRow ? 'border-gray-300 text-gray-600 hover:bg-gray-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+        }`}
+      >
+        {feeBusy ? 'Saving…' : naRow ? 'Undo N/A' : 'Mark filing fee N/A'}
+      </button>
+    </div>
+  );
+
   if (loading) return <TabLoading label="billing records" />;
   if (error) return <TabError error={error} />;
 
   if (filtered.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
-        <p className="text-sm text-gray-500">No billing records for this property yet.</p>
-        <p className="text-xs text-gray-400 mt-2">
-          Invoices are created from an Approved submittal — open the submittal and click Generate Invoice once
-          accounting has confirmed the numbers.
-        </p>
+      <div>
+        {naControl}
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
+          <p className="text-sm text-gray-500">No billing records for this property yet.</p>
+          <p className="text-xs text-gray-400 mt-2">
+            Invoices are created from an Approved submittal — open the submittal and click Generate Invoice once
+            accounting has confirmed the numbers.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1191,6 +1249,7 @@ function PropertyBillingTab({ propertyId }: { propertyId: string }) {
 
   return (
     <div>
+      {naControl}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card">
           <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total CAHP Fees Billed</div>

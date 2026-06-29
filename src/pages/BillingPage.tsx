@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useSharePointList,
+  deleteListItem,
   LIST_NAMES,
   type Billing,
   type Disbursement,
@@ -15,6 +16,8 @@ import {
   computeInvoiceQueues,
   generatePercentInvoice,
   generateFilingFeeInvoice,
+  markFilingFeeNA,
+  isNAFilingFee,
   type PercentQueueItem,
   type FilingFeeQueueItem,
 } from '../lib/billing';
@@ -26,6 +29,7 @@ const BILLING_STATUS_STYLES: Record<BillingStatusValue, string> = {
   'Invoiced': 'bg-blue-100 text-blue-800',
   'Paid': 'bg-green-100 text-green-800',
   'Disputed': 'bg-red-100 text-red-800',
+  'N/A': 'bg-gray-100 text-gray-500',
 };
 
 const QB_SYNC_STYLES: Record<QBSyncStatus, string> = {
@@ -102,6 +106,19 @@ function ToInvoiceTab() {
     return computeInvoiceQueues(submittals.data, billings.data, properties.data);
   }, [submittals.data, billings.data, properties.data]);
 
+  // Properties whose initial filing fee is marked N/A (not charged).
+  const naFilingFees = useMemo(() => {
+    if (!billings.data) return [];
+    const propById = new Map((properties.data ?? []).map((p) => [String(p.id), p]));
+    return billings.data
+      .filter(isNAFilingFee)
+      .map((b) => ({
+        billing: b,
+        property: b.fields.PropertyLookupId ? propById.get(String(b.fields.PropertyLookupId)) ?? null : null,
+      }))
+      .sort((a, b) => (a.property?.fields.Title ?? '').localeCompare(b.property?.fields.Title ?? ''));
+  }, [billings.data, properties.data]);
+
   // Current (possibly-overridden) values for a row.
   const pctFor = (item: PercentQueueItem) =>
     pctOverrides[String(item.submittal.id)] ?? String(item.feePercent);
@@ -149,6 +166,39 @@ function ToInvoiceTab() {
     setBusy(`filing-${item.submittal.id}`);
     try {
       await generateFilingFeeInvoice({ submittal: item.submittal, property: item.property, amount });
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Mark a property's initial filing fee as N/A (writes a $0 placeholder row so
+  // the property leaves this queue and is recorded as intentionally not charged).
+  const markOneNA = async (item: FilingFeeQueueItem) => {
+    if (!item.property) {
+      setError("Can't mark N/A — this filing isn't linked to a property.");
+      return;
+    }
+    setError(null);
+    setBusy(`na-${item.submittal.id}`);
+    try {
+      await markFilingFeeNA({ property: item.property, submittal: item.submittal });
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Undo an N/A by deleting its placeholder row (the property returns to the queue).
+  const undoNA = async (billing: Billing) => {
+    setError(null);
+    setBusy(`undo-${billing.id}`);
+    try {
+      await deleteListItem(LIST_NAMES.Billing, String(billing.id));
       await refetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -263,13 +313,52 @@ function ToInvoiceTab() {
                       className={rowInputClass}
                     />
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => markOneNA(item)}
+                      disabled={busy !== null}
+                      title="Not charging an initial filing fee for this property"
+                      className="px-3 py-1 mr-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {busy === `na-${item.submittal.id}` ? 'Marking…' : 'Mark N/A'}
+                    </button>
                     <button
                       onClick={() => runOneFiling(item)}
                       disabled={busy !== null}
                       className="px-3 py-1 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
                     >
                       {busy === `filing-${item.submittal.id}` ? 'Generating…' : 'Generate'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Filing fees marked N/A — not charged (with undo) */}
+      {naFilingFees.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <h3 className="text-sm font-bold text-gray-600">Initial filing fee — N/A (not charged)</h3>
+            <p className="text-xs text-gray-500">Properties intentionally not billed an initial filing fee. Undo to put one back in the queue above.</p>
+          </div>
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-gray-100">
+              {naFilingFees.map(({ billing, property }) => (
+                <tr key={`na-${billing.id}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-900">{property?.fields.Title ?? '(unlinked)'}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-100 text-gray-500">N/A</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => undoNA(billing)}
+                      disabled={busy !== null}
+                      className="px-3 py-1 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {busy === `undo-${billing.id}` ? 'Undoing…' : 'Undo'}
                     </button>
                   </td>
                 </tr>
