@@ -21,6 +21,7 @@ import {
   type PropertyNote,
   type Correspondence,
   type Billing,
+  type CahpTaxYear,
   type AuditLog,
   type OutstandingItem,
   type ItemStatus,
@@ -55,7 +56,7 @@ import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
 import { formatDateOnly, formatDateET, formatDateTime, toDateInputValue, EASTERN_TZ } from '../lib/dates';
-import { markFilingFeeNA, isNAFilingFee } from '../lib/billing';
+import { markFilingFeeNA, isNAFilingFee, isPercentInvoice, isNAPercent, recordAnnualPercentInvoice, markPercentNA, findPercentInvoiceForPropertyYear, DEFAULT_FEE_PERCENT } from '../lib/billing';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -1199,6 +1200,153 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     }
   };
 
+  // ── Annual CAHP % of Savings (recurring per-year billing, no submittal) ──
+  const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
+  const claimedYears = useMemo(
+    () => new Set(filtered.filter((b) => isPercentInvoice(b) && !isNAPercent(b)).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
+    [filtered],
+  );
+  const naPctYears = useMemo(
+    () => new Set(filtered.filter(isNAPercent).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
+    [filtered],
+  );
+  // Default the year to the first unhandled year (newest handled + 1, else current).
+  const suggestedYear = useMemo<CahpTaxYear>(() => {
+    const handled = [...claimedYears, ...naPctYears].map(Number).filter((n) => !Number.isNaN(n));
+    const next = handled.length ? Math.max(...handled) + 1 : new Date().getFullYear();
+    const asStr = String(next);
+    return (TAX_YEARS.includes(asStr as CahpTaxYear) ? asStr : TAX_YEARS[TAX_YEARS.length - 1]) as CahpTaxYear;
+  }, [claimedYears, naPctYears]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [pctYear, setPctYear] = useState<CahpTaxYear | ''>('');
+  const [lastFullBill, setLastFullBill] = useState('');
+  const [recentBill, setRecentBill] = useState('');
+  const [pctPercent, setPctPercent] = useState(String(DEFAULT_FEE_PERCENT));
+  const [pctBusy, setPctBusy] = useState<'bill' | 'na' | null>(null);
+  const [pctError, setPctError] = useState<string | null>(null);
+  const effYear = (pctYear || suggestedYear) as CahpTaxYear;
+  const alreadyHandled = claimedYears.has(effYear) || naPctYears.has(effYear);
+  const lf = parseFloat(lastFullBill);
+  const mr = parseFloat(recentBill);
+  const pp = parseFloat(pctPercent);
+  const calcSavings = !isNaN(lf) && !isNaN(mr) ? Math.max(0, lf - mr) : null;
+  const calcFee = calcSavings != null && !isNaN(pp) ? (calcSavings * pp) / 100 : null;
+
+  const dupGuard = () => data && findPercentInvoiceForPropertyYear(propertyId, effYear, data)
+    ? (setPctError(`TY ${effYear} already has a % of savings entry.`), true) : false;
+
+  const generateAnnualPct = async () => {
+    setPctError(null);
+    if (isNaN(lf) || isNaN(mr)) { setPctError('Enter both the last full tax bill and the most recent tax bill.'); return; }
+    if (lf - mr <= 0) { setPctError('Last full tax bill must be greater than the most recent (abated) bill.'); return; }
+    if (isNaN(pp) || pp <= 0 || pp > 100) { setPctError('Enter a fee % between 0 and 100.'); return; }
+    if (dupGuard()) return;
+    setPctBusy('bill');
+    try {
+      await recordAnnualPercentInvoice({ property, taxYear: effYear, lastFullTaxBill: lf, mostRecentTaxBill: mr, feePercent: pp, initialSubmittal });
+      setLastFullBill(''); setRecentBill(''); setPctYear('');
+      await refetch();
+    } catch (e) {
+      setPctError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPctBusy(null);
+    }
+  };
+
+  const markYearNA = async () => {
+    setPctError(null);
+    if (dupGuard()) return;
+    setPctBusy('na');
+    try {
+      await markPercentNA({ property, taxYear: effYear, initialSubmittal });
+      setPctYear('');
+      await refetch();
+    } catch (e) {
+      setPctError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPctBusy(null);
+    }
+  };
+
+  const annualPctPanel = (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card mb-4">
+      <div className="mb-2">
+        <div className="text-sm font-semibold text-gray-800">Annual CAHP % of Savings</div>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Savings = Last full tax bill − Most recent (abated) tax bill. CAHP fee = savings × fee %. Use this to catch up
+          prior years and roll forward each new year. Mark a year N/A if the % isn't being claimed (e.g. an abatement
+          already obtained under another program).
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-semibold text-gray-600">Tax year</span>
+          <select
+            value={effYear}
+            onChange={(e) => setPctYear(e.target.value as CahpTaxYear)}
+            disabled={pctBusy !== null}
+            className="border border-gray-300 rounded px-2 py-1 font-mono-data bg-white"
+          >
+            {TAX_YEARS.map((y) => (
+              <option key={y} value={y}>{y}{claimedYears.has(y) ? ' ✓' : naPctYears.has(y) ? ' (N/A)' : ''}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-semibold text-gray-600">Last full tax bill ($)</span>
+          <input
+            type="number" min="0" step="0.01" value={lastFullBill}
+            onChange={(e) => setLastFullBill(e.target.value)} disabled={pctBusy !== null || alreadyHandled}
+            className="border border-gray-300 rounded px-2 py-1 font-mono-data w-32"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-semibold text-gray-600">Most recent tax bill ($)</span>
+          <input
+            type="number" min="0" step="0.01" value={recentBill}
+            onChange={(e) => setRecentBill(e.target.value)} disabled={pctBusy !== null || alreadyHandled}
+            className="border border-gray-300 rounded px-2 py-1 font-mono-data w-32"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-semibold text-gray-600">Fee %</span>
+          <input
+            type="number" min="0" max="100" step="0.1" value={pctPercent}
+            onChange={(e) => setPctPercent(e.target.value)} disabled={pctBusy !== null || alreadyHandled}
+            className="border border-gray-300 rounded px-2 py-1 font-mono-data w-16"
+          />
+        </label>
+        <button
+          onClick={generateAnnualPct}
+          disabled={pctBusy !== null || alreadyHandled}
+          className="px-3 py-1.5 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
+        >
+          {pctBusy === 'bill' ? 'Generating…' : alreadyHandled ? `TY ${effYear} done` : `Bill TY ${effYear}`}
+        </button>
+        <button
+          onClick={markYearNA}
+          disabled={pctBusy !== null || alreadyHandled}
+          title="Not claiming the CAHP % for this year"
+          className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {pctBusy === 'na' ? 'Marking…' : 'Mark N/A'}
+        </button>
+      </div>
+      {calcSavings != null && !alreadyHandled && (
+        <p className="text-[11px] text-gray-500 mt-2">
+          Savings ${calcSavings.toLocaleString(undefined, { maximumFractionDigits: 2 })} → CAHP fee{' '}
+          <span className="font-semibold text-teal-700">${(calcFee ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        </p>
+      )}
+      {pctError && <p className="text-xs text-red-700 mt-2">{pctError}</p>}
+      {(claimedYears.size > 0 || naPctYears.size > 0) && (
+        <p className="text-[11px] text-gray-400 mt-2">
+          {claimedYears.size > 0 && <>Billed: {[...claimedYears].sort().join(', ')}. </>}
+          {naPctYears.size > 0 && <>N/A: {[...naPctYears].sort().join(', ')}.</>}
+        </p>
+      )}
+    </div>
+  );
+
   const naControl = (
     <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card mb-4 flex items-center justify-between gap-3">
       <div>
@@ -1233,6 +1381,7 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     return (
       <div>
         {naControl}
+        {annualPctPanel}
         <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
           <p className="text-sm text-gray-500">No billing records for this property yet.</p>
           <p className="text-xs text-gray-400 mt-2">
@@ -1250,6 +1399,7 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
   return (
     <div>
       {naControl}
+      {annualPctPanel}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card">
           <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total CAHP Fees Billed</div>

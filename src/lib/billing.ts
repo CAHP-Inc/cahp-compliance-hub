@@ -19,6 +19,7 @@ import {
   type Property,
   type BillingStatusValue,
   type SubmittalStatusValue,
+  type CahpTaxYear,
 } from './sharepoint';
 
 /** Default fee terms presented in the UI — editable per invoice. */
@@ -72,6 +73,26 @@ export function findPercentInvoiceForSubmittal(
         isPercentInvoice(b) &&
         String(b.fields.PropertyLookupId ?? '') === String(pid) &&
         b.fields.cahpTaxYear === yr,
+    ) ?? null
+  );
+}
+
+/**
+ * The % of savings invoice for a property in a given tax year, if any. Used by
+ * the annual (per-year) billing flow, which records each year's CAHP % directly
+ * against the property — there is no per-year submittal to key off.
+ */
+export function findPercentInvoiceForPropertyYear(
+  propertyId: string,
+  taxYear: string,
+  billings: Billing[],
+): Billing | null {
+  return (
+    billings.find(
+      (b) =>
+        isPercentInvoice(b) &&
+        String(b.fields.PropertyLookupId ?? '') === String(propertyId) &&
+        b.fields.cahpTaxYear === taxYear,
     ) ?? null
   );
 }
@@ -167,6 +188,81 @@ export async function generateFilingFeeInvoice(opts: {
     BillingStatus: 'Ready to Invoice' as BillingStatusValue,
     QBSyncStatus: 'Not Synced',
     BillingNotes: `One-time filing fee.${ref}`,
+  });
+}
+
+/**
+ * Record a CAHP "% of Annual Savings" invoice for a property in a single tax
+ * year, decoupled from any submittal. This is the recurring annual billing:
+ * after the Initial filing there is no per-year recertification submittal, so
+ * each year's tax savings is entered directly and the % fee billed against the
+ * property. Optionally links to the Initial submittal for traceability, but
+ * never changes its status.
+ */
+export async function recordAnnualPercentInvoice(opts: {
+  property: Property;
+  taxYear: CahpTaxYear;
+  lastFullTaxBill: number;
+  mostRecentTaxBill: number;
+  feePercent: number;
+  initialSubmittal?: Submittal | null;
+  letterRef?: string;
+}): Promise<void> {
+  const { property, taxYear, lastFullTaxBill, mostRecentTaxBill, feePercent, initialSubmittal, letterRef } = opts;
+  // Savings = the abatement: full (pre-abatement) bill minus the most recent (abated) bill.
+  const taxSavings = Math.max(0, lastFullTaxBill - mostRecentTaxBill);
+  const amount = (taxSavings * feePercent) / 100;
+  const propName = property.fields.Title ?? 'Property';
+  const ref = letterRef?.trim() ? ` Approval letter: ${letterRef.trim()}.` : '';
+
+  await createListItem(LIST_NAMES.Billing, {
+    Title: `${propName} ${taxYear} CAHP Fee (% of Savings)`.trim(),
+    PropertyLookupId: String(property.id),
+    ...(initialSubmittal ? { BillSubmittalLookupId: String(initialSubmittal.id) } : {}),
+    BillingType: 'Percent of Savings',
+    cahpTaxYear: taxYear,
+    LastFullTaxBill: lastFullTaxBill,
+    MostRecentTaxBill: mostRecentTaxBill,
+    AmountBilled: amount,
+    BillApprovedAbatement: taxSavings,
+    CAHPFeePercent: feePercent,
+    BillingStatus: 'Ready to Invoice' as BillingStatusValue,
+    QBSyncStatus: 'Not Synced',
+    BillingNotes: `${feePercent}% of $${taxSavings.toLocaleString()} savings (full $${lastFullTaxBill.toLocaleString()} − recent $${mostRecentTaxBill.toLocaleString()}), TY ${taxYear}.${ref}`,
+  });
+}
+
+/** A % of savings row that records "we are NOT claiming the % for this year". */
+export function isNAPercent(b: Billing): boolean {
+  return isPercentInvoice(b) && b.fields.BillingStatus === 'N/A';
+}
+
+/**
+ * Mark a property's % of Annual Savings as N/A for a tax year (e.g. an abatement
+ * already obtained under another program where CAHP isn't claiming a fee). A $0
+ * placeholder so the year drops out of the roll-forward, with an audit trail.
+ */
+export async function markPercentNA(opts: {
+  property: Property;
+  taxYear: CahpTaxYear;
+  initialSubmittal?: Submittal | null;
+  note?: string;
+}): Promise<void> {
+  const { property, taxYear, initialSubmittal, note } = opts;
+  const propName = property.fields.Title ?? 'Property';
+  const reason = note?.trim() ? ` ${note.trim()}` : '';
+
+  await createListItem(LIST_NAMES.Billing, {
+    Title: `${propName} ${taxYear} CAHP Fee (% of Savings) — N/A`.trim(),
+    PropertyLookupId: String(property.id),
+    ...(initialSubmittal ? { BillSubmittalLookupId: String(initialSubmittal.id) } : {}),
+    BillingType: 'Percent of Savings',
+    cahpTaxYear: taxYear,
+    AmountBilled: 0,
+    BillApprovedAbatement: 0,
+    BillingStatus: 'N/A' as BillingStatusValue,
+    QBSyncStatus: 'Not Synced',
+    BillingNotes: `% of savings not claimed for TY ${taxYear} (N/A).${reason}`,
   });
 }
 

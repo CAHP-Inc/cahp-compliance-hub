@@ -11,6 +11,7 @@ import {
   type BillingStatusValue,
   type QBSyncStatus,
   type DisbursementStatus,
+  type CahpTaxYear,
 } from '../lib/sharepoint';
 import {
   computeInvoiceQueues,
@@ -18,6 +19,11 @@ import {
   generateFilingFeeInvoice,
   markFilingFeeNA,
   isNAFilingFee,
+  isPercentInvoice,
+  recordAnnualPercentInvoice,
+  markPercentNA,
+  findPercentInvoiceForPropertyYear,
+  DEFAULT_FEE_PERCENT,
   type PercentQueueItem,
   type FilingFeeQueueItem,
 } from '../lib/billing';
@@ -100,11 +106,46 @@ function ToInvoiceTab() {
   // a different agreement, so the fee % and filing-fee amount are editable here.
   const [pctOverrides, setPctOverrides] = useState<Record<string, string>>({});
   const [feeOverrides, setFeeOverrides] = useState<Record<string, string>>({});
+  // Annual % of savings roll-forward: target year + per-property tax-bill entry.
+  const [rollYear, setRollYear] = useState<CahpTaxYear | ''>('');
+  const [rollFull, setRollFull] = useState<Record<string, string>>({});       // last full tax bill, by propertyId
+  const [rollRecent, setRollRecent] = useState<Record<string, string>>({});    // most recent (abated) bill, by propertyId
 
   const queues = useMemo(() => {
     if (!submittals.data || !billings.data || !properties.data) return null;
     return computeInvoiceQueues(submittals.data, billings.data, properties.data);
   }, [submittals.data, billings.data, properties.data]);
+
+  // Properties enrolled in recurring "% of Annual Savings" billing (i.e. they
+  // already have at least one % invoice), for the roll-forward panel.
+  const ROLL_TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
+  const rollForward = useMemo(() => {
+    if (!billings.data || !properties.data) return { enrolled: [] as Array<{ pid: string; property: Property; lastYear: number | null; lastPct: number }>, suggestedYear: String(new Date().getFullYear()) as CahpTaxYear };
+    const propById = new Map(properties.data.map((p) => [String(p.id), p]));
+    const pctRows = billings.data.filter(isPercentInvoice);
+    const byProp = new Map<string, Billing[]>();
+    for (const b of pctRows) {
+      const pid = b.fields.PropertyLookupId ? String(b.fields.PropertyLookupId) : '';
+      if (!pid) continue;
+      const arr = byProp.get(pid) ?? [];
+      arr.push(b);
+      byProp.set(pid, arr);
+    }
+    const allYears = pctRows.map((b) => Number(b.fields.cahpTaxYear)).filter((n) => !Number.isNaN(n));
+    const nextNum = allYears.length ? Math.max(...allYears) + 1 : new Date().getFullYear();
+    const suggestedYear = (ROLL_TAX_YEARS.includes(String(nextNum) as CahpTaxYear) ? String(nextNum) : ROLL_TAX_YEARS[ROLL_TAX_YEARS.length - 1]) as CahpTaxYear;
+    const enrolled = [...byProp.entries()]
+      .map(([pid, rows]) => {
+        const property = propById.get(pid);
+        const years = rows.map((r) => Number(r.fields.cahpTaxYear)).filter((n) => !Number.isNaN(n));
+        const lastYear = years.length ? Math.max(...years) : null;
+        const last = rows.find((r) => Number(r.fields.cahpTaxYear) === lastYear);
+        return { pid, property, lastYear, lastPct: last?.fields.CAHPFeePercent ?? DEFAULT_FEE_PERCENT };
+      })
+      .filter((e): e is { pid: string; property: Property; lastYear: number | null; lastPct: number } => Boolean(e.property))
+      .sort((a, b) => (a.property.fields.Title ?? '').localeCompare(b.property.fields.Title ?? ''));
+    return { enrolled, suggestedYear };
+  }, [billings.data, properties.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Properties whose initial filing fee is marked N/A (not charged).
   const naFilingFees = useMemo(() => {
@@ -199,6 +240,54 @@ function ToInvoiceTab() {
     setBusy(`undo-${billing.id}`);
     try {
       await deleteListItem(LIST_NAMES.Billing, String(billing.id));
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clearRollEntry = (pid: string) => {
+    setRollFull((p) => { const n = { ...p }; delete n[pid]; return n; });
+    setRollRecent((p) => { const n = { ...p }; delete n[pid]; return n; });
+  };
+
+  // Generate a property's % of savings invoice for the roll-forward target year.
+  const runRollForward = async (entry: { pid: string; property: Property; lastPct: number }, year: CahpTaxYear) => {
+    const full = parseFloat(rollFull[entry.pid] ?? '');
+    const recent = parseFloat(rollRecent[entry.pid] ?? '');
+    const name = entry.property.fields.Title ?? 'this property';
+    if (isNaN(full) || isNaN(recent)) { setError(`Enter both tax bills for ${name}.`); return; }
+    if (full - recent <= 0) { setError(`Last full bill must exceed the most recent bill for ${name}.`); return; }
+    if (billings.data && findPercentInvoiceForPropertyYear(entry.pid, year, billings.data)) {
+      setError(`${name} already has a TY ${year} % entry.`);
+      return;
+    }
+    setError(null);
+    setBusy(`roll-${entry.pid}`);
+    try {
+      await recordAnnualPercentInvoice({ property: entry.property, taxYear: year, lastFullTaxBill: full, mostRecentTaxBill: recent, feePercent: entry.lastPct });
+      clearRollEntry(entry.pid);
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Mark a property's % as N/A for the roll-forward target year (not claimed).
+  const markRollNA = async (entry: { pid: string; property: Property }, year: CahpTaxYear) => {
+    if (billings.data && findPercentInvoiceForPropertyYear(entry.pid, year, billings.data)) {
+      setError(`${entry.property.fields.Title ?? 'This property'} already has a TY ${year} % entry.`);
+      return;
+    }
+    setError(null);
+    setBusy(`rollna-${entry.pid}`);
+    try {
+      await markPercentNA({ property: entry.property, taxYear: year });
+      clearRollEntry(entry.pid);
       await refetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -368,6 +457,101 @@ function ToInvoiceTab() {
         </div>
       )}
 
+      {/* Annual % of savings — roll forward to the next tax year */}
+      {rollForward.enrolled.length > 0 && (() => {
+        const year = (rollYear || rollForward.suggestedYear) as CahpTaxYear;
+        const rows = rollForward.enrolled.filter(
+          (e) => !(billings.data && findPercentInvoiceForPropertyYear(e.pid, year, billings.data)),
+        );
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden mb-6">
+            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <h3 className="text-sm font-bold text-teal-700">Annual % of savings — roll forward</h3>
+                <p className="text-xs text-gray-500">Bill the CAHP % of each property's annual tax savings. Enter the year's savings, then Generate. Lists properties already on a % arrangement.</p>
+              </div>
+              <label className="flex items-center gap-1 text-xs text-gray-600">
+                Tax year
+                <select value={year} onChange={(e) => setRollYear(e.target.value as CahpTaxYear)} className="border border-gray-300 rounded px-2 py-1 font-mono-data bg-white">
+                  {ROLL_TAX_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </label>
+            </div>
+            {rows.length === 0 ? (
+              <div className="px-4 py-4 text-xs text-gray-500">Every enrolled property already has a TY {year} % invoice.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Property</th>
+                    <th className="px-4 py-3 text-left">Last billed</th>
+                    <th className="px-4 py-3 text-right">Fee %</th>
+                    <th className="px-4 py-3 text-right">Last full bill</th>
+                    <th className="px-4 py-3 text-right">Most recent bill</th>
+                    <th className="px-4 py-3 text-right">CAHP fee</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {rows.map((e) => {
+                    const full = parseFloat(rollFull[e.pid] ?? '');
+                    const recent = parseFloat(rollRecent[e.pid] ?? '');
+                    const fee = !isNaN(full) && !isNaN(recent) && full - recent > 0 ? ((full - recent) * e.lastPct) / 100 : null;
+                    return (
+                      <tr key={`roll-${e.pid}`} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{e.property.fields.Title ?? '(unlinked)'}</td>
+                        <td className="px-4 py-3 text-gray-500 font-mono-data text-xs">{e.lastYear ?? '—'}</td>
+                        <td className="px-4 py-3 text-right font-mono-data text-xs">{e.lastPct}%</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-gray-400 font-mono-data mr-0.5">$</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={rollFull[e.pid] ?? ''}
+                            onChange={(ev) => setRollFull((prev) => ({ ...prev, [e.pid]: ev.target.value }))}
+                            disabled={busy !== null}
+                            className={rowInputClass}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-gray-400 font-mono-data mr-0.5">$</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={rollRecent[e.pid] ?? ''}
+                            onChange={(ev) => setRollRecent((prev) => ({ ...prev, [e.pid]: ev.target.value }))}
+                            disabled={busy !== null}
+                            className={rowInputClass}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono-data text-xs text-teal-700">
+                          {fee != null ? `$${fee.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => markRollNA(e, year)}
+                            disabled={busy !== null}
+                            title="Not claiming the CAHP % for this year"
+                            className="px-3 py-1 mr-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {busy === `rollna-${e.pid}` ? 'Marking…' : 'N/A'}
+                          </button>
+                          <button
+                            onClick={() => runRollForward(e, year)}
+                            disabled={busy !== null}
+                            className="px-3 py-1 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
+                          >
+                            {busy === `roll-${e.pid}` ? 'Generating…' : `Bill ${year}`}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })()}
+
       {/* % of savings */}
       {percentItems.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
@@ -515,12 +699,16 @@ function InvoicesTab() {
         return new Date(b.fields.InvoiceDate).getFullYear() === thisYear;
       })
       .reduce((sum, b) => sum + (b.fields.AmountBilled ?? 0), 0);
+    const sumForStatus = (status: BillingStatusValue) =>
+      billings.data!
+        .filter((b) => b.fields.BillingStatus === status)
+        .reduce((sum, b) => sum + (b.fields.AmountBilled ?? 0), 0);
     const readyCount = billings.data.filter((b) => b.fields.BillingStatus === 'Ready to Invoice').length;
     const invoicedCount = billings.data.filter((b) => b.fields.BillingStatus === 'Invoiced').length;
-    const outstanding = billings.data
-      .filter((b) => b.fields.BillingStatus === 'Invoiced')
-      .reduce((sum, b) => sum + (b.fields.AmountBilled ?? 0), 0);
-    return { ytdBilled, readyCount, invoicedCount, outstanding };
+    const readyDollars = sumForStatus('Ready to Invoice');
+    const pendingApprovalDollars = sumForStatus('Pending Approval');
+    const outstanding = sumForStatus('Invoiced');
+    return { ytdBilled, readyCount, invoicedCount, readyDollars, pendingApprovalDollars, outstanding };
   }, [billings.data]);
 
   if (billings.loading || properties.loading) {
@@ -534,10 +722,12 @@ function InvoicesTab() {
   return (
     <div>
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <KPI label="YTD Billed" value={`$${stats.ytdBilled.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono />
-        <KPI label="Ready to Invoice" value={stats.readyCount} accent={stats.readyCount > 0 ? 'warning' : 'default'} />
-        <KPI label="Invoiced" value={stats.invoicedCount} />
+        <KPI label="Pending Approval" value={`$${stats.pendingApprovalDollars.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono accent={stats.pendingApprovalDollars > 0 ? 'warning' : 'default'} />
+        <KPI label="Ready to Invoice" value={`$${stats.readyDollars.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono accent={stats.readyDollars > 0 ? 'warning' : 'default'} />
+        <KPI label="Ready to Invoice (count)" value={stats.readyCount} />
+        <KPI label="Invoiced (count)" value={stats.invoicedCount} />
         <KPI label="Outstanding Receivable" value={`$${stats.outstanding.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono accent={stats.outstanding > 0 ? 'warning' : 'default'} />
       </div>
 

@@ -347,6 +347,8 @@ export interface BillingFields {
   BillApprovedAbatement?: number;              // ('Percent of Savings') DOR-approved tax savings the % fee is based on
   CAHPFilingFee?: number;                      // ('Filing Fee') flat one-time fee amount
   CAHPFeePercent?: number;                     // ('Percent of Savings') contingency rate applied to the tax savings
+  LastFullTaxBill?: number;                    // ('Percent of Savings') full (pre-abatement) tax bill
+  MostRecentTaxBill?: number;                  // ('Percent of Savings') most recent (abated) tax bill; savings = LastFull − this
   InvoiceDate?: string;
   InvoiceNumber?: string;
   BillingStatus?: BillingStatusValue;
