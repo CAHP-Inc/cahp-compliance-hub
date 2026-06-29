@@ -119,7 +119,7 @@ export function MyDay() {
   // intentionally excluded: those surface in the dedicated DOR Deadlines card.
   const submittalsWithNextAction = useMemo(() => {
     if (!allSubmittals) return [];
-    const terminal = ['Approved', 'Denied', 'Withdrawn'];
+    const terminal = ['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn'];
     const dorClockStatuses = [...AWAITING_DOR_STATUSES, RFI_STATUS];
     return allSubmittals
       .filter((s) => {

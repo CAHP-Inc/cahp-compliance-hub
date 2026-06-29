@@ -29,6 +29,8 @@ const FILING_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Letter Received - Action Needed': 'bg-amber-100 text-amber-800',
   'Responded - Awaiting DOR': 'bg-purple-100 text-purple-800',
   'Approved': 'bg-green-100 text-green-800',
+  'Invoiced': 'bg-teal-100 text-teal-800',
+  'Paid': 'bg-emerald-100 text-emerald-900',
   'Denied': 'bg-red-100 text-red-800',
   'Withdrawn': 'bg-gray-100 text-gray-500',
 };
@@ -246,7 +248,8 @@ export function Properties() {
       matching.forEach((s) => {
         const status = s.fields.SubmittalStatus;
         if (status === 'Draft') agg.draft++;
-        else if (status === 'Approved') agg.approved++;
+        // Invoiced / Paid are past Approved — still count as approved here.
+        else if (status === 'Approved' || status === 'Invoiced' || status === 'Paid') agg.approved++;
         else if (status === 'Denied') agg.denied++;
         else if (status) agg.filed++; // Filed, Letter Received, Responded etc.
       });
@@ -339,7 +342,9 @@ export function Properties() {
         'Responded - Awaiting DOR': 4,
         'Denied': 5,
         'Approved': 6,
-        'Withdrawn': 7,
+        'Invoiced': 7,
+        'Paid': 8,
+        'Withdrawn': 9,
       };
       return result.sort((a, b) => {
         const aSub = latestSubmittalByProperty.get(a.id);
@@ -566,6 +571,8 @@ export function Properties() {
           <option value="Letter Received - Action Needed">Letter Received - Action Needed</option>
           <option value="Responded - Awaiting DOR">Responded - Awaiting DOR</option>
           <option value="Approved">Approved</option>
+          <option value="Invoiced">Invoiced</option>
+          <option value="Paid">Paid</option>
           <option value="Denied">Denied</option>
           <option value="Withdrawn">Withdrawn</option>
           <option value="Package Mailed (NC)">Package Mailed (NC)</option>

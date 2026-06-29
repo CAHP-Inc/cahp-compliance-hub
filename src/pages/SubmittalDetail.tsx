@@ -11,6 +11,7 @@ import {
   type Correspondence,
   type OutstandingItem,
   type AuditLog,
+  type Billing,
   type SubmittalStatusValue,
   type SubmittalFilingType,
   type CahpTaxYear,
@@ -32,6 +33,15 @@ import {
   dorRfiDueISO,
 } from '../lib/dor-clock';
 import { FilingChecklistGenerator } from '../components/FilingChecklistGenerator';
+import {
+  generatePercentInvoice,
+  generateFilingFeeInvoice,
+  findPercentInvoiceForSubmittal,
+  findFilingFeeInvoiceForProperty,
+  BILLING_PHASE_STATUSES,
+  DEFAULT_FILING_FEE as DEFAULT_FILING_FEE_NUM,
+  DEFAULT_FEE_PERCENT as DEFAULT_FEE_PERCENT_NUM,
+} from '../lib/billing';
 import { notifyUser } from '../lib/notifications';
 import { useSession } from '../lib/session';
 import {
@@ -50,6 +60,8 @@ const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Letter Received - Action Needed': 'bg-amber-100 text-amber-800',
   'Responded - Awaiting DOR': 'bg-purple-100 text-purple-800',
   'Approved': 'bg-green-100 text-green-800',
+  'Invoiced': 'bg-teal-100 text-teal-800',
+  'Paid': 'bg-emerald-100 text-emerald-900',
   'Denied': 'bg-red-100 text-red-800',
   'Withdrawn': 'bg-gray-100 text-gray-500',
 };
@@ -66,9 +78,13 @@ const PIPELINE_STAGES: { status: SubmittalStatusValue; label: string }[] = [
   { status: 'Letter Received - Action Needed', label: 'Letter Received' },
   { status: 'Responded - Awaiting DOR', label: 'Responded' },
   { status: 'Approved', label: 'Approved' },
+  { status: 'Invoiced', label: 'Invoiced' },
+  { status: 'Paid', label: 'Paid' },
 ];
 
-const TERMINAL_STATUSES: SubmittalStatusValue[] = ['Approved', 'Denied', 'Withdrawn'];
+// 'Invoiced' and 'Paid' are billing-driven end states — set automatically by
+// the invoicing step and the paid-invoice rollup, not by manual transitions.
+const TERMINAL_STATUSES: SubmittalStatusValue[] = ['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn'];
 
 // Submittal fields captured at transition time that should render as date pickers.
 const DATE_TRANSITION_FIELDS = new Set<keyof SubmittalFields>([
@@ -85,6 +101,11 @@ const TRANSITION_FIELD_LABELS: Partial<Record<keyof SubmittalFields, string>> = 
   DateLetterReceived: 'Date RFI Received',
   ConfirmationNumber: 'Confirmation #',
 };
+
+// Default CAHP fee terms presented in the Generate Invoice step (string form for
+// the inputs). Sourced from lib/billing so the queue and this page never drift.
+const DEFAULT_FILING_FEE = String(DEFAULT_FILING_FEE_NUM);
+const DEFAULT_FEE_PERCENT = String(DEFAULT_FEE_PERCENT_NUM);
 
 const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
 const STATES: CahpState[] = ['SC', 'NC'];
@@ -139,7 +160,7 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     {
       to: 'Approved',
       label: 'Approved',
-      description: 'DOR approved. Opens approval workflow modal to capture tax savings + create Billing.',
+      description: 'DOR approved. Captures the approval letter ref + tax savings. The invoice is generated separately by accounting.',
       style: 'success',
     },
     { to: 'Denied', label: 'Denied', description: 'DOR denied this submittal. Terminal.', style: 'danger' },
@@ -166,7 +187,7 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
     {
       to: 'Approved',
       label: 'Approved',
-      description: 'DOR approved. Opens approval workflow modal.',
+      description: 'DOR approved. Captures the approval letter ref + tax savings. The invoice is generated separately by accounting.',
       style: 'success',
     },
     { to: 'Denied', label: 'Denied', description: 'DOR denied. Terminal.', style: 'danger' },
@@ -179,6 +200,11 @@ const ALLOWED_TRANSITIONS: Record<SubmittalStatusValue, Transition[]> = {
       style: 'neutral',
     },
   ],
+  // Billing-driven end states — no manual transitions. 'Invoiced' is set when
+  // the invoice is generated; 'Paid' when all linked invoices are marked Paid.
+  // Both revert automatically if the underlying invoices change.
+  'Invoiced': [],
+  'Paid': [],
   'Denied': [
     {
       to: 'Responded - Awaiting DOR',
@@ -242,14 +268,25 @@ export function SubmittalDetail() {
   const [transitionFields, setTransitionFields] = useState<Record<string, string>>({});
   const [transitionError, setTransitionError] = useState<string | null>(null);
 
-  // PR-12 — Mark Approved modal (lightweight, no billing creation)
+  // Approval / invoicing modal. Three modes:
+  //   'approve'        — mark the submittal Approved (status + tax savings only).
+  //   'invoice-percent'— generate the % of savings invoice for this tax year.
+  //   'invoice-filing' — generate the one-time flat filing-fee invoice.
+  type ApprovalMode = 'approve' | 'invoice-percent' | 'invoice-filing';
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>('approve');
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistResult, setChecklistResult] = useState<{ created: number; matched: number } | null>(null);
   const [approvalLetterRef, setApprovalLetterRef] = useState('');
   const [taxSavingsAmount, setTaxSavingsAmount] = useState('');
+  const [cahpFilingFee, setCahpFilingFee] = useState(DEFAULT_FILING_FEE);
+  const [cahpFeePercent, setCahpFeePercent] = useState(DEFAULT_FEE_PERCENT);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSaving, setApprovalSaving] = useState(false);
+
+  // Existing invoices — drives the per-type "already invoiced?" checks and the
+  // Generate Invoice actions on an approved submittal.
+  const billings = useSharePointList<Billing>(LIST_NAMES.Billing, { top: 500 });
 
   // Delete (Admin only) — for submittals created in error
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -262,6 +299,18 @@ export function SubmittalDetail() {
     if (!submittal || !properties.data || !submittal.fields.PropertyLookupId) return null;
     return properties.data.find((p) => String(p.id) === String(submittal.fields.PropertyLookupId)) ?? null;
   }, [submittal, properties.data]);
+
+  // % of savings invoice for THIS submittal (one per tax year), and the one-time
+  // filing-fee invoice for the property. Detection lives in lib/billing.
+  const percentInvoice = useMemo(
+    () => (submittal && billings.data ? findPercentInvoiceForSubmittal(submittal, billings.data) : null),
+    [submittal, billings.data]
+  );
+
+  const filingFeeInvoice = useMemo(
+    () => (property && billings.data ? findFilingFeeInvoiceForProperty(String(property.id), billings.data) : null),
+    [property, billings.data]
+  );
 
   const relatedCorrespondence = useMemo(() => {
     if (!submittal || !correspondence.data) return [];
@@ -400,10 +449,14 @@ export function SubmittalDetail() {
   // ────────────────────────────────────────────────────────
 
   const startTransition = (transition: Transition) => {
-    // PR-12 — Approved transition uses the Mark Approved modal (no billing side effects)
+    // Approved transition opens the modal in mark-approved mode — status + tax
+    // savings only. Invoices are generated separately by accounting.
     if (transition.to === 'Approved') {
+      setApprovalMode('approve');
       setApprovalLetterRef('');
-      setTaxSavingsAmount('');
+      setTaxSavingsAmount(f.ApprovedAbatement != null ? String(f.ApprovedAbatement) : '');
+      setCahpFilingFee(DEFAULT_FILING_FEE);
+      setCahpFeePercent(DEFAULT_FEE_PERCENT);
       setApprovalError(null);
       setApprovalModalOpen(true);
       return;
@@ -411,6 +464,20 @@ export function SubmittalDetail() {
     setActiveTransition(transition);
     setTransitionFields({});
     setTransitionError(null);
+  };
+
+  // Generate an invoice for an approved submittal. The CAHP fee is what the
+  // owner pays — there is no disbursement. Two kinds:
+  //   'invoice-percent' — % of this tax year's savings (initial + each annual)
+  //   'invoice-filing'  — flat one-time filing fee (initial only)
+  const openInvoiceModal = (mode: 'invoice-percent' | 'invoice-filing') => {
+    setApprovalMode(mode);
+    setApprovalLetterRef('');
+    setTaxSavingsAmount(f.ApprovedAbatement != null ? String(f.ApprovedAbatement) : '');
+    setCahpFilingFee(DEFAULT_FILING_FEE);
+    setCahpFeePercent(DEFAULT_FEE_PERCENT);
+    setApprovalError(null);
+    setApprovalModalOpen(true);
   };
 
   const cancelTransition = () => {
@@ -525,22 +592,26 @@ export function SubmittalDetail() {
   };
 
   // ────────────────────────────────────────────────────────
-  // PR-12 — Mark Approved: simple submittal status update
-  // (Billing + Disbursement record creation deferred — was PR-10d, removed PR-12.
-  // Reactivate when Billing module ships.)
+  // Approval + invoicing. Approval just sets status + tax savings; invoices are
+  // generated separately. The CAHP fee is what the owner pays CAHP — no disbursement.
+  //   Filing fee invoice         = flat one-time amount (per property)
+  //   % of savings invoice       = tax savings × fee % (per tax year)
   // ────────────────────────────────────────────────────────
 
   const cancelApproval = () => {
     setApprovalModalOpen(false);
     setApprovalLetterRef('');
     setTaxSavingsAmount('');
+    setCahpFilingFee(DEFAULT_FILING_FEE);
+    setCahpFeePercent(DEFAULT_FEE_PERCENT);
     setApprovalError(null);
   };
 
-  const confirmApproval = async () => {
+  // Mark the submittal Approved — capture the DOR letter ref + tax savings only.
+  // No invoice is created here: accounting confirms the numbers and generates
+  // the invoice as a separate step (the Generate Invoice action below).
+  const confirmApprove = async () => {
     setApprovalError(null);
-
-    // Validate
     if (!approvalLetterRef.trim()) {
       setApprovalError('Approval letter reference is required.');
       return;
@@ -550,20 +621,77 @@ export function SubmittalDetail() {
       setApprovalError('Tax savings amount must be a positive number.');
       return;
     }
-
     setApprovalSaving(true);
     try {
+      const approvalNote = `[Approval ${formatDateET(new Date())}] Letter ref: ${approvalLetterRef.trim()}`;
       await updateListItem(LIST_NAMES.Submittals, submittal.id, {
         SubmittalStatus: 'Approved',
         ApprovedAbatement: taxSavings,
         NextAction: null,
         NextActionDue: null,
-        SubmittalNotes: f.SubmittalNotes
-          ? `${f.SubmittalNotes}\n\n[Approval ${formatDateET(new Date())}] Letter ref: ${approvalLetterRef}`
-          : `[Approval ${formatDateET(new Date())}] Letter ref: ${approvalLetterRef}`,
+        SubmittalNotes: f.SubmittalNotes ? `${f.SubmittalNotes}\n\n${approvalNote}` : approvalNote,
       });
-
       await refetch();
+      cancelApproval();
+    } catch (err) {
+      setApprovalError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApprovalSaving(false);
+    }
+  };
+
+  // Generate one CAHP fee invoice for an approved submittal. The invoice is what
+  // the owner pays CAHP — there is no disbursement. Two kinds (by approvalMode):
+  //   'invoice-percent' — % of this tax year's savings (one per submittal/year)
+  //   'invoice-filing'  — flat one-time filing fee (one per property)
+  const confirmInvoice = async () => {
+    setApprovalError(null);
+    const isFiling = approvalMode === 'invoice-filing';
+
+    if (!submittal.fields.PropertyLookupId) {
+      setApprovalError("This submittal isn't linked to a property — can't create the invoice.");
+      return;
+    }
+
+    // Validate the inputs for the selected invoice kind, then delegate creation
+    // to lib/billing so the per-submittal path matches the To Invoice queue.
+    let run: () => Promise<void>;
+
+    if (isFiling) {
+      if (filingFeeInvoice) {
+        setApprovalError('A filing fee invoice already exists for this property — it is a one-time charge.');
+        return;
+      }
+      const filingFee = cahpFilingFee.trim() === '' ? 0 : parseFloat(cahpFilingFee);
+      if (isNaN(filingFee) || filingFee <= 0) {
+        setApprovalError('Filing fee must be a positive number.');
+        return;
+      }
+      run = () =>
+        generateFilingFeeInvoice({ submittal, property, amount: filingFee, letterRef: approvalLetterRef });
+    } else {
+      if (percentInvoice) {
+        setApprovalError('A % of savings invoice already exists for this tax year. Open it from the Billing page to edit.');
+        return;
+      }
+      const taxSavings = parseFloat(taxSavingsAmount);
+      if (!taxSavings || taxSavings <= 0) {
+        setApprovalError('Tax savings amount must be a positive number.');
+        return;
+      }
+      const feePercent = cahpFeePercent.trim() === '' ? 0 : parseFloat(cahpFeePercent);
+      if (isNaN(feePercent) || feePercent <= 0 || feePercent > 100) {
+        setApprovalError('CAHP Fee % must be between 0 and 100.');
+        return;
+      }
+      run = () =>
+        generatePercentInvoice({ submittal, property, taxSavings, feePercent, letterRef: approvalLetterRef });
+    }
+
+    setApprovalSaving(true);
+    try {
+      await run();
+      await Promise.all([refetch(), billings.refetch()]);
       cancelApproval();
     } catch (err) {
       setApprovalError(err instanceof Error ? err.message : String(err));
@@ -700,16 +828,38 @@ export function SubmittalDetail() {
           </div>
         )}
 
-        {isTerminal && currentStatus === 'Approved' && (
-          <div className="pt-2 border-t border-gray-100 flex items-start gap-2">
-            <Icon name="check" size={12} className="text-success flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-success">
-              Approved
-              {f.ApprovedAbatement != null && (
-                <> · ${f.ApprovedAbatement.toLocaleString()} tax savings on file</>
-              )}
-              .
-            </p>
+        {BILLING_PHASE_STATUSES.includes(currentStatus) && (
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <div className="flex items-start gap-2">
+              <Icon name="check" size={12} className="text-success flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-success">
+                Approved
+                {f.ApprovedAbatement != null && (
+                  <> · ${f.ApprovedAbatement.toLocaleString()} tax savings on file</>
+                )}
+                .
+              </p>
+            </div>
+            {/* Invoice state — the CAHP fee the owner pays. Two separate kinds:
+                % of savings (per tax year) and a one-time filing fee. */}
+            {!billings.loading && (
+              <div className="space-y-1.5">
+                <InvoiceStateRow
+                  label={`% of Savings${f.cahpTaxYear ? ` · TY ${f.cahpTaxYear}` : ''}`}
+                  invoice={percentInvoice}
+                  onGenerate={() => openInvoiceModal('invoice-percent')}
+                />
+                {/* Filing fee is one-time per property. Surface it on the Initial
+                    filing, or anywhere it already exists. */}
+                {(filingFeeInvoice || f.FilingType === 'Initial') && (
+                  <InvoiceStateRow
+                    label="Filing Fee · one-time"
+                    invoice={filingFeeInvoice}
+                    onGenerate={() => openInvoiceModal('invoice-filing')}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1091,17 +1241,23 @@ export function SubmittalDetail() {
         />
       )}
 
-      {/* PR-12 — Mark Approved modal (simplified — no billing creation) */}
+      {/* Approval / invoicing modal */}
       {approvalModalOpen && (
-        <MarkApprovedModal
+        <ApprovalWorkflowModal
+          mode={approvalMode}
           submittalTitle={f.Title ?? ''}
           propertyTitle={property?.fields.Title}
+          taxYear={f.cahpTaxYear}
           approvalLetterRef={approvalLetterRef}
           taxSavingsAmount={taxSavingsAmount}
+          filingFee={cahpFilingFee}
+          feePercent={cahpFeePercent}
           onLetterRefChange={setApprovalLetterRef}
           onTaxSavingsChange={setTaxSavingsAmount}
+          onFilingFeeChange={setCahpFilingFee}
+          onFeePercentChange={setCahpFeePercent}
           onCancel={cancelApproval}
-          onConfirm={confirmApproval}
+          onConfirm={approvalMode === 'approve' ? confirmApprove : confirmInvoice}
           saving={approvalSaving}
           error={approvalError}
         />
@@ -1252,30 +1408,94 @@ function TransitionModal({
 }
 
 // =============================================================================
-// PR-12 — Mark Approved Modal
-// Captures approval letter ref + tax savings amount. Updates Submittal only.
-// Billing + Disbursement record creation is deferred until the Billing module ships
-// (was PR-10d, removed PR-12). The data model + SP lists remain provisioned.
+// Invoice state row — shows one invoice kind's status on the approved submittal,
+// or a Generate button when it hasn't been billed yet.
 // =============================================================================
 
-function MarkApprovedModal({
+function InvoiceStateRow({
+  label,
+  invoice,
+  onGenerate,
+}: {
+  label: string;
+  invoice: Billing | null;
+  onGenerate: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-xs">
+      <span className="text-gray-500 w-36 flex-shrink-0">{label}</span>
+      {invoice ? (
+        <>
+          <Icon name="check" size={12} className="text-teal-700 flex-shrink-0" />
+          <span className="text-gray-600">
+            {invoice.fields.AmountBilled != null && (
+              <span className="font-mono-data font-semibold text-teal-700">
+                ${invoice.fields.AmountBilled.toLocaleString()}
+              </span>
+            )}
+            {invoice.fields.BillingStatus && <> · {invoice.fields.BillingStatus}</>}
+          </span>
+          <Link to={`/billing/invoices/${invoice.id}`} className="text-teal-700 hover:text-teal-900 underline">
+            View
+          </Link>
+        </>
+      ) : (
+        <>
+          <span className="inline-flex items-center gap-1 text-amber-700">
+            <Icon name="alert" size={12} className="flex-shrink-0" />
+            Not invoiced
+          </span>
+          <button
+            onClick={onGenerate}
+            className="px-2.5 py-1 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white transition-colors"
+          >
+            Generate
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Approval / Invoicing Modal
+// One modal, three modes:
+//   'approve'         — mark the submittal Approved (status + tax savings only).
+//   'invoice-percent' — generate the % of savings invoice for this tax year.
+//   'invoice-filing'  — generate the flat one-time filing-fee invoice.
+// The CAHP fee is what the owner pays — there is no owner disbursement.
+// =============================================================================
+
+function ApprovalWorkflowModal({
+  mode,
   submittalTitle,
   propertyTitle,
+  taxYear,
   approvalLetterRef,
   taxSavingsAmount,
+  filingFee,
+  feePercent,
   onLetterRefChange,
   onTaxSavingsChange,
+  onFilingFeeChange,
+  onFeePercentChange,
   onCancel,
   onConfirm,
   saving,
   error,
 }: {
+  mode: 'approve' | 'invoice-percent' | 'invoice-filing';
   submittalTitle: string;
   propertyTitle?: string;
+  taxYear?: string;
   approvalLetterRef: string;
   taxSavingsAmount: string;
+  filingFee: string;
+  feePercent: string;
   onLetterRefChange: (v: string) => void;
   onTaxSavingsChange: (v: string) => void;
+  onFilingFeeChange: (v: string) => void;
+  onFeePercentChange: (v: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1285,25 +1505,60 @@ function MarkApprovedModal({
     'w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
 
   const taxSavings = parseFloat(taxSavingsAmount) || 0;
-  const isValid = taxSavings > 0 && approvalLetterRef.trim().length > 0;
+  const flatFee = filingFee.trim() === '' ? 0 : parseFloat(filingFee) || 0;
+  const pct = feePercent.trim() === '' ? 0 : parseFloat(feePercent) || 0;
+  const pctFee = (taxSavings * pct) / 100;
+
+  const isApprove = mode === 'approve';
+  const isFiling = mode === 'invoice-filing';
+  const isPercent = mode === 'invoice-percent';
+
+  const isValid = isApprove
+    ? taxSavings > 0 && approvalLetterRef.trim().length > 0
+    : isFiling
+      ? flatFee > 0
+      : taxSavings > 0 && pct > 0 && pct <= 100;
+
+  const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const title = isApprove
+    ? 'Mark Submittal Approved'
+    : isFiling
+      ? 'Generate Filing Fee Invoice'
+      : 'Generate % of Savings Invoice';
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-5 my-8">
         <div className="flex items-center gap-2 mb-1">
           <Icon name="check" size={20} className="text-success" />
-          <h3 className="text-lg font-bold text-teal-700">Mark Submittal Approved</h3>
+          <h3 className="text-lg font-bold text-teal-700">{title}</h3>
         </div>
         <p className="text-sm text-gray-600 mb-4">
-          DOR approved <strong>{submittalTitle}</strong>
-          {propertyTitle && <> · {propertyTitle}</>}.
-          Capture the approval reference and tax savings so the submittal record reflects DOR's decision.
+          {isApprove ? (
+            <>
+              DOR approved <strong>{submittalTitle}</strong>
+              {propertyTitle && <> · {propertyTitle}</>}. Capture the approval reference and tax savings.
+              Accounting generates the invoices separately once the numbers are confirmed.
+            </>
+          ) : isFiling ? (
+            <>
+              Bill the one-time CAHP filing fee for <strong>{propertyTitle ?? submittalTitle}</strong>. This is a flat
+              charge billed once per property — what the owner pays CAHP for the initial filing.
+            </>
+          ) : (
+            <>
+              Bill the CAHP contingency fee for <strong>{submittalTitle}</strong>
+              {taxYear && <> · TY {taxYear}</>} — a % of this year's DOR-approved tax savings, which is what the owner pays CAHP.
+            </>
+          )}
         </p>
 
         <div className="space-y-3 mb-4">
+          {/* Approval letter ref — required on approve, optional note otherwise */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Approval Letter Reference <span className="text-error">*</span>
+              Approval Letter Reference {isApprove && <span className="text-error">*</span>}
             </label>
             <input
               type="text"
@@ -1311,47 +1566,132 @@ function MarkApprovedModal({
               onChange={(e) => onLetterRefChange(e.target.value)}
               placeholder="e.g., DOR-SC-2025-Approval-12345"
               className={`${inputClass} font-mono-data`}
-              autoFocus
+              autoFocus={isApprove}
             />
             <p className="text-xs text-gray-400 mt-1">
-              Reference printed on the DOR approval letter — appended to submittal notes for audit trail.
+              {isApprove
+                ? 'Reference printed on the DOR approval letter — appended to submittal notes for audit trail.'
+                : 'Optional — appended to the invoice notes.'}
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tax Savings Amount <span className="text-error">*</span>
-            </label>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-500 font-mono-data">$</span>
-              <input
-                type="number"
-                value={taxSavingsAmount}
-                onChange={(e) => onTaxSavingsChange(e.target.value)}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                className={`${inputClass} font-mono-data`}
-              />
+          {/* Tax savings — approve + % of savings modes */}
+          {!isFiling && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Tax Savings Amount <span className="text-error">*</span>
+              </label>
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500 font-mono-data">$</span>
+                <input
+                  type="number"
+                  value={taxSavingsAmount}
+                  onChange={(e) => onTaxSavingsChange(e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  className={`${inputClass} font-mono-data`}
+                  autoFocus={isPercent}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {isApprove
+                  ? 'Total tax abatement granted by DOR — stored on the submittal for billing.'
+                  : `DOR-approved tax savings for ${taxYear ? `TY ${taxYear}` : 'this filing'} — the basis for the % fee.`}
+              </p>
             </div>
-            <p className="text-xs text-gray-400 mt-1">Total tax abatement granted by DOR. Stored on submittal for future billing.</p>
-          </div>
+          )}
+
+          {/* % of savings */}
+          {isPercent && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CAHP Fee % <span className="text-error">*</span>
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={feePercent}
+                  onChange={(e) => onFeePercentChange(e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  className={`${inputClass} font-mono-data`}
+                />
+                <span className="text-gray-500 font-mono-data">%</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Of the tax savings.</p>
+            </div>
+          )}
+
+          {/* Flat filing fee */}
+          {isFiling && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Filing Fee <span className="text-error">*</span>
+              </label>
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500 font-mono-data">$</span>
+                <input
+                  type="number"
+                  value={filingFee}
+                  onChange={(e) => onFilingFeeChange(e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  className={`${inputClass} font-mono-data`}
+                  autoFocus
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Flat one-time fee, billed once per property.</p>
+            </div>
+          )}
         </div>
+
+        {/* Invoice amount preview — % of savings */}
+        {isPercent && (
+          <div className="mb-4 bg-gray-50 border border-gray-200 rounded-md p-3">
+            <dl className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <dt className="text-gray-600">{pct}% of {money(taxSavings)} tax savings</dt>
+                <dd className="font-mono-data text-gray-800">{money(pctFee)}</dd>
+              </div>
+              <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+                <dt className="font-semibold text-teal-800">Invoice total</dt>
+                <dd className="font-mono-data font-bold text-teal-700">{money(pctFee)}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
 
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3">
           <div className="flex items-start gap-2 text-xs text-blue-900">
             <Icon name="alert" size={12} className="flex-shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold mb-1">On Confirm:</p>
-              <ul className="space-y-0.5 list-disc list-inside">
-                <li>Submittal status → <strong>Approved</strong></li>
-                <li>ApprovedAbatement = <strong>${taxSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></li>
-                <li>Approval letter ref appended to submittal notes</li>
-                <li>Audit log entry written</li>
-              </ul>
-              <p className="mt-2 text-[11px] text-blue-700 italic">
-                Billing + Disbursement record creation is deferred. When the Billing module ships, approved submittals can be billed against retroactively.
-              </p>
+              {isApprove ? (
+                <>
+                  <ul className="space-y-0.5 list-disc list-inside">
+                    <li>Submittal status → <strong>Approved</strong></li>
+                    <li>ApprovedAbatement = <strong>{money(taxSavings)}</strong></li>
+                    <li>Approval letter ref appended to submittal notes</li>
+                    <li>Audit log entry written</li>
+                  </ul>
+                  <p className="mt-2 text-[11px] text-blue-700 italic">
+                    No invoice is created here — accounting generates the filing fee and % of savings invoices separately.
+                  </p>
+                </>
+              ) : (
+                <ul className="space-y-0.5 list-disc list-inside">
+                  <li>
+                    <strong>1 {isFiling ? 'Filing Fee' : '% of Savings'} invoice</strong>{' '}
+                    ({money(isFiling ? flatFee : pctFee)}, Ready to Invoice, QB Not Synced)
+                  </li>
+                  <li>Submittal status → <strong>Invoiced</strong> (if currently Approved)</li>
+                  <li>Audit log entry written</li>
+                </ul>
+              )}
             </div>
           </div>
         </div>
@@ -1376,7 +1716,7 @@ function MarkApprovedModal({
             className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving && <div className="w-3 h-3 rounded-full border-2 border-white border-r-transparent animate-spin" />}
-            {saving ? 'Saving…' : 'Confirm Approval'}
+            {saving ? 'Saving…' : isApprove ? 'Confirm Approval' : 'Create Invoice'}
           </button>
         </div>
       </div>

@@ -31,7 +31,9 @@ import { Ownership } from './pages/Ownership';
 import { OwnershipDetail } from './pages/OwnershipDetail';
 import { OwnershipNew } from './pages/OwnershipNew';
 import { Audit } from './pages/Audit';
-import { PlaceholderPage } from './pages/PlaceholderPage';
+import { BillingPage } from './pages/BillingPage';
+import { BillingDetail } from './pages/BillingDetail';
+import { DisbursementDetail } from './pages/DisbursementDetail';
 
 function App() {
   return (
@@ -64,9 +66,9 @@ function App() {
             <Route path="/comms/:id" element={<OwnerCommunicationDetail />} />
             <Route path="/compliance" element={<Compliance />} />
             <Route path="/compliance/:id" element={<ComplianceDeadlineDetail />} />
-            <Route path="/billing" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
-            <Route path="/billing/invoices/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
-            <Route path="/billing/disbursements/:id" element={<PlaceholderPage title="Billing & Disbursements" icon="dollar" plannedPR="Deferred" />} />
+            <Route path="/billing" element={<BillingPage />} />
+            <Route path="/billing/invoices/:id" element={<BillingDetail />} />
+            <Route path="/billing/disbursements/:id" element={<DisbursementDetail />} />
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/untagged" element={<UntaggedDocuments />} />
             <Route path="/reports" element={<ReportsPage />} />

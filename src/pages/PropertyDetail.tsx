@@ -71,6 +71,8 @@ const SUBMITTAL_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Letter Received - Action Needed': 'bg-yellow-100 text-yellow-800',
   'Responded - Awaiting DOR': 'bg-amber-100 text-amber-800',
   Approved: 'bg-green-100 text-green-800',
+  Invoiced: 'bg-teal-100 text-teal-800',
+  Paid: 'bg-emerald-100 text-emerald-900',
   Denied: 'bg-red-100 text-red-800',
   Withdrawn: 'bg-gray-100 text-gray-700',
 };
@@ -1177,8 +1179,8 @@ function PropertyBillingTab({ propertyId }: { propertyId: string }) {
       <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
         <p className="text-sm text-gray-500">No billing records for this property yet.</p>
         <p className="text-xs text-gray-400 mt-2">
-          The Billing module is intentionally deferred. Status tracking on submittals (Approved, ApprovedAbatement)
-          continues to work, but no automated billing records are created.
+          Invoices are created from an Approved submittal — open the submittal and click Generate Invoice once
+          accounting has confirmed the numbers.
         </p>
       </div>
     );

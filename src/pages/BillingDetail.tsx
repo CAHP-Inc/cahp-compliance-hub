@@ -5,11 +5,15 @@ import {
   useSharePointList,
   updateListItem,
   deleteListItem,
+  getListItems,
+  getListItem,
   LIST_NAMES,
   type Billing,
   type BillingFields,
   type Property,
+  type Submittal,
   type BillingStatusValue,
+  type BillingType,
   type QBSyncStatus,
   type CahpTaxYear,
 } from '../lib/sharepoint';
@@ -30,6 +34,7 @@ const STATUSES: BillingStatusValue[] = [
   'Disputed',
 ];
 const QB_STATUSES: QBSyncStatus[] = ['Not Synced', 'Synced', 'Discrepancy'];
+const BILLING_TYPES: BillingType[] = ['Filing Fee', 'Percent of Savings'];
 const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
 
 const STATUS_STYLES: Record<BillingStatusValue, string> = {
@@ -64,12 +69,13 @@ export function BillingDetail() {
     return properties.data.find((p) => String(p.id) === String(billing.fields.PropertyLookupId)) ?? null;
   }, [billing, properties.data]);
 
-  // Computed: CAHP fee from tax savings + fee %
+  // Computed: CAHP fee = flat filing fee + (tax savings × fee %)
   const computedCAHPFee = useMemo(() => {
     if (!draft) return 0;
     const ts = draft.BillApprovedAbatement ?? 0;
     const pct = draft.CAHPFeePercent ?? 0;
-    return (ts * pct) / 100;
+    const flat = draft.CAHPFilingFee ?? 0;
+    return flat + (ts * pct) / 100;
   }, [draft]);
 
   if (loading) {
@@ -130,6 +136,38 @@ export function BillingDetail() {
         return;
       }
       await updateListItem(LIST_NAMES.Billing, billing.id, changed);
+
+      // Roll the linked submittal's status up when paid/unpaid state changes:
+      // all invoices for the submittal Paid -> submittal Paid; otherwise a
+      // previously-Paid submittal reverts to Invoiced. Non-fatal.
+      const submittalId = billing.fields.BillSubmittalLookupId;
+      if ('BillingStatus' in changed && submittalId) {
+        try {
+          const all = await getListItems<Billing>(LIST_NAMES.Billing, { top: 500 });
+          const siblings = all
+            .filter((b) => String(b.fields.BillSubmittalLookupId ?? '') === String(submittalId))
+            // Use the value we just saved for this row in case the list read lags.
+            .map((b) =>
+              String(b.id) === String(billing.id)
+                ? { ...b, fields: { ...b.fields, BillingStatus: draft.BillingStatus } }
+                : b
+            );
+          if (siblings.length > 0) {
+            const allPaid = siblings.every((b) => b.fields.BillingStatus === 'Paid');
+            const sub = await getListItem<Submittal>(LIST_NAMES.Submittals, String(submittalId));
+            const cur = sub.fields.SubmittalStatus;
+            if (allPaid && cur !== 'Paid') {
+              await updateListItem(LIST_NAMES.Submittals, String(submittalId), { SubmittalStatus: 'Paid' });
+            } else if (!allPaid && cur === 'Paid') {
+              await updateListItem(LIST_NAMES.Submittals, String(submittalId), { SubmittalStatus: 'Invoiced' });
+            }
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('Submittal paid-status rollup failed (non-fatal):', e);
+        }
+      }
+
       await refetch();
       setEditing(false);
     } catch (err) {
@@ -212,6 +250,14 @@ export function BillingDetail() {
             required
           />
           <EditableField
+            label="Billing Type"
+            value={display.BillingType}
+            editing={editing}
+            type="choice"
+            choices={BILLING_TYPES}
+            onChange={(v) => handleFieldChange('BillingType', v as BillingType)}
+          />
+          <EditableField
             label="Tax Year"
             value={display.cahpTaxYear}
             editing={editing}
@@ -252,6 +298,14 @@ export function BillingDetail() {
             editing={editing}
             type="number"
             onChange={(v) => handleFieldChange('BillApprovedAbatement', v === '' ? undefined : Number(v))}
+            mono
+          />
+          <EditableField
+            label="Initial Filing Fee"
+            value={display.CAHPFilingFee?.toString()}
+            editing={editing}
+            type="number"
+            onChange={(v) => handleFieldChange('CAHPFilingFee', v === '' ? undefined : Number(v))}
             mono
           />
           <EditableField

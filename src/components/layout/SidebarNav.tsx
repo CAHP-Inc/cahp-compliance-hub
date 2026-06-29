@@ -45,6 +45,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'Finance',
+    items: [
+      { id: 'billing', label: 'Billing', icon: 'dollar', path: '/billing' },
+    ],
+  },
+  {
     label: 'Operations',
     items: [
       { id: 'compliance', label: 'Compliance', icon: 'calendar', path: '/compliance' },

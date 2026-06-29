@@ -22,6 +22,8 @@ const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
   'Letter Received - Action Needed': 'bg-amber-100 text-amber-800',
   'Responded - Awaiting DOR': 'bg-purple-100 text-purple-800',
   'Approved': 'bg-green-100 text-green-800',
+  'Invoiced': 'bg-teal-100 text-teal-800',
+  'Paid': 'bg-emerald-100 text-emerald-900',
   'Denied': 'bg-red-100 text-red-800',
   'Withdrawn': 'bg-gray-100 text-gray-500',
 };
@@ -152,7 +154,8 @@ export function Submittals() {
       g.counts.total++;
       const status = s.fields.SubmittalStatus;
       if (status === 'Draft') g.counts.draft++;
-      else if (status === 'Approved') g.counts.approved++;
+      // Invoiced / Paid are past Approved — still count as approved for the headline.
+      else if (status === 'Approved' || status === 'Invoiced' || status === 'Paid') g.counts.approved++;
       else if (status === 'Denied') g.counts.denied++;
       else if (status) g.counts.filed++;
     });

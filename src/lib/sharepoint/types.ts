@@ -111,6 +111,8 @@ export type SubmittalStatusValue =
   | 'Letter Received - Action Needed'
   | 'Responded - Awaiting DOR'
   | 'Approved'
+  | 'Invoiced'        // CAHP fee invoice generated (set automatically by the billing step)
+  | 'Paid'            // all linked invoices marked Paid (set automatically)
   | 'Denied'
   | 'Withdrawn';
 
@@ -325,13 +327,25 @@ export type BillingStatusValue =
 
 export type QBSyncStatus = 'Not Synced' | 'Synced' | 'Discrepancy';
 
+/**
+ * Two distinct kinds of CAHP fee invoice, billed separately:
+ *   'Filing Fee'         — flat one-time charge per property (the Initial filing).
+ *   'Percent of Savings' — a % of the DOR-approved tax savings, billed per tax
+ *                          year (the Initial year and each Annual thereafter).
+ * Both are revenue CAHP collects from the owner — there is no owner disbursement.
+ */
+export type BillingType = 'Filing Fee' | 'Percent of Savings';
+
 export interface BillingFields {
   Title: string;                              // Billing Reference
   PropertyLookupId?: string;                  // → Properties Registry
+  BillSubmittalLookupId?: string;             // → Submittals Tracker — the approved filing this invoice bills against
+  BillingType?: BillingType;                  // Filing Fee (one-time) vs Percent of Savings (per tax year)
   cahpTaxYear?: CahpTaxYear;
-  AmountBilled?: number;
-  BillApprovedAbatement?: number;
-  CAHPFeePercent?: number;
+  AmountBilled?: number;                       // What the owner owes CAHP on this invoice
+  BillApprovedAbatement?: number;              // ('Percent of Savings') DOR-approved tax savings the % fee is based on
+  CAHPFilingFee?: number;                      // ('Filing Fee') flat one-time fee amount
+  CAHPFeePercent?: number;                     // ('Percent of Savings') contingency rate applied to the tax savings
   InvoiceDate?: string;
   InvoiceNumber?: string;
   BillingStatus?: BillingStatusValue;

@@ -6,10 +6,18 @@ import {
   type Billing,
   type Disbursement,
   type Property,
+  type Submittal,
   type BillingStatusValue,
   type QBSyncStatus,
   type DisbursementStatus,
 } from '../lib/sharepoint';
+import {
+  computeInvoiceQueues,
+  generatePercentInvoice,
+  generateFilingFeeInvoice,
+  type PercentQueueItem,
+  type FilingFeeQueueItem,
+} from '../lib/billing';
 import { Icon } from '../components/ui/Icon';
 
 const BILLING_STATUS_STYLES: Record<BillingStatusValue, string> = {
@@ -33,22 +41,25 @@ const DISB_STATUS_STYLES: Record<DisbursementStatus, string> = {
   'Voided': 'bg-gray-100 text-gray-500',
 };
 
-type Tab = 'invoices' | 'disbursements' | 'reconciliation';
+type Tab = 'queue' | 'invoices' | 'disbursements' | 'reconciliation';
 
 export function BillingPage() {
-  const [tab, setTab] = useState<Tab>('invoices');
+  const [tab, setTab] = useState<Tab>('queue');
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-teal-700">Billing & Disbursements</h1>
+        <h1 className="text-2xl font-bold text-teal-700">Billing</h1>
         <p className="text-sm text-gray-500 mt-1">
-          CAHP fee invoices (revenue) and DOR refund disbursements (passthrough to owners). Records are auto-created when a submittal is approved.
+          CAHP fee invoices — the filing fee (one-time) and the % of savings (per tax year) that owners pay CAHP. Generated from an Approved submittal once accounting confirms the numbers.
         </p>
       </div>
 
       {/* Tab nav */}
       <div className="border-b border-gray-200 mb-4 flex gap-1 overflow-x-auto">
+        <TabButton active={tab === 'queue'} onClick={() => setTab('queue')}>
+          To Invoice
+        </TabButton>
         <TabButton active={tab === 'invoices'} onClick={() => setTab('invoices')}>
           CAHP Fee Invoices
         </TabButton>
@@ -60,9 +71,286 @@ export function BillingPage() {
         </TabButton>
       </div>
 
+      {tab === 'queue' && <ToInvoiceTab />}
       {tab === 'invoices' && <InvoicesTab />}
       {tab === 'disbursements' && <DisbursementsTab />}
       {tab === 'reconciliation' && <ReconciliationTab />}
+    </div>
+  );
+}
+
+// =============================================================================
+// To Invoice Tab — what still needs invoicing, derived from submittals' tax years
+// =============================================================================
+
+function ToInvoiceTab() {
+  const navigate = useNavigate();
+  const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const billings = useSharePointList<Billing>(LIST_NAMES.Billing, { top: 500 });
+  const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+
+  // id of the item currently being generated, or 'all' during a batch run
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Per-row overrides — defaults are pre-filled, but each property may sit under
+  // a different agreement, so the fee % and filing-fee amount are editable here.
+  const [pctOverrides, setPctOverrides] = useState<Record<string, string>>({});
+  const [feeOverrides, setFeeOverrides] = useState<Record<string, string>>({});
+
+  const queues = useMemo(() => {
+    if (!submittals.data || !billings.data || !properties.data) return null;
+    return computeInvoiceQueues(submittals.data, billings.data, properties.data);
+  }, [submittals.data, billings.data, properties.data]);
+
+  // Current (possibly-overridden) values for a row.
+  const pctFor = (item: PercentQueueItem) =>
+    pctOverrides[String(item.submittal.id)] ?? String(item.feePercent);
+  const pctAmountFor = (item: PercentQueueItem) => {
+    const p = parseFloat(pctFor(item));
+    return isNaN(p) ? 0 : (item.taxSavings * p) / 100;
+  };
+  const feeFor = (item: FilingFeeQueueItem) =>
+    feeOverrides[String(item.submittal.id)] ?? String(item.amount);
+
+  const refetchAll = async () => {
+    await Promise.all([submittals.refetch(), billings.refetch(), properties.refetch()]);
+  };
+
+  const runOnePercent = async (item: PercentQueueItem) => {
+    const pct = parseFloat(pctFor(item));
+    if (isNaN(pct) || pct <= 0 || pct > 100) {
+      setError(`Enter a fee % between 0 and 100 for ${item.property?.fields.Title ?? 'this filing'}.`);
+      return;
+    }
+    setError(null);
+    setBusy(String(item.submittal.id));
+    try {
+      await generatePercentInvoice({
+        submittal: item.submittal,
+        property: item.property,
+        taxSavings: item.taxSavings,
+        feePercent: pct,
+      });
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runOneFiling = async (item: FilingFeeQueueItem) => {
+    const amount = parseFloat(feeFor(item));
+    if (isNaN(amount) || amount <= 0) {
+      setError(`Enter a filing fee amount for ${item.property?.fields.Title ?? 'this property'}.`);
+      return;
+    }
+    setError(null);
+    setBusy(`filing-${item.submittal.id}`);
+    try {
+      await generateFilingFeeInvoice({ submittal: item.submittal, property: item.property, amount });
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runAllPercent = async () => {
+    if (!queues) return;
+    // Validate every row's % up front so a bad value doesn't half-run the batch.
+    for (const item of queues.percentItems) {
+      const pct = parseFloat(pctFor(item));
+      if (isNaN(pct) || pct <= 0 || pct > 100) {
+        setError(`Fix the fee % for ${item.property?.fields.Title ?? 'a filing'} before generating all (must be 0–100).`);
+        return;
+      }
+    }
+    setError(null);
+    setBusy('all');
+    try {
+      for (const item of queues.percentItems) {
+        await generatePercentInvoice({
+          submittal: item.submittal,
+          property: item.property,
+          taxSavings: item.taxSavings,
+          feePercent: parseFloat(pctFor(item)),
+        });
+      }
+      await refetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (submittals.loading || billings.loading || properties.loading) {
+    return <Loading label="the invoicing queue" />;
+  }
+  if (submittals.error) return <ErrorBanner error={submittals.error} />;
+  if (!queues) return null;
+
+  const { percentItems, filingItems } = queues;
+  const percentTotal = percentItems.reduce((sum, i) => sum + pctAmountFor(i), 0);
+  const filingTotal = filingItems.reduce((sum, i) => sum + (parseFloat(feeFor(i)) || 0), 0);
+  const nothingDue = percentItems.length === 0 && filingItems.length === 0;
+  const rowInputClass =
+    'w-24 px-2 py-1 border border-gray-300 rounded text-sm text-right font-mono-data focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 disabled:opacity-50';
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KPI label="Filing Fees Due" value={filingItems.length} accent={filingItems.length > 0 ? 'warning' : 'default'} />
+        <KPI label="Filing Fees $" value={`$${filingTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono />
+        <KPI label="% of Savings Due" value={percentItems.length} accent={percentItems.length > 0 ? 'warning' : 'default'} />
+        <KPI label="% of Savings $" value={`$${percentTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono />
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">{error}</div>
+      )}
+
+      {nothingDue && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
+          <p className="text-base font-semibold text-green-900 mb-1">All caught up</p>
+          <p className="text-sm text-green-800">
+            Every approved filing has its % of savings invoice, and every property with an initial filing has its filing fee invoiced.
+          </p>
+        </div>
+      )}
+
+      {/* Filing fees */}
+      {filingItems.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-teal-700">Filing fees to invoice</h3>
+              <p className="text-xs text-gray-500">One-time per property — properties with an approved initial filing but no filing-fee invoice.</p>
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left">Initial Filing</th>
+                <th className="px-4 py-3 text-right">Filing Fee</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filingItems.map((item) => (
+                <tr key={`filing-${item.submittal.id}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-900">{item.property?.fields.Title ?? '(unlinked)'}</td>
+                  <td className="px-4 py-3 text-teal-700">
+                    <button onClick={() => navigate(`/submittals/${item.submittal.id}`)} className="hover:underline">
+                      {item.submittal.fields.Title ?? `Submittal ${item.submittal.id}`}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-gray-400 font-mono-data mr-0.5">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={feeFor(item)}
+                      onChange={(e) =>
+                        setFeeOverrides((prev) => ({ ...prev, [String(item.submittal.id)]: e.target.value }))
+                      }
+                      disabled={busy !== null}
+                      className={rowInputClass}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => runOneFiling(item)}
+                      disabled={busy !== null}
+                      className="px-3 py-1 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
+                    >
+                      {busy === `filing-${item.submittal.id}` ? 'Generating…' : 'Generate'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* % of savings */}
+      {percentItems.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <h3 className="text-sm font-bold text-teal-700">% of savings to invoice</h3>
+              <p className="text-xs text-gray-500">Per tax year — approved filings with no % of savings invoice yet. Defaults to {percentItems[0]?.feePercent ?? 20}% of the tax savings on file.</p>
+            </div>
+            <button
+              onClick={runAllPercent}
+              disabled={busy !== null}
+              className="px-3 py-1.5 rounded-md text-xs font-semibold bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
+            >
+              {busy === 'all' ? 'Generating…' : `Generate all (${percentItems.length})`}
+            </button>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left">Filing</th>
+                <th className="px-4 py-3 text-left">Tax Year</th>
+                <th className="px-4 py-3 text-right">Tax Savings</th>
+                <th className="px-4 py-3 text-right">Fee %</th>
+                <th className="px-4 py-3 text-right">Invoice</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {percentItems.map((item) => (
+                <tr key={item.submittal.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-900">{item.property?.fields.Title ?? '(unlinked)'}</td>
+                  <td className="px-4 py-3 text-teal-700">
+                    <button onClick={() => navigate(`/submittals/${item.submittal.id}`)} className="hover:underline">
+                      {item.submittal.fields.Title ?? `Submittal ${item.submittal.id}`}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 font-mono-data text-xs text-gray-700">{item.taxYear ?? '—'}</td>
+                  <td className="px-4 py-3 text-right font-mono-data text-gray-700">${item.taxSavings.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      value={pctFor(item)}
+                      onChange={(e) =>
+                        setPctOverrides((prev) => ({ ...prev, [String(item.submittal.id)]: e.target.value }))
+                      }
+                      disabled={busy !== null}
+                      className={`${rowInputClass} w-16`}
+                    />
+                    <span className="text-gray-400 font-mono-data ml-0.5">%</span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono-data font-semibold text-teal-700">
+                    ${pctAmountFor(item).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => runOnePercent(item)}
+                      disabled={busy !== null}
+                      className="px-3 py-1 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50"
+                    >
+                      {busy === String(item.submittal.id) ? 'Generating…' : 'Generate'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -196,7 +484,7 @@ function InvoicesTab() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
           <p className="text-base font-semibold text-blue-900 mb-1">No invoices yet</p>
           <p className="text-sm text-blue-800">
-            CAHP fee invoices are auto-created when a Submittal transitions to Approved (via the Approval Workflow modal).
+            CAHP fee invoices are created from an Approved submittal — open the submittal and click <strong>Generate Invoice</strong> once accounting has confirmed the numbers.
           </p>
         </div>
       ) : (
@@ -205,6 +493,7 @@ function InvoicesTab() {
             <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
               <tr>
                 <th className="px-4 py-3 text-left">Property</th>
+                <th className="px-4 py-3 text-left">Type</th>
                 <th className="px-4 py-3 text-left">Year</th>
                 <th className="px-4 py-3 text-right">Tax Savings</th>
                 <th className="px-4 py-3 text-right">Fee %</th>
@@ -227,6 +516,15 @@ function InvoicesTab() {
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">
                       {property?.fields.Title ?? <span className="text-gray-400 italic">(unlinked)</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {b.fields.BillingType === 'Filing Fee' ? (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800">Filing Fee</span>
+                      ) : b.fields.BillingType === 'Percent of Savings' ? (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-800">% of Savings</span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{b.fields.cahpTaxYear ?? '—'}</td>
                     <td className="px-4 py-3 text-right font-mono-data">
@@ -376,7 +674,7 @@ function DisbursementsTab() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
           <p className="text-base font-semibold text-blue-900 mb-1">No disbursements yet</p>
           <p className="text-sm text-blue-800">
-            Disbursement records are auto-created when a Submittal transitions to Approved (via the Approval Workflow modal).
+            Disbursement records are created alongside the invoice when you click Generate Invoice on an Approved submittal.
           </p>
         </div>
       ) : (
