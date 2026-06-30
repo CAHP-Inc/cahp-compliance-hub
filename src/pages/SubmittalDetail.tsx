@@ -51,6 +51,7 @@ import {
   EditingActionButtons,
 } from '../components/detail';
 import { SubmittalOrgChartSnapshot } from '../components/SubmittalOrgChartSnapshot';
+import { SubmittalReviewsSection } from '../components/SubmittalReviewsSection';
 import { DeleteSubmittalModal } from '../components/DeleteSubmittalModal';
 
 const STATUS_STYLES: Record<SubmittalStatusValue, string> = {
@@ -1144,6 +1145,9 @@ export function SubmittalDetail() {
           propertyTitle={property?.fields.Title ?? '(unlinked property)'}
         />
       </div>
+
+      {/* Weekly Reviews — status journal until the submittal is closed */}
+      <SubmittalReviewsSection submittalId={String(submittal.id)} currentStatus={f.SubmittalStatus} />
 
       {/* Correspondence */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-card mb-6 overflow-hidden">

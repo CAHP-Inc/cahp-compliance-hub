@@ -148,6 +148,21 @@ export interface SubmittalFields {
 export type Submittal = SharePointListItem<SubmittalFields>;
 
 // =============================================================================
+// LIST: Submittal Reviews — weekly status journal per submittal until Approved
+// =============================================================================
+
+export interface SubmittalReviewFields {
+  Title?: string;                             // SP-required (auto from status + date)
+  ReviewSubmittalLookupId?: string;           // → Submittals Tracker
+  ReviewStatus?: string;                      // submittal status captured at review time
+  ReviewNote?: string;                        // weekly progress note
+  ReviewNextAction?: string;                  // planned next action
+  ReviewNextActionETA?: string;               // expected resolution date (ISO)
+}
+
+export type SubmittalReview = SharePointListItem<SubmittalReviewFields>;
+
+// =============================================================================
 // LIST: Compliance Deadlines
 // =============================================================================
 
@@ -664,6 +679,7 @@ export type PropertyNote = SharePointListItem<PropertyNoteFields>;
 export const LIST_NAMES = {
   Properties: 'Properties Registry',
   Submittals: 'Submittals Tracker',
+  SubmittalReviews: 'Submittal Reviews',
   TaxMapIDs: 'Tax Map IDs',
   Deeds: 'Property Deeds',
   DeedParcelLinks: 'Deed Parcel Links',
