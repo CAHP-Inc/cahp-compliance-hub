@@ -4,6 +4,7 @@ import {
   useSharePointList,
   LIST_NAMES,
   type Submittal,
+  type SubmittalReview,
   type TaxMapID,
   type Property,
   type SubmittalStatusValue,
@@ -56,6 +57,21 @@ export function Submittals() {
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 500 });
+  const reviews = useSharePointList<SubmittalReview>(LIST_NAMES.SubmittalReviews, { top: 1000 });
+
+  // submittalId -> latest weekly review (timestamp + status), for the Last Review column.
+  const lastReviewById = useMemo(() => {
+    const m = new Map<string, { ms: number; status: string }>();
+    for (const r of reviews.data ?? []) {
+      const sid = r.fields.ReviewSubmittalLookupId ? String(r.fields.ReviewSubmittalLookupId) : '';
+      if (!sid) continue;
+      const t = new Date(r.createdDateTime).getTime();
+      if (Number.isNaN(t)) continue;
+      const prev = m.get(sid);
+      if (!prev || t > prev.ms) m.set(sid, { ms: t, status: r.fields.ReviewStatus ?? '' });
+    }
+    return m;
+  }, [reviews.data]);
 
   const taxMapIdsById = useMemo(() => {
     const m = new Map<string, TaxMapID>();
@@ -71,6 +87,7 @@ export function Submittals() {
   const [newSubmittalOpen, setNewSubmittalOpen] = useState(false);
   const [groupByProperty, setGroupByProperty] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [sortByReview, setSortByReview] = useState(false); // oldest weekly review first
 
   const loading = submittals.loading || properties.loading;
   const error = submittals.error || properties.error;
@@ -104,7 +121,13 @@ export function Submittals() {
         return true;
       })
       .sort((a, b) => {
-        // Sort by year DESC, then drafts/unfiled bubble up (Infinity DateFiled = on top within year)
+        if (sortByReview) {
+          // Oldest weekly review first; never-reviewed (no entry) at the very top.
+          const ra = lastReviewById.get(String(a.id))?.ms ?? -Infinity;
+          const rb = lastReviewById.get(String(b.id))?.ms ?? -Infinity;
+          if (ra !== rb) return ra - rb;
+        }
+        // Default: year DESC, then drafts/unfiled bubble up (Infinity DateFiled = on top within year)
         const ya = Number(a.fields.cahpTaxYear ?? 0);
         const yb = Number(b.fields.cahpTaxYear ?? 0);
         if (yb !== ya) return yb - ya;
@@ -112,7 +135,41 @@ export function Submittals() {
         const db = b.fields.DateFiled ? new Date(b.fields.DateFiled).getTime() : Infinity;
         return db - da;
       });
-  }, [submittals.data, search, statusFilter, yearFilter, filingTypeFilter, sahaFilter, propertiesById, taxMapIdsById]);
+  }, [submittals.data, search, statusFilter, yearFilter, filingTypeFilter, sahaFilter, sortByReview, lastReviewById, propertiesById, taxMapIdsById]);
+
+  // Clicking the Last Review header gives the flat, oldest-review-first view.
+  const toggleReviewSort = () => {
+    setSortByReview((v) => {
+      if (!v) setGroupByProperty(false);
+      return !v;
+    });
+  };
+
+  const CLOSED_REVIEW_STATUSES = new Set<SubmittalStatusValue>(['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn']);
+  const renderLastReview = (s: Submittal) => {
+    const entry = lastReviewById.get(String(s.id));
+    const closed = s.fields.SubmittalStatus ? CLOSED_REVIEW_STATUSES.has(s.fields.SubmittalStatus) : false;
+    if (!entry) {
+      return closed
+        ? <span className="text-gray-300 text-xs">—</span>
+        : <span className="text-red-600 text-xs font-semibold">Never</span>;
+    }
+    const days = Math.floor((Date.now() - entry.ms) / 86400000);
+    const overdue = !closed && days >= 7;
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className={`font-mono-data text-xs ${overdue ? 'text-amber-700 font-semibold' : 'text-gray-700'}`}>
+          {formatDateOnly(new Date(entry.ms).toISOString())}
+          {overdue && <span className="ml-1 text-[10px]">({days}d)</span>}
+        </span>
+        {entry.status && (
+          <span className="inline-block w-fit px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700">
+            {entry.status}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   /**
    * Group filtered submittals by property + year + filing type.
@@ -346,6 +403,15 @@ export function Submittals() {
                 <th className="px-4 py-3 text-left">Filed</th>
                 <th className="px-4 py-3 text-left">Confirmation #</th>
                 <th className="px-4 py-3 text-left">Next Action</th>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={toggleReviewSort}
+                    title="Sort by last weekly review, oldest first"
+                    className="uppercase tracking-wider font-semibold flex items-center gap-1 hover:text-teal-700"
+                  >
+                    Last Review {sortByReview && <span className="text-teal-700">▲</span>}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -397,7 +463,7 @@ export function Submittals() {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3" colSpan={3}>
+                      <td className="px-4 py-3" colSpan={4}>
                         <span className="text-xs text-gray-500 italic">
                           {isExpanded ? 'Click to collapse' : `Click to expand ${g.counts.total} submittals`}
                         </span>
@@ -442,6 +508,7 @@ export function Submittals() {
                           <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{formatDateOnly(s.fields.DateFiled)}</td>
                           <td className="px-4 py-2 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
                           <td className="px-4 py-2 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>
+                          <td className="px-4 py-2">{renderLastReview(s)}</td>
                         </tr>
                       );
                     });
@@ -495,6 +562,7 @@ export function Submittals() {
                       </td>
                       <td className="px-4 py-3 text-gray-700 font-mono-data text-xs">{s.fields.ConfirmationNumber || '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600 max-w-xs truncate">{s.fields.NextAction || '—'}</td>
+                      <td className="px-4 py-3">{renderLastReview(s)}</td>
                     </tr>
                   );
                 })

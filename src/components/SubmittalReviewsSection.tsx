@@ -8,9 +8,11 @@ import {
 } from '../lib/sharepoint';
 import { formatDateET, formatDateOnly } from '../lib/dates';
 
-const STATUS_OPTIONS: SubmittalStatusValue[] = [
+// Weekly review statuses. Includes 'Under Review' — a review-only state (not a
+// submittal status) for weeks the filing is actively under review.
+export const REVIEW_STATUS_OPTIONS: string[] = [
   'Draft', 'Package Mailed (NC)', 'Filed', 'Letter Received - Action Needed',
-  'Responded - Awaiting DOR', 'Approved', 'Denied', 'Withdrawn',
+  'Responded - Awaiting DOR', 'Under Review', 'Approved', 'Denied', 'Withdrawn',
 ];
 
 // A submittal stops needing weekly reviews once it reaches a closed state.
@@ -116,7 +118,7 @@ export function SubmittalReviewsSection({ submittalId, currentStatus }: Props) {
                     disabled={posting}
                     className="border border-gray-300 rounded px-2 py-1 bg-white"
                   >
-                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {REVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-xs">

@@ -10,6 +10,7 @@ import {
   type Property,
   type PropertyFields,
   type Submittal,
+  type SubmittalReview,
   type TaxMapID,
   type PropertyStatus,
   type SubmittalStatusValue,
@@ -55,6 +56,7 @@ import { EditOwnershipModal } from '../components/EditOwnershipModal';
 import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
+import { REVIEW_STATUS_OPTIONS } from '../components/SubmittalReviewsSection';
 import { formatDateOnly, formatDateET, formatDateTime, toDateInputValue, EASTERN_TZ } from '../lib/dates';
 import { markFilingFeeNA, isNAFilingFee, isPercentInvoice, isNAPercent, recordAnnualPercentInvoice, markPercentNA, recordFullBillBaseline, findBaselineForScope, findPercentInvoiceForPropertyYear, DEFAULT_FEE_PERCENT } from '../lib/billing';
 
@@ -572,6 +574,66 @@ function SubmittalsTab({
     (t) => String(t.fields.LinkedPropertyLookupId ?? '') === String(property.id)
   );
 
+  // Latest weekly review (date + status) per submittal, for the review columns.
+  const reviews = useSharePointList<SubmittalReview>(LIST_NAMES.SubmittalReviews, { top: 1000 });
+  const lastReviewById = useMemo(() => {
+    const m = new Map<string, { ms: number; status: string }>();
+    for (const r of reviews.data ?? []) {
+      const sid = r.fields.ReviewSubmittalLookupId ? String(r.fields.ReviewSubmittalLookupId) : '';
+      if (!sid) continue;
+      const t = new Date(r.createdDateTime).getTime();
+      if (Number.isNaN(t)) continue;
+      const prev = m.get(sid);
+      if (!prev || t > prev.ms) m.set(sid, { ms: t, status: r.fields.ReviewStatus ?? '' });
+    }
+    return m;
+  }, [reviews.data]);
+  const CLOSED_REVIEW = new Set<SubmittalStatusValue>(['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn']);
+
+  // Bulk weekly-review update for selected submittals.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('Under Review');
+  const [bulkNote, setBulkNote] = useState('');
+  const [bulkEta, setBulkEta] = useState('');
+  const [bulkReviewBusy, setBulkReviewBusy] = useState(false);
+  const [bulkReviewError, setBulkReviewError] = useState<string | null>(null);
+  const allIds = submittals.map((s) => String(s.id));
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  const toggleSelectAll = () => setSelectedIds(allSelected ? new Set() : new Set(allIds));
+
+  const applyBulkReview = async () => {
+    if (selectedIds.size === 0) return;
+    if (!bulkStatus) { setBulkReviewError('Pick a status.'); return; }
+    setBulkReviewBusy(true);
+    setBulkReviewError(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      for (const id of selectedIds) {
+        await createListItem(LIST_NAMES.SubmittalReviews, {
+          Title: `${bulkStatus} — ${today}`.slice(0, 255),
+          ReviewSubmittalLookupId: id,
+          ReviewStatus: bulkStatus,
+          ReviewNote: bulkNote.trim() || undefined,
+          ReviewNextActionETA: bulkEta ? new Date(bulkEta).toISOString() : undefined,
+        });
+      }
+      setSelectedIds(new Set());
+      setBulkNote('');
+      setBulkEta('');
+      await reviews.refetch();
+    } catch (e) {
+      setBulkReviewError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkReviewBusy(false);
+    }
+  };
+
   return (
     <>
       {/* Action bar */}
@@ -599,6 +661,31 @@ function SubmittalsTab({
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="mb-3 bg-teal-50 border border-teal-200 rounded-lg p-3 flex flex-wrap items-end gap-2">
+          <span className="text-xs font-semibold text-teal-900 self-center">{selectedIds.size} selected</span>
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-semibold text-gray-600">Review status</span>
+            <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} disabled={bulkReviewBusy} className="border border-gray-300 rounded px-2 py-1 bg-white">
+              {REVIEW_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-semibold text-gray-600">Next action ETA</span>
+            <input type="date" value={bulkEta} onChange={(e) => setBulkEta(e.target.value)} disabled={bulkReviewBusy} className="border border-gray-300 rounded px-2 py-1 font-mono-data" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs flex-1 min-w-[12rem]">
+            <span className="font-semibold text-gray-600">Note (optional)</span>
+            <input value={bulkNote} onChange={(e) => setBulkNote(e.target.value)} disabled={bulkReviewBusy} placeholder="Applied to all selected…" className="border border-gray-300 rounded px-2 py-1" />
+          </label>
+          <button onClick={applyBulkReview} disabled={bulkReviewBusy} className="px-3 py-1.5 rounded-md text-xs font-medium bg-teal-700 hover:bg-teal-900 text-white disabled:opacity-50">
+            {bulkReviewBusy ? 'Logging…' : `Log review for ${selectedIds.size}`}
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} disabled={bulkReviewBusy} className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50">Clear</button>
+          {bulkReviewError && <p className="w-full text-xs text-red-700">{bulkReviewError}</p>}
+        </div>
+      )}
+
       {submittals.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-card">
           <p className="text-sm text-gray-500 mb-3">No submittals on file for this property yet.</p>
@@ -617,12 +704,17 @@ function SubmittalsTab({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
               <tr>
+                <th className="px-3 py-3 w-8">
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} aria-label="Select all" />
+                </th>
                 <th className="px-4 py-3 text-left">Submittal</th>
                 <th className="px-4 py-3 text-left">Tax Map ID</th>
                 <th className="px-4 py-3 text-left">Tax Year</th>
                 <th className="px-4 py-3 text-left">Filing Type</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Filed</th>
+                <th className="px-4 py-3 text-left">Last Review</th>
+                <th className="px-4 py-3 text-left">Review Status</th>
                 <th className="px-4 py-3 text-right">Abatement</th>
               </tr>
             </thead>
@@ -631,12 +723,24 @@ function SubmittalsTab({
                 const parcel = s.fields.TaxMapIDLookupId
                   ? propertyParcels.find((p) => String(p.id) === String(s.fields.TaxMapIDLookupId))
                   : null;
+                const lastReview = lastReviewById.get(String(s.id));
+                const reviewClosed = s.fields.SubmittalStatus ? CLOSED_REVIEW.has(s.fields.SubmittalStatus) : false;
+                const reviewDays = lastReview ? Math.floor((Date.now() - lastReview.ms) / 86400000) : null;
+                const reviewOverdue = !reviewClosed && reviewDays !== null && reviewDays >= 7;
                 return (
                   <tr
                     key={s.id}
                     onClick={() => navigate(`/submittals/${s.id}`)}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                   >
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(String(s.id))}
+                        onChange={() => toggleSelect(String(s.id))}
+                        aria-label={`Select ${s.fields.Title ?? 'submittal'}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{s.fields.Title}</td>
                     <td className="px-4 py-3 font-mono-data text-xs text-gray-700">
                       {parcel ? parcel.fields.Title : <span className="text-gray-400 italic font-sans">unassigned</span>}
@@ -651,6 +755,21 @@ function SubmittalsTab({
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-gray-700 text-xs">{formatDate(s.fields.DateFiled)}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {!lastReview ? (
+                        reviewClosed ? <span className="text-gray-300">—</span> : <span className="text-red-600 font-semibold">Never</span>
+                      ) : (
+                        <span className={`font-mono-data ${reviewOverdue ? 'text-amber-700 font-semibold' : 'text-gray-700'}`}>
+                          {formatDate(new Date(lastReview.ms).toISOString())}
+                          {reviewOverdue && <span className="ml-1 text-[10px]">({reviewDays}d)</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lastReview?.status ? (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700">{lastReview.status}</span>
+                      ) : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono-data text-xs">
                       {s.fields.ApprovedAbatement ? `$${s.fields.ApprovedAbatement.toLocaleString()}` : '—'}
                     </td>
