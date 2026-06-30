@@ -302,6 +302,59 @@ export async function markFilingFeeNA(opts: {
   });
 }
 
+/**
+ * Record a full-bill BASELINE for a property/scope that has no abatement yet
+ * (the most recent bill is still the full bill, so there are no savings to bill).
+ * Stored as a $0, YEAR-LESS % row carrying the full bill, so it pulls forward as
+ * the Last Full Tax Bill but never occupies — or blocks — a billable year. Once
+ * the abated bill arrives, that year is billed normally with the full pulled in.
+ */
+export async function recordFullBillBaseline(opts: {
+  property: Property;
+  lastFullTaxBill: number;
+  taxMapId?: string | null;
+  note?: string;
+}): Promise<void> {
+  const { property, lastFullTaxBill, taxMapId, note } = opts;
+  const propName = property.fields.Title ?? 'Property';
+  const reason = note?.trim() ? ` ${note.trim()}` : '';
+
+  await createListItem(LIST_NAMES.Billing, {
+    Title: `${propName} CAHP % Baseline (full bill)`.trim(),
+    PropertyLookupId: String(property.id),
+    ...(taxMapId ? { BillTaxMapIDLookupId: String(taxMapId) } : {}),
+    BillingType: 'Percent of Savings',
+    LastFullTaxBill: lastFullTaxBill,
+    AmountBilled: 0,
+    BillApprovedAbatement: 0,
+    BillingStatus: 'N/A' as BillingStatusValue,
+    QBSyncStatus: 'Not Synced',
+    BillingNotes: `Baseline full tax bill $${lastFullTaxBill.toLocaleString()} (no abatement yet); pulled forward.${reason}`,
+  });
+}
+
+/** A year-less % row that carries a full bill = a pull-forward baseline. */
+export function isBaselineRow(b: Billing): boolean {
+  return isPercentInvoice(b) && !b.fields.cahpTaxYear && typeof b.fields.LastFullTaxBill === 'number';
+}
+
+/** The full-bill baseline on file for a property/scope, if any. */
+export function findBaselineForScope(
+  propertyId: string,
+  billings: Billing[],
+  taxMapId?: string | null,
+): Billing | null {
+  const tmid = taxMapId ? String(taxMapId) : '';
+  return (
+    billings.find(
+      (b) =>
+        isBaselineRow(b) &&
+        String(b.fields.PropertyLookupId ?? '') === String(propertyId) &&
+        String(b.fields.BillTaxMapIDLookupId ?? '') === tmid,
+    ) ?? null
+  );
+}
+
 // =============================================================================
 // Queue computation — what still needs invoicing
 // =============================================================================

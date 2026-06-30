@@ -121,7 +121,7 @@ function ToInvoiceTab() {
   // Properties enrolled in recurring "% of Annual Savings" billing (i.e. they
   // already have at least one % invoice), for the roll-forward panel.
   const ROLL_TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
-  type RollUnit = { key: string; pid: string; tmid: string; property: Property; tmidLabel: string | null; lastYear: number | null; lastPct: number };
+  type RollUnit = { key: string; pid: string; tmid: string; property: Property; tmidLabel: string | null; lastYear: number | null; lastPct: number; lastFull: number | null };
   const rollForward = useMemo(() => {
     if (!billings.data || !properties.data) return { enrolled: [] as RollUnit[], suggestedYear: String(new Date().getFullYear()) as CahpTaxYear };
     const propById = new Map(properties.data.map((p) => [String(p.id), p]));
@@ -149,7 +149,10 @@ function ToInvoiceTab() {
         const lastYear = years.length ? Math.max(...years) : null;
         const last = u.rows.find((r) => Number(r.fields.cahpTaxYear) === lastYear);
         const tmidLabel = u.tmid ? (tmidById.get(u.tmid)?.fields.Title ?? `TMID ${u.tmid}`) : null;
-        return { key: `${u.pid}|${u.tmid}`, pid: u.pid, tmid: u.tmid, property, tmidLabel, lastYear, lastPct: last?.fields.CAHPFeePercent ?? DEFAULT_FEE_PERCENT };
+        // Pull the full (pre-abatement) bill forward from the most recent prior bill.
+        const fullRow = [...u.rows].filter((r) => typeof r.fields.LastFullTaxBill === 'number').sort((a, b) => (Number(b.fields.cahpTaxYear) || -Infinity) - (Number(a.fields.cahpTaxYear) || -Infinity))[0];
+        const lastFull = fullRow ? (fullRow.fields.LastFullTaxBill as number) : null;
+        return { key: `${u.pid}|${u.tmid}`, pid: u.pid, tmid: u.tmid, property, tmidLabel, lastYear, lastPct: last?.fields.CAHPFeePercent ?? DEFAULT_FEE_PERCENT, lastFull };
       })
       .filter((e): e is RollUnit => e !== null)
       .sort((a, b) => (a.property.fields.Title ?? '').localeCompare(b.property.fields.Title ?? '') || (a.tmidLabel ?? '').localeCompare(b.tmidLabel ?? ''));
@@ -264,8 +267,10 @@ function ToInvoiceTab() {
   const rollScope = (e: RollUnit) => e.tmidLabel ? `${e.property.fields.Title ?? 'property'} · ${e.tmidLabel}` : (e.property.fields.Title ?? 'this property');
 
   // Generate a unit's % of savings invoice for the roll-forward target year.
+  const rollFullValue = (e: RollUnit) => rollFull[e.key] ?? (e.lastFull != null ? String(e.lastFull) : '');
+
   const runRollForward = async (entry: RollUnit, year: CahpTaxYear) => {
-    const full = parseFloat(rollFull[entry.key] ?? '');
+    const full = parseFloat(rollFullValue(entry));
     const recent = parseFloat(rollRecent[entry.key] ?? '');
     const name = rollScope(entry);
     if (isNaN(full) || isNaN(recent)) { setError(`Enter both tax bills for ${name}.`); return; }
@@ -505,7 +510,7 @@ function ToInvoiceTab() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {rows.map((e) => {
-                    const full = parseFloat(rollFull[e.key] ?? '');
+                    const full = parseFloat(rollFullValue(e));
                     const recent = parseFloat(rollRecent[e.key] ?? '');
                     const fee = !isNaN(full) && !isNaN(recent) && full - recent > 0 ? ((full - recent) * e.lastPct) / 100 : null;
                     return (
@@ -518,7 +523,7 @@ function ToInvoiceTab() {
                           <span className="text-gray-400 font-mono-data mr-0.5">$</span>
                           <input
                             type="number" min="0" step="0.01"
-                            value={rollFull[e.key] ?? ''}
+                            value={rollFullValue(e)}
                             onChange={(ev) => setRollFull((prev) => ({ ...prev, [e.key]: ev.target.value }))}
                             disabled={busy !== null}
                             className={rowInputClass}

@@ -56,7 +56,7 @@ import { TaxMapIDsSection } from '../components/TaxMapIDsSection';
 import { DeedsSection } from '../components/DeedsSection';
 import { NewSubmittalModal, BulkCreateSubmittalsModal } from '../components/NewSubmittalModal';
 import { formatDateOnly, formatDateET, formatDateTime, toDateInputValue, EASTERN_TZ } from '../lib/dates';
-import { markFilingFeeNA, isNAFilingFee, isPercentInvoice, isNAPercent, recordAnnualPercentInvoice, markPercentNA, findPercentInvoiceForPropertyYear, DEFAULT_FEE_PERCENT } from '../lib/billing';
+import { markFilingFeeNA, isNAFilingFee, isPercentInvoice, isNAPercent, recordAnnualPercentInvoice, markPercentNA, recordFullBillBaseline, findBaselineForScope, findPercentInvoiceForPropertyYear, DEFAULT_FEE_PERCENT } from '../lib/billing';
 
 const STATUS_STYLES: Record<PropertyStatus, string> = {
   Active: 'bg-green-100 text-green-800 border-green-200',
@@ -1218,6 +1218,18 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     () => new Set(filtered.filter((b) => isNAPercent(b) && inScope(b)).map((b) => b.fields.cahpTaxYear).filter(Boolean) as string[]),
     [filtered, pctTmid], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // The full (pre-abatement) tax bill to pull forward: from the most recent in-scope
+  // billing, or the baseline (year-less) when no abated year has been billed yet.
+  const scopeLastFull = useMemo(() => {
+    const bills = filtered
+      .filter((b) => isPercentInvoice(b) && inScope(b) && typeof b.fields.LastFullTaxBill === 'number')
+      .sort((a, b) => (Number(b.fields.cahpTaxYear) || -Infinity) - (Number(a.fields.cahpTaxYear) || -Infinity));
+    return bills.length ? (bills[0].fields.LastFullTaxBill as number) : null;
+  }, [filtered, pctTmid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scopeBaseline = useMemo(
+    () => (data ? findBaselineForScope(propertyId, data, pctTmid) : null),
+    [data, propertyId, pctTmid],
+  );
   // Default the year to the first unhandled year (newest handled + 1, else current).
   const suggestedYear = useMemo<CahpTaxYear>(() => {
     const handled = [...claimedYears, ...naPctYears].map(Number).filter((n) => !Number.isNaN(n));
@@ -1231,6 +1243,10 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
   const [pctPercent, setPctPercent] = useState(String(DEFAULT_FEE_PERCENT));
   const [pctBusy, setPctBusy] = useState<'bill' | 'na' | null>(null);
   const [pctError, setPctError] = useState<string | null>(null);
+  // Pull the Last full tax bill forward from the most recent in-scope bill (editable).
+  useEffect(() => {
+    setLastFullBill(scopeLastFull != null ? String(scopeLastFull) : '');
+  }, [scopeLastFull]);
   const effYear = (pctYear || suggestedYear) as CahpTaxYear;
   const alreadyHandled = claimedYears.has(effYear) || naPctYears.has(effYear);
   const lf = parseFloat(lastFullBill);
@@ -1275,6 +1291,34 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
     }
   };
 
+  const [baseBusy, setBaseBusy] = useState(false);
+  const recordBaseline = async () => {
+    setPctError(null);
+    if (isNaN(lf) || lf <= 0) { setPctError('Enter the current full tax bill to record as the baseline.'); return; }
+    setBaseBusy(true);
+    try {
+      await recordFullBillBaseline({ property, lastFullTaxBill: lf, taxMapId: pctTmid || null });
+      await refetch();
+    } catch (e) {
+      setPctError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBaseBusy(false);
+    }
+  };
+  const clearBaseline = async () => {
+    if (!scopeBaseline) return;
+    setPctError(null);
+    setBaseBusy(true);
+    try {
+      await deleteListItem(LIST_NAMES.Billing, String(scopeBaseline.id));
+      await refetch();
+    } catch (e) {
+      setPctError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBaseBusy(false);
+    }
+  };
+
   const annualPctPanel = (
     <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-card mb-4">
       <div className="mb-2">
@@ -1314,7 +1358,10 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
           </label>
         )}
         <label className="flex flex-col gap-1 text-xs">
-          <span className="font-semibold text-gray-600">Last full tax bill ($)</span>
+          <span className="font-semibold text-gray-600">
+            Last full tax bill ($)
+            {scopeLastFull != null && lastFullBill === String(scopeLastFull) && <span className="font-normal text-gray-400"> · pulled fwd</span>}
+          </span>
           <input
             type="number" min="0" step="0.01" value={lastFullBill}
             onChange={(e) => setLastFullBill(e.target.value)} disabled={pctBusy !== null || alreadyHandled}
@@ -1359,6 +1406,25 @@ function PropertyBillingTab({ propertyId, property, submittals }: { propertyId: 
           <span className="font-semibold text-teal-700">${(calcFee ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
         </p>
       )}
+      <div className="mt-2 text-[11px] flex flex-wrap items-center gap-2">
+        {scopeBaseline ? (
+          <>
+            <span className="text-gray-500">
+              Baseline full bill on file: <span className="font-mono-data">${(scopeBaseline.fields.LastFullTaxBill ?? 0).toLocaleString()}</span>{pctTmid ? ' (this TMID)' : ''} — pulls forward, no fee.
+            </span>
+            <button onClick={clearBaseline} disabled={baseBusy} className="text-gray-500 underline hover:text-gray-700 disabled:opacity-50">
+              {baseBusy ? '…' : 'Clear'}
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="text-gray-400">No abatement yet? Record the current full bill as a baseline so it pulls forward (no fee charged).</span>
+            <button onClick={recordBaseline} disabled={baseBusy || pctBusy !== null} className="px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+              {baseBusy ? 'Saving…' : 'Record baseline'}
+            </button>
+          </>
+        )}
+      </div>
       {pctError && <p className="text-xs text-red-700 mt-2">{pctError}</p>}
       {(claimedYears.size > 0 || naPctYears.size > 0) && (
         <p className="text-[11px] text-gray-400 mt-2">
