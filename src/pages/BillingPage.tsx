@@ -21,9 +21,15 @@ import {
   markFilingFeeNA,
   isNAFilingFee,
   isPercentInvoice,
+  isNAPercent,
+  isBaselineRow,
   recordAnnualPercentInvoice,
   markPercentNA,
   findPercentInvoiceForPropertyYear,
+  computeBillingMonths,
+  monthlyFee,
+  buildMonthlyInvoiceDescription,
+  updateBillingMonthlyInputs,
   DEFAULT_FEE_PERCENT,
   type PercentQueueItem,
   type FilingFeeQueueItem,
@@ -52,7 +58,7 @@ const DISB_STATUS_STYLES: Record<DisbursementStatus, string> = {
   'Voided': 'bg-gray-100 text-gray-500',
 };
 
-type Tab = 'queue' | 'invoices' | 'disbursements' | 'reconciliation';
+type Tab = 'queue' | 'invoices' | 'monthly' | 'disbursements' | 'reconciliation';
 
 export function BillingPage() {
   const [tab, setTab] = useState<Tab>('queue');
@@ -74,6 +80,9 @@ export function BillingPage() {
         <TabButton active={tab === 'invoices'} onClick={() => setTab('invoices')}>
           CAHP Fee Invoices
         </TabButton>
+        <TabButton active={tab === 'monthly'} onClick={() => setTab('monthly')}>
+          Monthly Billing
+        </TabButton>
         <TabButton active={tab === 'disbursements'} onClick={() => setTab('disbursements')}>
           Refund Disbursements
         </TabButton>
@@ -84,6 +93,7 @@ export function BillingPage() {
 
       {tab === 'queue' && <ToInvoiceTab />}
       {tab === 'invoices' && <InvoicesTab />}
+      {tab === 'monthly' && <MonthlyBillingTab />}
       {tab === 'disbursements' && <DisbursementsTab />}
       {tab === 'reconciliation' && <ReconciliationTab />}
     </div>
@@ -635,6 +645,220 @@ function ToInvoiceTab() {
                       {busy === String(item.submittal.id) ? 'Generating…' : 'Generate'}
                     </button>
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Monthly Billing Tab — prorate each annual % invoice into a monthly CAHP bill
+// (replicates the "CAHP Bill Backs" spreadsheet: Months, Monthly, invoice text,
+//  monthly total, and the 2027+ ongoing projection)
+// =============================================================================
+
+function MonthlyBillingTab() {
+  const billings = useSharePointList<Billing>(LIST_NAMES.Billing, { top: 500 });
+  const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
+  const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showOngoing, setShowOngoing] = useState(false);
+
+  const propById = useMemo(() => new Map((properties.data ?? []).map((p) => [String(p.id), p])), [properties.data]);
+  const tmidById = useMemo(() => new Map((taxmaps.data ?? []).map((t) => [String(t.id), t])), [taxmaps.data]);
+
+  type Row = {
+    id: string; owner: string; property: string; tmidLabel: string | null; taxYear: string;
+    pid: string; tmid: string; lastFull: number; mostRecent: number; savings: number;
+    feePercent: number; annual: number; previouslyAbated: boolean; billStartDate: string;
+    months: number; monthly: number; description: string;
+  };
+
+  const rows: Row[] = useMemo(() => {
+    if (!billings.data) return [];
+    return billings.data
+      .filter((b) => isPercentInvoice(b) && !isNAPercent(b) && !isBaselineRow(b))
+      .filter((b) => (b.fields.BillApprovedAbatement ?? 0) > 0 || (b.fields.AmountBilled ?? 0) > 0)
+      .map((b): Row => {
+        const f = b.fields;
+        const pid = f.PropertyLookupId ? String(f.PropertyLookupId) : '';
+        const tmid = f.BillTaxMapIDLookupId ? String(f.BillTaxMapIDLookupId) : '';
+        const property = propById.get(pid);
+        const owner = property?.fields.LegalEntity || property?.fields.Title || 'Owner';
+        const lastFull = f.LastFullTaxBill ?? 0;
+        const mostRecent = f.MostRecentTaxBill ?? 0;
+        const savings = f.BillApprovedAbatement ?? Math.max(0, lastFull - mostRecent);
+        const feePercent = f.CAHPFeePercent ?? DEFAULT_FEE_PERCENT;
+        const annual = f.AmountBilled ?? (savings * feePercent) / 100;
+        const previouslyAbated = f.PreviouslyAbated ?? false;
+        const billStartDate = f.BillStartDate ? String(f.BillStartDate).slice(0, 10) : '';
+        const months = computeBillingMonths(previouslyAbated, billStartDate);
+        const monthly = monthlyFee(annual, months);
+        const description = buildMonthlyInvoiceDescription({
+          owner, taxYear: f.cahpTaxYear ?? '', previouslyAbated, lastFullTaxBill: lastFull,
+          mostRecentTaxBill: mostRecent, totalSavings: savings, feePercent, annualFee: annual, months, monthly,
+        });
+        return {
+          id: String(b.id), owner, property: property?.fields.Title ?? '—',
+          tmidLabel: tmid ? (tmidById.get(tmid)?.fields.Title ?? `TMID ${tmid}`) : null,
+          taxYear: String(f.cahpTaxYear ?? ''), pid, tmid, lastFull, mostRecent, savings,
+          feePercent, annual, previouslyAbated, billStartDate, months, monthly, description,
+        };
+      })
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.property.localeCompare(b.property) || b.taxYear.localeCompare(a.taxYear));
+  }, [billings.data, propById, tmidById]);
+
+  const monthlyTotal = rows.reduce((s, r) => s + r.monthly, 0);
+  const annualTotal = rows.reduce((s, r) => s + r.annual, 0);
+
+  // Ongoing 2027+: each parcel's latest tax year, billed the full 12 months.
+  const ongoing = useMemo(() => {
+    const byParcel = new Map<string, Row>();
+    for (const r of rows) {
+      const key = `${r.pid}|${r.tmid}`;
+      const cur = byParcel.get(key);
+      if (!cur || Number(r.taxYear) > Number(cur.taxYear)) byParcel.set(key, r);
+    }
+    const list = [...byParcel.values()].sort((a, b) => a.owner.localeCompare(b.owner) || a.property.localeCompare(b.property));
+    const estAnnual = list.reduce((s, r) => s + r.annual, 0);
+    return { list, estAnnual, estMonthly: estAnnual / 12 };
+  }, [rows]);
+
+  const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+
+  const saveRow = async (id: string, patch: { previouslyAbated?: boolean; billStartDate?: string }) => {
+    setError(null); setSavingId(id);
+    try {
+      await updateBillingMonthlyInputs(id, {
+        previouslyAbated: patch.previouslyAbated,
+        billStartDate:
+          patch.billStartDate !== undefined
+            ? (patch.billStartDate ? new Date(patch.billStartDate + 'T00:00:00Z').toISOString() : null)
+            : undefined,
+      });
+      billings.refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const copy = async (id: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1500); } catch { /* ignore */ }
+  };
+
+  if (billings.loading || properties.loading) return <div className="text-sm text-gray-500 p-4">Loading…</div>;
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <KPI label="Billable Rows" value={rows.length} />
+        <KPI label="Monthly Total" value={usd(monthlyTotal)} mono />
+        <KPI label="Annual Total" value={usd(annualTotal)} mono />
+        <KPI label="Ongoing Monthly (2027+)" value={usd(ongoing.estMonthly)} mono />
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">{error}</div>}
+
+      <p className="text-sm text-gray-500 mb-3">
+        Each approved % of savings invoice, prorated into a monthly CAHP bill. Set <strong>Prev. Abated</strong> (bill 12 months) or a <strong>Start Date</strong> (prorate the first year) per row — amounts come from the invoice already on file.
+      </p>
+
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-x-auto mb-6">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
+            <tr>
+              <th className="text-left px-3 py-2">Owner / Property</th>
+              <th className="text-left px-3 py-2">Tax Yr</th>
+              <th className="text-right px-3 py-2">Total Savings</th>
+              <th className="text-right px-3 py-2">CAHP %</th>
+              <th className="text-right px-3 py-2">Annual</th>
+              <th className="text-center px-3 py-2">Prev. Abated</th>
+              <th className="text-left px-3 py-2">Start Date</th>
+              <th className="text-right px-3 py-2">Months</th>
+              <th className="text-right px-3 py-2">Monthly</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((r) => (
+              <tr key={r.id} className={savingId === r.id ? 'opacity-60' : ''}>
+                <td className="px-3 py-2">
+                  <div className="font-medium text-gray-800">{r.owner}</div>
+                  <div className="text-xs text-gray-500">{r.property}{r.tmidLabel ? ` · ${r.tmidLabel}` : ''}</div>
+                </td>
+                <td className="px-3 py-2">{r.taxYear}</td>
+                <td className="px-3 py-2 text-right font-mono-data">{usd(r.savings)}</td>
+                <td className="px-3 py-2 text-right">{r.feePercent}%</td>
+                <td className="px-3 py-2 text-right font-mono-data">{usd(r.annual)}</td>
+                <td className="px-3 py-2 text-center">
+                  <input type="checkbox" checked={r.previouslyAbated} disabled={savingId === r.id}
+                    onChange={(e) => saveRow(r.id, { previouslyAbated: e.target.checked })} />
+                </td>
+                <td className="px-3 py-2">
+                  <input type="date" value={r.billStartDate} disabled={r.previouslyAbated || savingId === r.id}
+                    className="border border-gray-300 rounded px-2 py-1 text-xs disabled:bg-gray-100"
+                    onChange={(e) => saveRow(r.id, { billStartDate: e.target.value })} />
+                </td>
+                <td className="px-3 py-2 text-right">{r.months}</td>
+                <td className="px-3 py-2 text-right font-mono-data font-semibold">{usd(r.monthly)}</td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <button className="text-xs text-teal-700 hover:underline" onClick={() => copy(r.id, r.description)}>
+                    {copied === r.id ? 'Copied!' : 'Copy invoice text'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-400">No % of savings invoices yet — generate them in the “To Invoice” tab.</td></tr>
+            )}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-gray-50 font-semibold text-gray-800">
+              <tr>
+                <td className="px-3 py-2" colSpan={8}>Monthly Total</td>
+                <td className="px-3 py-2 text-right font-mono-data">{usd(monthlyTotal)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      <button className="text-sm text-teal-700 hover:underline mb-3" onClick={() => setShowOngoing((v) => !v)}>
+        {showOngoing ? '▾ Hide' : '▸ Show'} Estimated Ongoing Monthly Billing (2027+)
+      </button>
+      {showOngoing && (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-x-auto">
+          <div className="px-4 py-2 text-sm text-gray-600 border-b border-gray-200">
+            Full 12-month billing from each parcel’s latest tax year — est. annual {usd(ongoing.estAnnual)} · monthly {usd(ongoing.estMonthly)}.
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
+              <tr>
+                <th className="text-left px-3 py-2">Owner / Property</th>
+                <th className="text-left px-3 py-2">Basis Yr</th>
+                <th className="text-right px-3 py-2">Est. Annual CAHP</th>
+                <th className="text-right px-3 py-2">Est. Monthly</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {ongoing.list.map((r) => (
+                <tr key={`ong-${r.id}`}>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-gray-800">{r.owner}</div>
+                    <div className="text-xs text-gray-500">{r.property}{r.tmidLabel ? ` · ${r.tmidLabel}` : ''}</div>
+                  </td>
+                  <td className="px-3 py-2">{r.taxYear}</td>
+                  <td className="px-3 py-2 text-right font-mono-data">{usd(r.annual)}</td>
+                  <td className="px-3 py-2 text-right font-mono-data">{usd(r.annual / 12)}</td>
                 </tr>
               ))}
             </tbody>

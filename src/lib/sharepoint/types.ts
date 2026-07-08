@@ -365,6 +365,8 @@ export interface BillingFields {
   CAHPFeePercent?: number;                     // ('Percent of Savings') contingency rate applied to the tax savings
   LastFullTaxBill?: number;                    // ('Percent of Savings') full (pre-abatement) tax bill
   MostRecentTaxBill?: number;                  // ('Percent of Savings') most recent (abated) tax bill; savings = LastFull − this
+  PreviouslyAbated?: boolean;                  // ('Percent of Savings') abatement already in effect → bill 12 months; else prorate
+  BillStartDate?: string;                      // ('Percent of Savings') monthly-billing start date; prorates the first year
   InvoiceDate?: string;
   InvoiceNumber?: string;
   BillingStatus?: BillingStatusValue;

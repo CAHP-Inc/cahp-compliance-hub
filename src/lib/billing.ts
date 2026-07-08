@@ -356,6 +356,76 @@ export function findBaselineForScope(
 }
 
 // =============================================================================
+// Monthly billing — prorate the annual CAHP fee into a monthly amount
+// (mirrors the "CAHP Bill Backs" spreadsheet: Months, Monthly, Invoice text)
+// =============================================================================
+
+const fmtUSD = (n: number): string =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Number of months to bill in the (first) year, matching the spreadsheet:
+ *   previously abated              -> 12 (full year)
+ *   newly abated, start date known -> remaining months from the start month,
+ *                                     counting the start month only if >15 days
+ *                                     of it remain (EOMONTH(date)-date > 15)
+ *   newly abated, no start date    -> 12 (assume full year)
+ */
+export function computeBillingMonths(previouslyAbated: boolean, billStartDate?: string | null): number {
+  if (previouslyAbated) return 12;
+  if (!billStartDate) return 12;
+  const iso = billStartDate.slice(0, 10);
+  const [y, m, day] = iso.split('-').map(Number);
+  if (!y || !m || !day) return 12;
+  const lastDayOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate(); // day 0 of next month
+  const daysRemainingInMonth = lastDayOfMonth - day;
+  const countStartMonth = daysRemainingInMonth > 15 ? 1 : 0;
+  return (12 - m) + countStartMonth;
+}
+
+/** Monthly CAHP = annual fee / months (guards divide-by-zero). */
+export function monthlyFee(annualFee: number, months: number): number {
+  return months > 0 ? annualFee / months : 0;
+}
+
+/**
+ * The invoice-description narrative, matching the spreadsheet's Invoice
+ * Description column. `previouslyAbated` picks the short vs. full savings clause.
+ */
+export function buildMonthlyInvoiceDescription(opts: {
+  owner: string;
+  taxYear: string | number;
+  previouslyAbated: boolean;
+  lastFullTaxBill: number;
+  mostRecentTaxBill: number;
+  totalSavings: number;
+  feePercent: number;
+  annualFee: number;
+  months: number;
+  monthly: number;
+}): string {
+  const { owner, taxYear, previouslyAbated, lastFullTaxBill, mostRecentTaxBill, totalSavings, feePercent, annualFee, months, monthly } = opts;
+  const savingsClause = previouslyAbated
+    ? `Total Savings ${fmtUSD(totalSavings)}`
+    : `Last Full Tax Bill ${fmtUSD(lastFullTaxBill)} less estimated County fees of ${fmtUSD(mostRecentTaxBill)} due to County = Total Savings ${fmtUSD(totalSavings)}`;
+  return (
+    `Monthly CAHP Bill — ${owner} (Tax Year ${taxYear}): ` +
+    `${savingsClause} × ${feePercent}% CAHP = ${fmtUSD(annualFee)} annual ÷ ${months} months = ${fmtUSD(monthly)}/month`
+  );
+}
+
+/** Persist the two monthly-proration inputs onto a Billing row. */
+export async function updateBillingMonthlyInputs(
+  billingId: string,
+  values: { previouslyAbated?: boolean; billStartDate?: string | null },
+): Promise<void> {
+  const updates: Record<string, unknown> = {};
+  if (values.previouslyAbated !== undefined) updates.PreviouslyAbated = values.previouslyAbated;
+  if (values.billStartDate !== undefined) updates.BillStartDate = values.billStartDate;
+  if (Object.keys(updates).length > 0) await updateListItem(LIST_NAMES.Billing, billingId, updates);
+}
+
+// =============================================================================
 // Queue computation — what still needs invoicing
 // =============================================================================
 
