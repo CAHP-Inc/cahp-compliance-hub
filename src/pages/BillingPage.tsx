@@ -75,16 +75,25 @@ function useBillingData() {
 
   const records = useMemo<Rec[]>(() => {
     if (!billings.data) return [];
-    return billings.data
-      .filter((b) => isPercentInvoice(b) && !isNAPercent(b) && !isBaselineRow(b))
-      .filter((b) => (b.fields.BillApprovedAbatement ?? 0) > 0 || (b.fields.AmountBilled ?? 0) > 0)
+    const resolveTmid = (b: Billing) =>
+      (b.fields.BillTaxMapIDLookupId ? String(b.fields.BillTaxMapIDLookupId) : '')
+      || (b.fields.BillSubmittalLookupId ? String(submById.get(String(b.fields.BillSubmittalLookupId))?.fields.TaxMapIDLookupId ?? '') : '');
+    // One row per parcel + year: keep the most complete (entered bills > explicit TMID > newest).
+    const score = (b: Billing) => (b.fields.LastFullTaxBill != null ? 4 : 0) + (b.fields.BillTaxMapIDLookupId ? 2 : 0);
+    const best = new Map<string, Billing>();
+    for (const b of billings.data) {
+      if (!isPercentInvoice(b) || isNAPercent(b) || isBaselineRow(b)) continue;
+      if (!((b.fields.BillApprovedAbatement ?? 0) > 0 || (b.fields.AmountBilled ?? 0) > 0)) continue;
+      const key = `${b.fields.PropertyLookupId ?? ''}|${resolveTmid(b)}|${b.fields.cahpTaxYear ?? ''}`;
+      const cur = best.get(key);
+      if (!cur || score(b) > score(cur) || (score(b) === score(cur) && Number(b.id) > Number(cur.id))) best.set(key, b);
+    }
+    return [...best.values()]
       .map((b): Rec => {
         const f = b.fields;
         const pid = f.PropertyLookupId ? String(f.PropertyLookupId) : '';
         const submittalId = f.BillSubmittalLookupId ? String(f.BillSubmittalLookupId) : null;
-        // Parcel from the row; if missing, backfill from the linked approval submittal.
-        const tmid = (f.BillTaxMapIDLookupId ? String(f.BillTaxMapIDLookupId) : '')
-          || (submittalId ? String(submById.get(submittalId)?.fields.TaxMapIDLookupId ?? '') : '');
+        const tmid = resolveTmid(b);
         const property = propById.get(pid);
         const owner = property?.fields.LegalEntity || property?.fields.Title || 'Owner';
         const lastFull = f.LastFullTaxBill ?? 0;
