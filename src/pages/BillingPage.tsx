@@ -88,7 +88,14 @@ function useBillingData() {
       const cur = best.get(key);
       if (!cur || score(b) > score(cur) || (score(b) === score(cur) && Number(b.id) > Number(cur.id))) best.set(key, b);
     }
-    return [...best.values()]
+    // Drop a "whole property" (no-TMID) row when a real parceled row exists for the
+    // same property+year — that's the stale duplicate.
+    const kept = [...best.values()];
+    const parceledPY = new Set(
+      kept.filter((b) => resolveTmid(b) !== '').map((b) => `${b.fields.PropertyLookupId ?? ''}|${b.fields.cahpTaxYear ?? ''}`),
+    );
+    return kept
+      .filter((b) => resolveTmid(b) !== '' || !parceledPY.has(`${b.fields.PropertyLookupId ?? ''}|${b.fields.cahpTaxYear ?? ''}`))
       .map((b): Rec => {
         const f = b.fields;
         const pid = f.PropertyLookupId ? String(f.PropertyLookupId) : '';
