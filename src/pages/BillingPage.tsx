@@ -4,42 +4,40 @@ import {
   LIST_NAMES,
   type Billing,
   type Property,
+  type Submittal,
   type TaxMapID,
-  type CahpTaxYear,
   type RefundStatusValue,
 } from '../lib/sharepoint';
 import {
   isPercentInvoice,
   isNAPercent,
   isBaselineRow,
-  findPercentInvoiceForPropertyYear,
-  recordAnnualPercentInvoice,
+  BILLING_PHASE_STATUSES,
+  upsertAbatementRecord,
   computeBillingMonths,
   monthlyFee,
   buildMonthlyInvoiceDescription,
-  updateBillingMonthlyInputs,
-  updateBillingRecord,
-  updateRefundStatus,
   DEFAULT_FEE_PERCENT,
 } from '../lib/billing';
 
-// Tracking-only (billing is done in QuickBooks). Everything is keyed PER TMID
-// (parcel) — an owner can have several approved parcels, each billed separately.
+// Tracking-only (billing is done in QuickBooks). Rows are fed straight from
+// APPROVED SUBMITTALS — each is a per-parcel (TMID) approved abatement. Editable
+// billing inputs are stored on a linked billing row, created on first edit.
 
 const REFUND_STATES: RefundStatusValue[] = ['Needed', 'Requested', 'Approved & Sent', 'No Request Needed'];
 const REFUND_STYLES: Record<string, string> = {
   '': 'bg-gray-100 text-gray-500', 'Needed': 'bg-amber-100 text-amber-800', 'Requested': 'bg-blue-100 text-blue-800',
   'Approved & Sent': 'bg-green-100 text-green-800', 'No Request Needed': 'bg-gray-100 text-gray-600',
 };
-const TAX_YEARS: CahpTaxYear[] = ['2023', '2024', '2025', '2026', '2027', '2028'];
 const NEXT_TAX_YEAR = '2027';
 const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const usd0 = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 type Rec = {
-  id: string; pid: string; tmid: string; owner: string; property: string; parcel: string;
-  taxYear: string; lastFull: number; mostRecent: number; savings: number; feePercent: number;
-  annual: number; previouslyAbated: boolean; billStartDate: string; months: number; monthly: number;
+  id: string; submittalId: string; billingId: string | null; pid: string; tmid: string;
+  owner: string; property: string; parcel: string; taxYear: string; approvedAbatement: number;
+  lastFull: number; mostRecent: number; savings: number; feePercent: number; annual: number;
+  previouslyAbated: boolean; billStartDate: string; months: number; monthly: number;
   refundStatus: RefundStatusValue | ''; description: string;
 };
 
@@ -49,46 +47,58 @@ function useBillingData() {
   const billings = useSharePointList<Billing>(LIST_NAMES.Billing, { top: 500 });
   const properties = useSharePointList<Property>(LIST_NAMES.Properties, { top: 500 });
   const taxmaps = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
+  const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
 
   const propById = useMemo(() => new Map((properties.data ?? []).map((p) => [String(p.id), p])), [properties.data]);
   const tmidById = useMemo(() => new Map((taxmaps.data ?? []).map((t) => [String(t.id), t])), [taxmaps.data]);
 
   const records = useMemo<Rec[]>(() => {
-    if (!billings.data) return [];
-    return billings.data
-      .filter((b) => isPercentInvoice(b) && !isNAPercent(b) && !isBaselineRow(b))
-      .filter((b) => (b.fields.BillApprovedAbatement ?? 0) > 0 || (b.fields.AmountBilled ?? 0) > 0)
-      .map((b): Rec => {
-        const f = b.fields;
-        const pid = f.PropertyLookupId ? String(f.PropertyLookupId) : '';
-        const tmid = f.BillTaxMapIDLookupId ? String(f.BillTaxMapIDLookupId) : '';
+    if (!submittals.data) return [];
+    // Match each submittal to its billing row by property + tax year + parcel.
+    const billMap = new Map<string, Billing>();
+    for (const b of billings.data ?? []) {
+      if (!isPercentInvoice(b) || isNAPercent(b) || isBaselineRow(b)) continue;
+      const key = `${b.fields.PropertyLookupId ?? ''}|${b.fields.cahpTaxYear ?? ''}|${b.fields.BillTaxMapIDLookupId ?? ''}`;
+      if (!billMap.has(key)) billMap.set(key, b);
+    }
+    return submittals.data
+      .filter((s) => s.fields.SubmittalStatus && BILLING_PHASE_STATUSES.includes(s.fields.SubmittalStatus) && (s.fields.ApprovedAbatement ?? 0) > 0)
+      .map((s): Rec => {
+        const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
+        const tmid = s.fields.TaxMapIDLookupId ? String(s.fields.TaxMapIDLookupId) : '';
+        const taxYear = String(s.fields.cahpTaxYear ?? '');
+        const b = billMap.get(`${pid}|${taxYear}|${tmid}`);
+        const bf = b?.fields;
         const property = propById.get(pid);
         const owner = property?.fields.LegalEntity || property?.fields.Title || 'Owner';
-        const lastFull = f.LastFullTaxBill ?? 0;
-        const mostRecent = f.MostRecentTaxBill ?? 0;
-        const savings = f.BillApprovedAbatement ?? Math.max(0, lastFull - mostRecent);
-        const feePercent = f.CAHPFeePercent ?? DEFAULT_FEE_PERCENT;
-        const annual = f.AmountBilled ?? (savings * feePercent) / 100;
-        const previouslyAbated = f.PreviouslyAbated ?? false;
-        const billStartDate = f.BillStartDate ? String(f.BillStartDate).slice(0, 10) : '';
+        const approvedAbatement = s.fields.ApprovedAbatement ?? 0;
+        const lastFull = bf?.LastFullTaxBill ?? 0;
+        const mostRecent = bf?.MostRecentTaxBill ?? 0;
+        const hasBills = bf?.LastFullTaxBill != null && bf?.MostRecentTaxBill != null;
+        const savings = bf?.BillApprovedAbatement ?? (hasBills ? Math.max(0, lastFull - mostRecent) : approvedAbatement);
+        const feePercent = bf?.CAHPFeePercent ?? DEFAULT_FEE_PERCENT;
+        const annual = bf?.AmountBilled ?? (savings * feePercent) / 100;
+        const previouslyAbated = bf?.PreviouslyAbated ?? false;
+        const billStartDate = bf?.BillStartDate ? String(bf.BillStartDate).slice(0, 10) : '';
         const months = computeBillingMonths(previouslyAbated, billStartDate);
         const monthly = monthlyFee(annual, months);
         const description = buildMonthlyInvoiceDescription({
-          owner, taxYear: f.cahpTaxYear ?? '', previouslyAbated, lastFullTaxBill: lastFull,
-          mostRecentTaxBill: mostRecent, totalSavings: savings, feePercent, annualFee: annual, months, monthly,
+          owner, taxYear, previouslyAbated, lastFullTaxBill: lastFull, mostRecentTaxBill: mostRecent,
+          totalSavings: savings, feePercent, annualFee: annual, months, monthly,
         });
         return {
-          id: String(b.id), pid, tmid, owner, property: property?.fields.Title ?? '—',
+          id: String(s.id), submittalId: String(s.id), billingId: b ? String(b.id) : null, pid, tmid, owner,
+          property: property?.fields.Title ?? '—',
           parcel: tmid ? (tmidById.get(tmid)?.fields.Title ?? `TMID ${tmid}`) : 'Whole property',
-          taxYear: String(f.cahpTaxYear ?? ''), lastFull, mostRecent, savings, feePercent, annual,
+          taxYear, approvedAbatement, lastFull, mostRecent, savings, feePercent, annual,
           previouslyAbated, billStartDate, months, monthly,
-          refundStatus: (f.RefundStatus ?? '') as RefundStatusValue | '', description,
+          refundStatus: (bf?.RefundStatus ?? '') as RefundStatusValue | '', description,
         };
       })
       .sort((a, b) => a.owner.localeCompare(b.owner) || a.parcel.localeCompare(b.parcel) || b.taxYear.localeCompare(a.taxYear));
-  }, [billings.data, propById, tmidById]);
+  }, [submittals.data, billings.data, propById, tmidById]);
 
-  return { billings, properties, taxmaps, propById, records };
+  return { billings, properties, taxmaps, submittals, records };
 }
 type DataCtx = ReturnType<typeof useBillingData>;
 
@@ -100,7 +110,7 @@ export function BillingPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-teal-700">CAHP Fee Tracking</h1>
         <p className="text-sm text-gray-500 mt-1">
-          What each parcel’s CAHP fee should be (annual + amortized monthly) and the status of any previously-paid-tax refund. Keyed per Tax Map ID. Billing is done in QuickBooks — this is for tracking and invoice text only.
+          Fed from approved submittals — one row per approved parcel (Tax Map ID). What each parcel’s CAHP fee should be (annual + amortized monthly) and its refund status. Billing is done in QuickBooks; this is for tracking and invoice text only.
         </p>
       </div>
       <div className="border-b border-gray-200 mb-4 flex gap-1 overflow-x-auto">
@@ -109,7 +119,7 @@ export function BillingPage() {
         <TabButton active={tab === 'monthly'} onClick={() => setTab('monthly')}>Monthly</TabButton>
         <TabButton active={tab === 'ongoing'} onClick={() => setTab('ongoing')}>Estimated Ongoing</TabButton>
       </div>
-      {(data.billings.loading || data.properties.loading) ? (
+      {(data.billings.loading || data.properties.loading || data.submittals.loading) ? (
         <div className="text-sm text-gray-500 p-4">Loading…</div>
       ) : (
         <>
@@ -124,122 +134,57 @@ export function BillingPage() {
 }
 
 // =============================================================================
-// Abatements (Data) — enter/edit per-parcel; add a new approved parcel
+// Abatements (Data) — every approved parcel; edit its billing inputs inline
 // =============================================================================
 function AbatementsTab({ data }: { data: DataCtx }) {
-  const { billings, properties, taxmaps, propById, records } = data;
+  const { billings, records } = data;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, { lastFull: string; mostRecent: string; fee: string }>>({});
-  // Add-a-parcel form
-  const [addPid, setAddPid] = useState('');
-  const [addTmid, setAddTmid] = useState('');
-  const [addYear, setAddYear] = useState<CahpTaxYear>('2025');
-  const [addFull, setAddFull] = useState('');
-  const [addRecent, setAddRecent] = useState('');
-  const [addFee, setAddFee] = useState(String(DEFAULT_FEE_PERCENT));
-
-  const parcelsForProp = useMemo(
-    () => (taxmaps.data ?? []).filter((t) => String(t.fields.LinkedPropertyLookupId ?? '') === addPid)
-      .sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')),
-    [taxmaps.data, addPid],
-  );
 
   const draftFor = (r: Rec) => draft[r.id] ?? { lastFull: String(r.lastFull || ''), mostRecent: String(r.mostRecent || ''), fee: String(r.feePercent) };
   const setD = (r: Rec, patch: Partial<{ lastFull: string; mostRecent: string; fee: string }>) =>
     setDraft((p) => ({ ...p, [r.id]: { ...draftFor(r), ...patch } }));
 
+  const base = (r: Rec) => ({ billingId: r.billingId, propertyId: r.pid, submittalId: r.submittalId, taxYear: r.taxYear, taxMapId: r.tmid || null, fallbackSavings: r.approvedAbatement });
+
   const saveNumbers = async (r: Rec) => {
     const d = draftFor(r);
     const lastFull = parseFloat(d.lastFull), mostRecent = parseFloat(d.mostRecent), fee = parseFloat(d.fee);
     if (isNaN(lastFull) || isNaN(mostRecent) || isNaN(fee)) { setError('Enter valid numbers.'); return; }
+    if (lastFull - mostRecent < 0) { setError('Last full bill must be ≥ the most recent bill.'); return; }
     setError(null); setBusy(r.id);
     try {
-      await updateBillingRecord(r.id, { lastFullTaxBill: lastFull, mostRecentTaxBill: mostRecent, feePercent: fee });
+      await upsertAbatementRecord({ ...base(r), lastFullTaxBill: lastFull, mostRecentTaxBill: mostRecent, feePercent: fee });
       setDraft((p) => { const n = { ...p }; delete n[r.id]; return n; });
       billings.refetch();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   };
 
-  const saveInput = async (id: string, patch: { previouslyAbated?: boolean; billStartDate?: string; refundStatus?: string }) => {
-    setError(null); setBusy(id);
+  const saveInput = async (r: Rec, patch: { previouslyAbated?: boolean; billStartDate?: string; refundStatus?: string }) => {
+    setError(null); setBusy(r.id);
     try {
-      if (patch.previouslyAbated !== undefined || patch.billStartDate !== undefined) {
-        await updateBillingMonthlyInputs(id, {
-          previouslyAbated: patch.previouslyAbated,
-          billStartDate: patch.billStartDate !== undefined ? (patch.billStartDate ? new Date(patch.billStartDate + 'T00:00:00Z').toISOString() : null) : undefined,
-        });
-      }
-      if (patch.refundStatus !== undefined) await updateRefundStatus(id, patch.refundStatus);
-      billings.refetch();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
-  };
-
-  const addRecord = async () => {
-    const property = propById.get(addPid);
-    const full = parseFloat(addFull), recent = parseFloat(addRecent), fee = parseFloat(addFee);
-    if (!property) { setError('Pick a property.'); return; }
-    if (!addTmid) { setError('Pick a Tax Map ID (parcel).'); return; }
-    if (isNaN(full) || isNaN(recent)) { setError('Enter both tax bills.'); return; }
-    if (full - recent <= 0) { setError('Last full bill must exceed the most recent bill.'); return; }
-    if (billings.data && findPercentInvoiceForPropertyYear(addPid, addYear, billings.data, addTmid)) {
-      setError('That parcel already has a record for that tax year.'); return;
-    }
-    setError(null); setBusy('add');
-    try {
-      await recordAnnualPercentInvoice({
-        property, taxYear: addYear, lastFullTaxBill: full, mostRecentTaxBill: recent,
-        feePercent: isNaN(fee) ? DEFAULT_FEE_PERCENT : fee, taxMapId: addTmid,
+      await upsertAbatementRecord({
+        ...base(r),
+        previouslyAbated: patch.previouslyAbated,
+        billStartDate: patch.billStartDate !== undefined ? (patch.billStartDate ? new Date(patch.billStartDate + 'T00:00:00Z').toISOString() : null) : undefined,
+        refundStatus: patch.refundStatus,
       });
-      setAddFull(''); setAddRecent(''); setAddTmid('');
       billings.refetch();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   };
 
-  const copy = async (id: string, text: string) => {
-    try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1500); } catch { /* ignore */ }
-  };
+  const copy = async (id: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1500); } catch { /* ignore */ } };
   const numCls = 'w-24 px-2 py-1 border border-gray-300 rounded text-sm text-right font-mono-data disabled:opacity-50';
-  const selCls = 'border border-gray-300 rounded px-2 py-1 text-sm bg-white';
 
   return (
     <div>
       {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">{error}</div>}
-
-      {/* Add a parcel */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card p-3 mb-6">
-        <div className="text-sm font-semibold text-teal-700 mb-2">Add an approved parcel</div>
-        <div className="flex flex-wrap items-end gap-2 text-sm">
-          <label className="flex flex-col gap-0.5">Property
-            <select className={selCls} value={addPid} onChange={(e) => { setAddPid(e.target.value); setAddTmid(''); }}>
-              <option value="">Select…</option>
-              {(properties.data ?? []).slice().sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '')).map((p) => (
-                <option key={p.id} value={String(p.id)}>{p.fields.LegalEntity ? `${p.fields.LegalEntity} — ` : ''}{p.fields.Title}</option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-0.5">Tax Map ID
-            <select className={selCls} value={addTmid} disabled={!addPid} onChange={(e) => setAddTmid(e.target.value)}>
-              <option value="">{addPid ? 'Select parcel…' : 'Pick property first'}</option>
-              {parcelsForProp.map((t) => <option key={t.id} value={String(t.id)}>{t.fields.Title}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-0.5">Tax Year
-            <select className={selCls} value={addYear} onChange={(e) => setAddYear(e.target.value as CahpTaxYear)}>
-              {TAX_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-0.5">Last Full<input type="number" className={numCls} value={addFull} onChange={(e) => setAddFull(e.target.value)} /></label>
-          <label className="flex flex-col gap-0.5">Most Recent<input type="number" className={numCls} value={addRecent} onChange={(e) => setAddRecent(e.target.value)} /></label>
-          <label className="flex flex-col gap-0.5">CAHP %<input type="number" className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-right font-mono-data" value={addFee} onChange={(e) => setAddFee(e.target.value)} /></label>
-          <button className="bg-teal-700 text-white rounded px-4 py-1.5 text-sm font-medium disabled:opacity-50" disabled={busy !== null} onClick={addRecord}>{busy === 'add' ? 'Adding…' : 'Add'}</button>
-        </div>
-      </div>
-
-      <p className="text-sm text-gray-500 mb-3">One row per approved parcel. Edit the tax bills / CAHP %, tick <strong>Prev.</strong> or set a <strong>Start Date</strong> to prorate, and set the <strong>Refund</strong> status. Copy the invoice text for accounting.</p>
-
-      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-x-auto mb-6">
+      <p className="text-sm text-gray-500 mb-3">
+        One row per approved parcel (from Submittals). Enter <strong>Last Full</strong> + <strong>Most Recent</strong> tax bills (savings defaults to the DOR-approved amount until you do), set the <strong>CAHP %</strong>, tick <strong>Prev.</strong> or a <strong>Start Date</strong> to prorate, and set the <strong>Refund</strong> status. Copy the invoice text for accounting.
+      </p>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
             <tr>
@@ -271,10 +216,10 @@ function AbatementsTab({ data }: { data: DataCtx }) {
                   <td className="px-3 py-2 text-right"><input type="number" className="w-12 px-1 py-1 border border-gray-300 rounded text-sm text-right font-mono-data" value={d.fee} disabled={busy === r.id} onChange={(e) => setD(r, { fee: e.target.value })} /></td>
                   <td className="px-3 py-2 text-right font-mono-data">{usd0(r.savings)}</td>
                   <td className="px-3 py-2 text-right font-mono-data">{usd0(r.annual)}</td>
-                  <td className="px-3 py-2 text-center"><input type="checkbox" checked={r.previouslyAbated} disabled={busy === r.id} onChange={(e) => saveInput(r.id, { previouslyAbated: e.target.checked })} /></td>
-                  <td className="px-3 py-2"><input type="date" className="border border-gray-300 rounded px-1 py-1 text-xs disabled:bg-gray-100" value={r.billStartDate} disabled={r.previouslyAbated || busy === r.id} onChange={(e) => saveInput(r.id, { billStartDate: e.target.value })} /></td>
+                  <td className="px-3 py-2 text-center"><input type="checkbox" checked={r.previouslyAbated} disabled={busy === r.id} onChange={(e) => saveInput(r, { previouslyAbated: e.target.checked })} /></td>
+                  <td className="px-3 py-2"><input type="date" className="border border-gray-300 rounded px-1 py-1 text-xs disabled:bg-gray-100" value={r.billStartDate} disabled={r.previouslyAbated || busy === r.id} onChange={(e) => saveInput(r, { billStartDate: e.target.value })} /></td>
                   <td className="px-3 py-2">
-                    <select className={`border border-gray-300 rounded px-1 py-1 text-xs ${REFUND_STYLES[r.refundStatus]}`} value={r.refundStatus} disabled={busy === r.id} onChange={(e) => saveInput(r.id, { refundStatus: e.target.value })}>
+                    <select className={`border border-gray-300 rounded px-1 py-1 text-xs ${REFUND_STYLES[r.refundStatus]}`} value={r.refundStatus} disabled={busy === r.id} onChange={(e) => saveInput(r, { refundStatus: e.target.value })}>
                       <option value="">—</option>{REFUND_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </td>
@@ -285,7 +230,7 @@ function AbatementsTab({ data }: { data: DataCtx }) {
                 </tr>
               );
             })}
-            {records.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-gray-400">No parcels recorded yet — add one above.</td></tr>}
+            {records.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-gray-400">No approved abatements yet. Approved submittals with a savings amount appear here automatically.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -308,9 +253,6 @@ function ParcelCells({ r }: { r: Rec }) {
   </>);
 }
 
-// =============================================================================
-// Annual
-// =============================================================================
 function AnnualTab({ data }: { data: DataCtx }) {
   const { records } = data;
   const total = records.reduce((s, r) => s + r.annual, 0);
@@ -341,9 +283,6 @@ function AnnualTab({ data }: { data: DataCtx }) {
   );
 }
 
-// =============================================================================
-// Monthly
-// =============================================================================
 function MonthlyTab({ data }: { data: DataCtx }) {
   const { records } = data;
   const [copied, setCopied] = useState<string | null>(null);
@@ -377,9 +316,6 @@ function MonthlyTab({ data }: { data: DataCtx }) {
   );
 }
 
-// =============================================================================
-// Estimated Ongoing — per parcel, most-recent basis year, TY2027+ full 12 months
-// =============================================================================
 function OngoingTab({ data }: { data: DataCtx }) {
   const { records } = data;
   const list = useMemo(() => {

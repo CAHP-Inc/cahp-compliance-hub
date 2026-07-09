@@ -414,6 +414,61 @@ export function buildMonthlyInvoiceDescription(opts: {
   );
 }
 
+/**
+ * Create-or-update the billing record that backs one approved-abatement row
+ * (keyed to a submittal + parcel). Savings come from the two tax bills when both
+ * are given, otherwise from the submittal's approved abatement (fallbackSavings).
+ * Any subset of the editable inputs may be passed; only those are written.
+ */
+export async function upsertAbatementRecord(opts: {
+  billingId?: string | null;
+  propertyId: string;
+  submittalId?: string | null;
+  taxYear?: string;
+  taxMapId?: string | null;
+  lastFullTaxBill?: number | null;
+  mostRecentTaxBill?: number | null;
+  feePercent?: number;
+  fallbackSavings?: number;
+  previouslyAbated?: boolean;
+  billStartDate?: string | null;
+  refundStatus?: string;
+}): Promise<void> {
+  const hasBills = typeof opts.lastFullTaxBill === 'number' && typeof opts.mostRecentTaxBill === 'number';
+  const feePercent = opts.feePercent ?? DEFAULT_FEE_PERCENT;
+  const savings = hasBills
+    ? Math.max(0, (opts.lastFullTaxBill as number) - (opts.mostRecentTaxBill as number))
+    : (opts.fallbackSavings ?? 0);
+  const amount = (savings * feePercent) / 100;
+
+  const fields: Record<string, unknown> = {};
+  if (hasBills) { fields.LastFullTaxBill = opts.lastFullTaxBill; fields.MostRecentTaxBill = opts.mostRecentTaxBill; }
+  if (opts.feePercent !== undefined) fields.CAHPFeePercent = feePercent;
+  if (hasBills || opts.feePercent !== undefined) { fields.BillApprovedAbatement = savings; fields.AmountBilled = amount; }
+  if (opts.previouslyAbated !== undefined) fields.PreviouslyAbated = opts.previouslyAbated;
+  if (opts.billStartDate !== undefined) fields.BillStartDate = opts.billStartDate;
+  if (opts.refundStatus !== undefined) fields.RefundStatus = opts.refundStatus;
+
+  if (opts.billingId) {
+    if (Object.keys(fields).length > 0) await updateListItem(LIST_NAMES.Billing, opts.billingId, fields);
+    return;
+  }
+  await createListItem(LIST_NAMES.Billing, {
+    Title: `TY ${opts.taxYear ?? ''} CAHP Fee (% of Savings)`.trim(),
+    PropertyLookupId: opts.propertyId,
+    ...(opts.submittalId ? { BillSubmittalLookupId: opts.submittalId } : {}),
+    ...(opts.taxMapId ? { BillTaxMapIDLookupId: opts.taxMapId } : {}),
+    BillingType: 'Percent of Savings',
+    cahpTaxYear: opts.taxYear as CahpTaxYear | undefined,
+    CAHPFeePercent: feePercent,
+    BillApprovedAbatement: savings,
+    AmountBilled: amount,
+    BillingStatus: 'Ready to Invoice' as BillingStatusValue,
+    QBSyncStatus: 'Not Synced',
+    ...fields,
+  });
+}
+
 /** Update an abatement record's tax bills / fee %, recomputing savings + annual amount. */
 export async function updateBillingRecord(
   billingId: string,
