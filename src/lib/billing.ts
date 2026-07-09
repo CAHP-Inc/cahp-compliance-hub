@@ -489,6 +489,11 @@ export async function updateRefundStatus(billingId: string, status: string): Pro
   await updateListItem(LIST_NAMES.Billing, billingId, { RefundStatus: status });
 }
 
+/** Assign (or change) the parcel/TMID a Billing row is scoped to. */
+export async function assignBillingParcel(billingId: string, taxMapId: string): Promise<void> {
+  await updateListItem(LIST_NAMES.Billing, billingId, { BillTaxMapIDLookupId: taxMapId });
+}
+
 /** Persist the two monthly-proration inputs onto a Billing row. */
 export async function updateBillingMonthlyInputs(
   billingId: string,
