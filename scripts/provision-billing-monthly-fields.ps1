@@ -31,9 +31,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Module -ListAvailable -Name PnP.PowerShell)) {
-    Write-Error "PnP.PowerShell not installed. Run: Install-Module -Name PnP.PowerShell -Scope CurrentUser -Force"
-    exit 1
+if (-not (Get-Command Connect-PnPOnline -ErrorAction SilentlyContinue)) {
+    # Prefer the clean local copy (the OneDrive-installed module has broken CSOM DLLs).
+    $cleanPnP = "C:\Users\brand\PnPModules\PnP.PowerShell\3.2.0\PnP.PowerShell.psd1"
+    if (Test-Path $cleanPnP) {
+        Import-Module $cleanPnP -Force
+    } elseif (Get-Module -ListAvailable -Name PnP.PowerShell) {
+        Import-Module PnP.PowerShell
+    } else {
+        Write-Error "PnP.PowerShell not available. Load it first (dot-source Start-CleanSession.ps1) or Install-Module PnP.PowerShell."
+        exit 1
+    }
 }
 
 Write-Host ""
