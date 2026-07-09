@@ -130,7 +130,7 @@ export function BillingPage() {
       <div className="border-b border-gray-200 mb-4 flex gap-1 overflow-x-auto">
         <TabButton active={tab === 'abatements'} onClick={() => setTab('abatements')}>Abatements (Data)</TabButton>
         <TabButton active={tab === 'annual'} onClick={() => setTab('annual')}>Annual</TabButton>
-        <TabButton active={tab === 'monthly'} onClick={() => setTab('monthly')}>Monthly</TabButton>
+        <TabButton active={tab === 'monthly'} onClick={() => setTab('monthly')}>Current Year Monthly</TabButton>
         <TabButton active={tab === 'ongoing'} onClick={() => setTab('ongoing')}>Estimated Ongoing</TabButton>
       </div>
       {(data.billings.loading || data.properties.loading || data.submittals.loading) ? (
@@ -324,21 +324,24 @@ function AnnualTab({ data }: { data: DataCtx }) {
 function MonthlyTab({ data }: { data: DataCtx }) {
   const { records } = data;
   const [copied, setCopied] = useState<string | null>(null);
-  const total = records.reduce((s, r) => s + r.monthly, 0);
+  // Current-year view: exclude parcel-years whose billing starts after 12/31 this year.
+  const cutoff = `${new Date().getFullYear()}-12-31`;
+  const rows = records.filter((r) => !r.billStartDate || r.billStartDate <= cutoff);
+  const total = rows.reduce((s, r) => s + r.monthly, 0);
   const copy = async (id: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1500); } catch { /* ignore */ } };
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-        <KPI label="Parcel-Years" value={records.length} />
+        <KPI label="Parcel-Years (this yr)" value={rows.length} />
         <KPI label="Monthly CAHP Total" value={usd(total)} mono />
         <KPI label="Annualized" value={usd(total * 12)} mono />
       </div>
-      <p className="text-sm text-gray-500 mb-3">Each parcel-year's annual CAHP amortized to a monthly bill (a parcel with two approved years shows both). Set proration on the <strong>Abatements</strong> tab.</p>
+      <p className="text-sm text-gray-500 mb-3">Parcel-years currently being billed this year, annual CAHP amortized to a monthly amount. Years whose start date is after 12/31 this year are excluded until they begin. Set proration on the <strong>Abatements</strong> tab.</p>
       <div className="bg-white border border-gray-200 rounded-lg shadow-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-600 text-xs uppercase"><tr><ParcelCols /><th className="text-right px-3 py-2">Annual</th><th className="text-right px-3 py-2">Months</th><th className="text-right px-3 py-2">Monthly</th><th className="px-3 py-2"></th></tr></thead>
           <tbody className="divide-y divide-gray-100">
-            {records.map((r) => (
+            {rows.map((r) => (
               <tr key={r.id}><ParcelCells r={r} />
                 <td className="px-3 py-2 text-right font-mono-data">{usd(r.annual)}</td>
                 <td className="px-3 py-2 text-right">{r.months}</td>
@@ -347,7 +350,7 @@ function MonthlyTab({ data }: { data: DataCtx }) {
               </tr>
             ))}
           </tbody>
-          {records.length > 0 && <tfoot className="bg-gray-50 font-semibold text-gray-800"><tr><td className="px-3 py-2" colSpan={5}>Monthly Total</td><td className="px-3 py-2 text-right font-mono-data">{usd(total)}</td><td></td></tr></tfoot>}
+          {rows.length > 0 && <tfoot className="bg-gray-50 font-semibold text-gray-800"><tr><td className="px-3 py-2" colSpan={5}>Monthly Total</td><td className="px-3 py-2 text-right font-mono-data">{usd(total)}</td><td></td></tr></tfoot>}
         </table>
       </div>
     </div>
