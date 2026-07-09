@@ -414,6 +414,26 @@ export function buildMonthlyInvoiceDescription(opts: {
   );
 }
 
+/** Update an abatement record's tax bills / fee %, recomputing savings + annual amount. */
+export async function updateBillingRecord(
+  billingId: string,
+  values: { lastFullTaxBill: number; mostRecentTaxBill: number; feePercent: number },
+): Promise<void> {
+  const savings = Math.max(0, values.lastFullTaxBill - values.mostRecentTaxBill);
+  await updateListItem(LIST_NAMES.Billing, billingId, {
+    LastFullTaxBill: values.lastFullTaxBill,
+    MostRecentTaxBill: values.mostRecentTaxBill,
+    BillApprovedAbatement: savings,
+    CAHPFeePercent: values.feePercent,
+    AmountBilled: (savings * values.feePercent) / 100,
+  });
+}
+
+/** Set the previously-paid-tax refund status on a Billing row. */
+export async function updateRefundStatus(billingId: string, status: string): Promise<void> {
+  await updateListItem(LIST_NAMES.Billing, billingId, { RefundStatus: status });
+}
+
 /** Persist the two monthly-proration inputs onto a Billing row. */
 export async function updateBillingMonthlyInputs(
   billingId: string,

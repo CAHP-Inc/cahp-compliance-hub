@@ -351,6 +351,7 @@ export type QBSyncStatus = 'Not Synced' | 'Synced' | 'Discrepancy';
  * Both are revenue CAHP collects from the owner — there is no owner disbursement.
  */
 export type BillingType = 'Filing Fee' | 'Percent of Savings';
+export type RefundStatusValue = 'Needed' | 'Requested' | 'Approved & Sent' | 'No Request Needed';
 
 export interface BillingFields {
   Title: string;                              // Billing Reference
@@ -367,6 +368,7 @@ export interface BillingFields {
   MostRecentTaxBill?: number;                  // ('Percent of Savings') most recent (abated) tax bill; savings = LastFull − this
   PreviouslyAbated?: boolean;                  // ('Percent of Savings') abatement already in effect → bill 12 months; else prorate
   BillStartDate?: string;                      // ('Percent of Savings') monthly-billing start date; prorates the first year
+  RefundStatus?: RefundStatusValue;            // previously-paid-tax refund tracking: Needed / Requested / Approved & Sent / No Request Needed
   InvoiceDate?: string;
   InvoiceNumber?: string;
   BillingStatus?: BillingStatusValue;
