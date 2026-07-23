@@ -16,14 +16,14 @@ import { getListItems, LIST_NAMES, type AccessListEntry } from './sharepoint';
 
 const FALLBACK_EMAIL_ROLE_MAP: Record<string, Role> = {
   'bturner@newshirepm.com': 'Admin',
-  'stan@vanrockre.com': 'Admin',
+  'stan@newshirepm.com': 'Admin',
   'bdebruin@redcedarhomes.com': 'Admin',
   'lheckman@redcedarhomes.com': 'Contributor',
 };
 
 const FALLBACK_TEAM_MEMBERS: TeamMember[] = [
   { email: 'bturner@newshirepm.com',     name: 'Brandy Turner',  role: 'Admin' },
-  { email: 'stan@vanrockre.com',         name: 'Stan',           role: 'Admin' },
+  { email: 'stan@newshirepm.com',        name: 'Stan',           role: 'Admin' },
   { email: 'bdebruin@redcedarhomes.com', name: 'Bryan DeBruin',  role: 'Admin' },
   { email: 'lheckman@redcedarhomes.com', name: 'Lori Heckman',   role: 'Contributor' },
 ];
