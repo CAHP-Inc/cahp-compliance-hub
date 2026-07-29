@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSharePointList, LIST_NAMES, isCahpEntity, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type SubmittalReview, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+import { formatDateET } from '../lib/dates';
+import { REVIEW_INTERVAL_DAYS } from '../components/SubmittalReviewsSection';
 
 // A submittal stops needing weekly reviews once it reaches a closed state —
 // mirrors CLOSED_STATUSES in SubmittalReviewsSection.tsx / CLOSED_REVIEW in
@@ -738,6 +740,9 @@ export function Properties() {
                 <th className="px-4 py-3 text-right" title="Open Outstanding Items">Open</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Filing Status</th>
+                {pendingReviewOnly && (
+                  <th className="px-4 py-3 text-left" title="Oldest last-reviewed date among this property's in-flight submittals">Last Reviewed</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -858,6 +863,32 @@ export function Properties() {
                     </div>
                   );
                 };
+                // Renders a "Last Reviewed" cell from an oldest-review timestamp
+                // (ms since epoch, -Infinity = never reviewed, null = nothing pending).
+                const renderLastReviewedCell = (ts: number | null) => {
+                  if (ts === null) return <span className="text-gray-300">—</span>;
+                  if (ts === -Infinity) {
+                    return <span className="inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold bg-red-100 text-red-800">Never reviewed</span>;
+                  }
+                  const days = Math.floor((Date.now() - ts) / 86400000);
+                  return (
+                    <div className="flex flex-col items-start">
+                      <span className="font-mono-data">{formatDateET(new Date(ts))}</span>
+                      <span className={`text-[10px] font-mono-data ${days >= REVIEW_INTERVAL_DAYS ? 'text-error' : 'text-gray-500'}`}>
+                        {days === 0 ? 'today' : `${days}d ago`}
+                      </span>
+                    </div>
+                  );
+                };
+                // Oldest last-reviewed timestamp across a set of properties, considering
+                // only the ones with an in-flight submittal. Null if none are pending.
+                const groupOldestReviewTs = (props: Property[]): number | null => {
+                  const tsList = props
+                    .map((p) => pendingReviewByProperty.get(String(p.id))?.oldestReviewTs)
+                    .filter((v): v is number => v !== undefined);
+                  if (tsList.length === 0) return null;
+                  return Math.min(...tsList);
+                };
 
                 // Collect every property below a node (direct + recursively from children).
                 const collectAllProps = (n: EntityNode): Property[] => {
@@ -898,6 +929,9 @@ export function Properties() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                      {pendingReviewOnly && (
+                        <td className="px-4 py-3 text-xs">{renderLastReviewedCell(pendingReviewByProperty.get(String(p.id))?.oldestReviewTs ?? null)}</td>
+                      )}
                     </tr>
                   );
                 };
@@ -951,6 +985,9 @@ export function Properties() {
                           ) : '—'}
                         </td>
                         <td className="px-4 py-3">{renderFilingStatusCell(p)}</td>
+                        {pendingReviewOnly && (
+                          <td className="px-4 py-3 text-xs">{renderLastReviewedCell(pendingReviewByProperty.get(String(p.id))?.oldestReviewTs ?? null)}</td>
+                        )}
                       </tr>,
                     ];
                   }
@@ -983,6 +1020,7 @@ export function Properties() {
                     }),
                     (x) => x.c,
                   );
+                  const groupOldestTs = groupOldestReviewTs(allProps);
 
                   // Styling scales with depth: depth 0 is the bold top-level row;
                   // depth >0 is a lighter sub-entity row with progressive indent.
@@ -1045,6 +1083,9 @@ export function Properties() {
                       <td className="px-4 py-3 text-right">{renderOpenItemsCell(totalOpenItems, totalOverdueItems)}</td>
                       <td className="px-4 py-3"><AggregateChips entries={statusAgg} styleMap={STATUS_STYLES as Record<string, string>} /></td>
                       <td className="px-4 py-3"><AggregateChips entries={filingAgg} styleMap={FILING_STATUS_STYLES as Record<string, string>} /></td>
+                      {pendingReviewOnly && (
+                        <td className="px-4 py-3 text-xs">{renderLastReviewedCell(groupOldestTs)}</td>
+                      )}
                     </tr>,
                   );
 
@@ -1065,7 +1106,7 @@ export function Properties() {
               })()}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan={pendingReviewOnly ? 12 : 11} className="px-4 py-8 text-center text-gray-500 text-sm">
                     No properties match the current filters.
                   </td>
                 </tr>
