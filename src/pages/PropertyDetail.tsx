@@ -687,6 +687,9 @@ function SubmittalsTab({
           </button>
           <button onClick={() => setSelectedIds(new Set())} disabled={bulkReviewBusy} className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50">Clear</button>
           {bulkReviewError && <p className="w-full text-xs text-red-700">{bulkReviewError}</p>}
+          <p className="w-full text-[11px] text-gray-400 italic">
+            Records what DOR's own system shows this week — doesn't change the Filing Status column below.
+          </p>
         </div>
       )}
 

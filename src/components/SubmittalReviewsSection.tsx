@@ -8,11 +8,14 @@ import {
 } from '../lib/sharepoint';
 import { formatDateET, formatDateOnly } from '../lib/dates';
 
-// Weekly review statuses. Includes 'Under Review' — a review-only state (not a
-// submittal status) for weeks the filing is actively under review.
+// Weekly review statuses — a snapshot of what DOR's own system shows this
+// week. Logging one never changes the submittal's Filing Status; that only
+// moves via an explicit status transition on the Submittal Detail page.
+// 'Under Review' and 'Hold' are review-only states (not submittal statuses)
+// for weeks the filing is actively under review, or paused at DOR.
 export const REVIEW_STATUS_OPTIONS: string[] = [
   'Draft', 'Package Mailed (NC)', 'Filed', 'Letter Received - Action Needed',
-  'Responded - Awaiting DOR', 'Under Review', 'Approved', 'Denied', 'Withdrawn',
+  'Responded - Awaiting DOR', 'Under Review', 'Hold', 'Approved', 'Denied', 'Withdrawn',
 ];
 
 // A submittal stops needing weekly reviews once it reaches a closed state.
@@ -96,6 +99,9 @@ export function SubmittalReviewsSection({ submittalId, currentStatus }: Props) {
             )}
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5 italic">
+            Records what DOR's own system shows this week — doesn't change this submittal's Filing Status.
+          </p>
         </div>
       </div>
 
