@@ -1,7 +1,12 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useSharePointList, LIST_NAMES, isCahpEntity, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSharePointList, LIST_NAMES, isCahpEntity, type Property, type PropertyStatus, type CahpState, type Submittal, type SubmittalStatusValue, type SubmittalReview, type TaxMapID, type Contact, type Owner, type Ownership, type OutstandingItem } from '../lib/sharepoint';
 import { Icon } from '../components/ui/Icon';
+
+// A submittal stops needing weekly reviews once it reaches a closed state —
+// mirrors CLOSED_STATUSES in SubmittalReviewsSection.tsx / CLOSED_REVIEW in
+// PropertyDetail.tsx's SubmittalsTab.
+const CLOSED_REVIEW_STATUSES = new Set<SubmittalStatusValue>(['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn']);
 
 /** One entity in the nested Properties tree. Children sit below this entity in the
  *  corporate hierarchy; directProperties are properties whose primary direct owner
@@ -37,16 +42,24 @@ const FILING_STATUS_STYLES: Record<SubmittalStatusValue, string> = {
 
 export function Properties() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, refetch } = useSharePointList<Property>(LIST_NAMES.Properties, {
     top: 200,
   });
   const submittals = useSharePointList<Submittal>(LIST_NAMES.Submittals, { top: 500 });
+  const submittalReviews = useSharePointList<SubmittalReview>(LIST_NAMES.SubmittalReviews, { top: 2000 });
   const taxMapIDs = useSharePointList<TaxMapID>(LIST_NAMES.TaxMapIDs, { top: 1000 });
   const contacts = useSharePointList<Contact>(LIST_NAMES.Contacts, { top: 500 });
   const owners = useSharePointList<Owner>(LIST_NAMES.Owners, { top: 500 });
   const ownership = useSharePointList<Ownership>(LIST_NAMES.Ownership, { top: 1000 });
   const outstanding = useSharePointList<OutstandingItem>(LIST_NAMES.Outstanding, { top: 2000 });
   const [expandedOwnerIds, setExpandedOwnerIds] = useState<Set<string>>(new Set());
+
+  // Tags the property-detail navigation so its "Back to Properties" link can
+  // return here with the Pending Weekly Review view (and its sort) restored,
+  // instead of dropping back to the unfiltered default list.
+  const goToProperty = (propertyId: string) =>
+    navigate(pendingReviewOnly ? `/properties/${propertyId}?from=pending-review` : `/properties/${propertyId}`);
 
   const toggleExpand = (ownerId: string) =>
     setExpandedOwnerIds((prev) => {
@@ -258,6 +271,50 @@ export function Properties() {
     return result;
   }, [submittals.data]);
 
+  /**
+   * Most recent weekly-review timestamp per submittal (ms since epoch), from
+   * the Submittal Reviews list. Same "latest by createdDateTime" logic as
+   * SubmittalReviewsSection / PropertyDetail's SubmittalsTab.
+   */
+  const lastReviewBySubmittalId = useMemo(() => {
+    const map = new Map<string, number>();
+    (submittalReviews.data ?? []).forEach((r) => {
+      const sid = r.fields.ReviewSubmittalLookupId ? String(r.fields.ReviewSubmittalLookupId) : '';
+      if (!sid) return;
+      const t = new Date(r.createdDateTime).getTime();
+      if (Number.isNaN(t)) return;
+      const prev = map.get(sid);
+      if (prev === undefined || t > prev) map.set(sid, t);
+    });
+    return map;
+  }, [submittalReviews.data]);
+
+  /**
+   * Properties with at least one submittal that's still "in flight" — filed
+   * but not yet Draft (hasn't started) or closed out (Approved/Invoiced/
+   * Paid/Denied/Withdrawn). These are the ones weekly review actually needs
+   * to touch. oldestReviewTs is the earliest last-reviewed timestamp across
+   * that property's in-flight submittals (never-reviewed counts as -Infinity,
+   * i.e. most overdue) — used to sort the neediest properties first.
+   */
+  const pendingReviewByProperty = useMemo(() => {
+    const map = new Map<string, { count: number; oldestReviewTs: number }>();
+    (submittals.data ?? []).forEach((s) => {
+      const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
+      const status = s.fields.SubmittalStatus;
+      if (!pid || !status || status === 'Draft' || CLOSED_REVIEW_STATUSES.has(status)) return;
+      const lastReviewTs = lastReviewBySubmittalId.get(String(s.id)) ?? -Infinity;
+      const cur = map.get(pid);
+      if (!cur) {
+        map.set(pid, { count: 1, oldestReviewTs: lastReviewTs });
+      } else {
+        cur.count++;
+        cur.oldestReviewTs = Math.min(cur.oldestReviewTs, lastReviewTs);
+      }
+    });
+    return map;
+  }, [submittals.data, lastReviewBySubmittalId]);
+
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<CahpState | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | 'All'>('All');
@@ -266,7 +323,26 @@ export function Properties() {
   // Owner contact filter — value is the Contact's listItem ID (string) or 'All' / 'None'.
   const [contactFilter, setContactFilter] = useState<string>('All');
   const [sahaFilter, setSahaFilter] = useState<'All' | 'SAHA' | 'NonSAHA'>('All');
-  const [sortBy, setSortBy] = useState<'name' | 'filingStatus'>('name');
+  // Deep-linkable "Pending Weekly Review" view (?view=pending-review) — narrows
+  // to properties with an in-flight submittal and defaults the sort to oldest
+  // review first, so the queue always surfaces what needs attention next.
+  const [pendingReviewOnly, setPendingReviewOnly] = useState(() => searchParams.get('view') === 'pending-review');
+  const [sortBy, setSortBy] = useState<'name' | 'filingStatus' | 'reviewDate'>(
+    () => (searchParams.get('view') === 'pending-review' ? 'reviewDate' : 'name'),
+  );
+
+  const togglePendingReviewOnly = () => {
+    setPendingReviewOnly((prev) => {
+      const next = !prev;
+      if (next) {
+        setSortBy('reviewDate');
+        setSearchParams({ view: 'pending-review' }, { replace: true });
+      } else {
+        setSearchParams({}, { replace: true });
+      }
+      return next;
+    });
+  };
 
   /**
    * Build a map of propertyId → most recent submittal for the property.
@@ -328,9 +404,19 @@ export function Properties() {
           return false;
         }
       }
+      if (pendingReviewOnly && !pendingReviewByProperty.has(String(p.id))) return false;
       return true;
     });
     // Client-side sort — SharePoint won't sort server-side because Title isn't indexed
+    if (sortBy === 'reviewDate') {
+      // Oldest (or never) reviewed first — properties with nothing pending sort last.
+      return result.sort((a, b) => {
+        const aTs = pendingReviewByProperty.get(String(a.id))?.oldestReviewTs ?? Infinity;
+        const bTs = pendingReviewByProperty.get(String(b.id))?.oldestReviewTs ?? Infinity;
+        if (aTs !== bTs) return aTs - bTs;
+        return (a.fields.Title ?? '').localeCompare(b.fields.Title ?? '');
+      });
+    }
     if (sortBy === 'filingStatus') {
       // Status order per workflow: Draft → Filed → Letter Received → Responded → Denied → Approved → Withdrawn
       // Properties without any submittal go to the bottom.
@@ -359,7 +445,7 @@ export function Properties() {
       });
     }
     return result.sort((a, b) => (a.fields.Title ?? '').localeCompare(b.fields.Title ?? ''));
-  }, [data, search, stateFilter, statusFilter, filingFilter, contactFilter, sahaFilter, sortBy, latestSubmittalByProperty, parcelSearchByProperty, parcelStatsByProperty]);
+  }, [data, search, stateFilter, statusFilter, filingFilter, contactFilter, sahaFilter, pendingReviewOnly, sortBy, latestSubmittalByProperty, parcelSearchByProperty, parcelStatsByProperty, pendingReviewByProperty]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -496,7 +582,7 @@ export function Properties() {
   // matches aren't hidden inside a collapsed group (a parcel-address match often
   // lives under a multi-property entity that's collapsed by default).
   const anyFilterActive =
-    !!search.trim() || stateFilter !== 'All' || statusFilter !== 'All' || contactFilter !== 'All' || sahaFilter !== 'All';
+    !!search.trim() || stateFilter !== 'All' || statusFilter !== 'All' || contactFilter !== 'All' || sahaFilter !== 'All' || pendingReviewOnly;
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={refetch} />;
@@ -542,6 +628,21 @@ export function Properties() {
 
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4 flex flex-wrap gap-2 items-center shadow-card">
+        <button
+          onClick={togglePendingReviewOnly}
+          title="Show only properties with a submittal awaiting weekly review (not Draft, not Approved/Invoiced/Paid/Denied/Withdrawn), oldest review first"
+          className={`text-xs px-3 py-1.5 rounded-md font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+            pendingReviewOnly
+              ? 'bg-amber-600 border-amber-600 text-white'
+              : 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
+          }`}
+        >
+          <Icon name="history" size={14} />
+          Pending Weekly Review
+          <span className={`px-1.5 rounded-full text-[10px] font-mono-data ${pendingReviewOnly ? 'bg-white/20' : 'bg-amber-100 text-amber-800'}`}>
+            {pendingReviewByProperty.size}
+          </span>
+        </button>
         <div className="relative flex-1 min-w-[240px]">
           <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -605,11 +706,12 @@ export function Properties() {
           <span className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Sort:</span>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'name' | 'filingStatus')}
+            onChange={(e) => setSortBy(e.target.value as 'name' | 'filingStatus' | 'reviewDate')}
             className="text-xs px-2 py-1.5 border border-gray-200 rounded-md bg-white focus:outline-none focus:border-teal-500"
           >
             <option value="name">Property name</option>
             <option value="filingStatus">Filing status</option>
+            <option value="reviewDate">Oldest review</option>
           </select>
         </div>
         {filtered.length !== data.length && (
@@ -774,7 +876,7 @@ export function Properties() {
                   return (
                     <tr
                       key={`prop-${depth}-${p.id}`}
-                      onClick={() => navigate(`/properties/${p.id}`)}
+                      onClick={() => goToProperty(p.id)}
                       className="hover:bg-gray-50 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3"></td>
@@ -818,7 +920,7 @@ export function Properties() {
                     return [
                       <tr
                         key={`single-${ownerKey}-${p.id}`}
-                        onClick={() => navigate(`/properties/${p.id}`)}
+                        onClick={() => goToProperty(p.id)}
                         className="hover:bg-gray-50 transition-colors cursor-pointer"
                       >
                         <td className="px-4 py-3"></td>

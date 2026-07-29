@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, createContext, useContext } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useSharePointItem,
   useSharePointList,
@@ -112,6 +112,10 @@ const TABS: { id: TabId; label: string; shipped: boolean }[] = [
 export function PropertyDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Arrived from the Properties page's Pending Weekly Review view — send
+  // "Back to Properties" there instead of the plain unfiltered list.
+  const backToProperties = searchParams.get('from') === 'pending-review' ? '/properties?view=pending-review' : '/properties';
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   const [editing, setEditing] = useState(false);
@@ -204,7 +208,7 @@ export function PropertyDetail() {
   if (error || !property || !draft) {
     return (
       <div>
-        <BreadcrumbBar />
+        <BreadcrumbBar backTo={backToProperties} />
         <div className="bg-red-50 border border-red-200 rounded-lg p-6">
           <div className="font-semibold text-error mb-2 flex items-center gap-2">
             <Icon name="alert" size={18} />
@@ -214,7 +218,7 @@ export function PropertyDetail() {
             {error ? error.message : `No property with ID ${id} exists in Properties Registry.`}
           </p>
           <button
-            onClick={() => navigate('/properties')}
+            onClick={() => navigate(backToProperties)}
             className="text-sm text-teal-700 hover:text-teal-900 font-medium underline"
           >
             ← Back to Properties
@@ -228,7 +232,7 @@ export function PropertyDetail() {
 
   return (
     <div>
-      <BreadcrumbBar propertyName={property.fields.Title} />
+      <BreadcrumbBar propertyName={property.fields.Title} backTo={backToProperties} />
 
       <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
         <div className="flex-1 min-w-0">
@@ -3322,10 +3326,10 @@ function TabError({ error }: { error: Error }) {
   );
 }
 
-function BreadcrumbBar({ propertyName }: { propertyName?: string }) {
+function BreadcrumbBar({ propertyName, backTo = '/properties' }: { propertyName?: string; backTo?: string }) {
   return (
     <nav className="mb-4 text-sm">
-      <Link to="/properties" className="text-teal-700 hover:text-teal-900 font-medium">
+      <Link to={backTo} className="text-teal-700 hover:text-teal-900 font-medium">
         ← Properties
       </Link>
       {propertyName && (
