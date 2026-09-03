@@ -37,7 +37,7 @@ interface Props {
 export function SubmittalReviewsSection({ submittalId, currentStatus }: Props) {
   const { data, loading, error, refetch } = useSharePointList<SubmittalReview>(
     LIST_NAMES.SubmittalReviews,
-    { top: 500 },
+    { top: 2000 },
   );
 
   const [status, setStatus] = useState<string>('');

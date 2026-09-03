@@ -105,8 +105,13 @@ export interface ListQueryOptions {
 
 /**
  * Get all items from a SharePoint list, with `fields` expanded by default.
- * For large lists, pass `top` to limit results — the app should paginate elsewhere
- * for lists that grow past a few hundred items.
+ *
+ * `top` is a cap on the total items returned, NOT a page size — Graph's list-items
+ * endpoint pages server-side at well under 500 regardless of `top`, so this follows
+ * `@odata.nextLink` until either the server stops paginating or `top` is reached.
+ * Without that, a large `top` silently returned only the first page (newest items
+ * dropped off the end for unordered queries), which is why "top: 500" could still
+ * miss recently-created rows once a list grew past ~200 items.
  */
 export async function getListItems<TItem>(
   listName: string,
@@ -121,8 +126,15 @@ export async function getListItems<TItem>(
   if (options.orderBy) request = request.orderby(options.orderBy);
   if (options.top) request = request.top(options.top);
 
-  const response: { value: TItem[] } = await request.get();
-  return response.value;
+  let response: { value: TItem[]; '@odata.nextLink'?: string } = await request.get();
+  let items = response.value;
+
+  while (response['@odata.nextLink'] && (!options.top || items.length < options.top)) {
+    response = await graphClient.api(response['@odata.nextLink']).get();
+    items = items.concat(response.value);
+  }
+
+  return options.top ? items.slice(0, options.top) : items;
 }
 
 /** Get a single list item by its SharePoint integer ID (passed as a string). */
