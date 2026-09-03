@@ -10,6 +10,10 @@ import { REVIEW_INTERVAL_DAYS } from '../components/SubmittalReviewsSection';
 // PropertyDetail.tsx's SubmittalsTab.
 const CLOSED_REVIEW_STATUSES = new Set<SubmittalStatusValue>(['Approved', 'Invoiced', 'Paid', 'Denied', 'Withdrawn']);
 
+// A submittal isn't due for another weekly review until 6 days have passed
+// since it was last reviewed (never-reviewed is always due).
+const REVIEW_DUE_MS = 6 * 24 * 60 * 60 * 1000;
+
 /** One entity in the nested Properties tree. Children sit below this entity in the
  *  corporate hierarchy; directProperties are properties whose primary direct owner
  *  IS this entity. Both can be empty (an entity might exist only as a passthrough
@@ -294,18 +298,21 @@ export function Properties() {
   /**
    * Properties with at least one submittal that's still "in flight" — filed
    * but not yet Draft (hasn't started) or closed out (Approved/Invoiced/
-   * Paid/Denied/Withdrawn). These are the ones weekly review actually needs
-   * to touch. oldestReviewTs is the earliest last-reviewed timestamp across
-   * that property's in-flight submittals (never-reviewed counts as -Infinity,
-   * i.e. most overdue) — used to sort the neediest properties first.
+   * Paid/Denied/Withdrawn) — AND not reviewed within the last 6 days (or
+   * never reviewed). These are the ones weekly review actually needs to
+   * touch right now. oldestReviewTs is the earliest last-reviewed timestamp
+   * across that property's due submittals (never-reviewed counts as
+   * -Infinity, i.e. most overdue) — used to sort the neediest properties first.
    */
   const pendingReviewByProperty = useMemo(() => {
     const map = new Map<string, { count: number; oldestReviewTs: number }>();
+    const now = Date.now();
     (submittals.data ?? []).forEach((s) => {
       const pid = s.fields.PropertyLookupId ? String(s.fields.PropertyLookupId) : '';
       const status = s.fields.SubmittalStatus;
       if (!pid || !status || status === 'Draft' || CLOSED_REVIEW_STATUSES.has(status)) return;
       const lastReviewTs = lastReviewBySubmittalId.get(String(s.id)) ?? -Infinity;
+      if (now - lastReviewTs < REVIEW_DUE_MS) return;
       const cur = map.get(pid);
       if (!cur) {
         map.set(pid, { count: 1, oldestReviewTs: lastReviewTs });
@@ -632,7 +639,7 @@ export function Properties() {
       <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4 flex flex-wrap gap-2 items-center shadow-card">
         <button
           onClick={togglePendingReviewOnly}
-          title="Show only properties with a submittal awaiting weekly review (not Draft, not Approved/Invoiced/Paid/Denied/Withdrawn), oldest review first"
+          title="Show only properties with a submittal due for weekly review (in flight, and not reviewed in the last 6 days), oldest review first"
           className={`text-xs px-3 py-1.5 rounded-md font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             pendingReviewOnly
               ? 'bg-amber-600 border-amber-600 text-white'
